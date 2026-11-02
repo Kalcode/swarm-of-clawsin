@@ -40,12 +40,13 @@
   const sliderGain = (v) => { const x = Math.min(100, Math.max(0, +v || 0)) / 100; return x * x * 1.78; };  // 75 -> ~1.0
   const buses = {};
 
-  let state = { on: false, vol: 0.6, music: true, mix: {} };
+  const DEFAULT_VOL = 0.6;
+  let state = { on: false, vol: DEFAULT_VOL, music: true, mix: {} };
   try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* private mode */ }
   state.on = !!state.on;
   state.vol = Math.min(1, Math.max(0, +state.vol || 0));
   if (!state.mix || typeof state.mix !== 'object') state.mix = {};
-  const mixOf = (id) => { const c = CATEGORIES.find((k) => k.id === id); return isFinite(state.mix[id]) ? +state.mix[id] : (c ? c.def : 75); };
+  const mixOf = (id) => { const c = CATEGORIES.find((k) => k.id === id); return typeof state.mix[id] === 'number' && isFinite(state.mix[id]) ? state.mix[id] : (c ? c.def : 75); };
   let voices = 0;
   const lastAt = {};
   let phase = 'day';
@@ -67,7 +68,6 @@
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     applyVolume();
-    preloadSamples();
     return true;
   }
 
@@ -199,10 +199,13 @@
   const KEY_GAP_MS = { discover: 6000, invent: 6000, chronicle: 8000, wish: 2500, grant: 2500, voice: 1500, craft: 1200, cook: 2500,
     ui_tab: 60, ui_open: 120, ui_ok: 250, ui_warn: 250, ui_send: 200 };
   let manifest = null;            // key -> [files]
-  const buffers = new Map();      // file -> AudioBuffer
-  const loading = new Set();
+  // Decoded audio is big, so it is lazy: a key's pool (a random handful of its files) is fetched and decoded on first
+  // use, and dropped again when the key has not been used for a while (the next use picks a fresh handful).
+  const POOL_SIZE = 8;            // decoded variants kept per key
+  const IDLE_DROP_MS = 4 * 60 * 1000;
+  const pools = new Map();        // key -> { files: [chosen], bufs: Map(file -> AudioBuffer), used: ms }
   const recent = {};              // key -> the last two files played (never repeated back to back)
-  let preloadStarted = false;
+  let decodedBytes = 0;
 
   function loadManifest() {
     try {
@@ -210,36 +213,51 @@
         if (m && m.sounds && typeof m.sounds === 'object') {
           manifest = m.sounds;
           document.dispatchEvent(new CustomEvent('swarmsound-samples', { detail: { credit: m.credit || '' } }));
-          if (ctx) preloadSamples();
         }
       }).catch(() => {});
     } catch (e) { /* no fetch */ }
   }
-  async function loadFile(f) {
-    if (buffers.has(f) || loading.has(f) || !ctx) return;
-    loading.add(f);
-    try {
-      const r = await fetch(SFX_DIR + f);
-      if (!r.ok) return;
-      buffers.set(f, await ctx.decodeAudioData(await r.arrayBuffer()));
-    } catch (e) { /* unreadable sample: that key falls back to synth */ } finally { loading.delete(f); }
+  function poolFor(key) {
+    let p = pools.get(key);
+    if (p) { p.used = performance.now(); return p; }
+    const all = (manifest && manifest[key]) || [];
+    if (!all.length || !ctx) return null;
+    const files = all.slice();
+    for (let i = files.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [files[i], files[j]] = [files[j], files[i]]; }
+    p = { files: files.slice(0, POOL_SIZE), bufs: new Map(), used: performance.now() };
+    pools.set(key, p);
+    p.files.forEach(async (f) => {   // all of the pool at once: a handful of small files
+      try {
+        const r = await fetch(SFX_DIR + f);
+        if (!r.ok) return;
+        const buf = await ctx.decodeAudioData(await r.arrayBuffer());
+        if (pools.get(key) === p) { p.bufs.set(f, buf); decodedBytes += buf.length * buf.numberOfChannels * 4; }
+      } catch (e) { /* unreadable sample: the key plays what did load, else synth */ }
+    });
+    return p;
   }
-  async function preloadSamples() {  // one file at a time, footsteps last, so startup stays light
-    if (preloadStarted || !manifest || !ctx) return;
-    preloadStarted = true;
-    const keys = Object.keys(manifest).sort((a, b) => (a.startsWith('fs_') - b.startsWith('fs_')));
-    for (const k of keys) for (const f of manifest[k]) await loadFile(f);
+  function dropIdle() {
+    const now = performance.now();
+    for (const [key, p] of pools) {
+      if (now - p.used < IDLE_DROP_MS) continue;
+      for (const b of p.bufs.values()) decodedBytes -= b.length * b.numberOfChannels * 4;
+      pools.delete(key); delete recent[key];
+    }
   }
+  setInterval(dropIdle, 60 * 1000);
   function pick(key) {
-    const files = ((manifest && manifest[key]) || []).filter((f) => buffers.has(f));
+    const p = poolFor(key);
+    if (!p) return null;
+    const files = p.files.filter((f) => p.bufs.has(f));
     if (!files.length) return null;
     const r = recent[key] || (recent[key] = []);
-    const fresh = files.filter((f) => !r.includes(f));
-    const pool = fresh.length ? fresh : files.filter((f) => f !== r[r.length - 1]);
-    const f = (pool.length ? pool : files)[(Math.random() * (pool.length ? pool.length : files.length)) | 0];
+    let pool = files.filter((f) => !r.includes(f));
+    if (!pool.length) pool = files.filter((f) => f !== r[r.length - 1]);
+    if (!pool.length) pool = files;
+    const f = pool[(Math.random() * pool.length) | 0];
     r.push(f);
     if (r.length > 2) r.shift();
-    return buffers.get(f);
+    return p.bufs.get(f);
   }
   const jit = (amt) => 1 + (Math.random() * 2 - 1) * amt;
   /** Play a varied sample for key into its category bus; false when there is none loaded. */
@@ -264,6 +282,7 @@
 
   /** World sound kinds that have a sampled voice. */
   const SAMPLED = { chop: 'chop', knock: 'knock', build: 'build', splash: 'splash' };
+  let clientSteps = 0;   // ms of the last client-generated step: while steps are generated here the world's own "footsteps" sound is skipped
 
   function play(kind, gain) {
     if (!live()) return;
@@ -272,6 +291,11 @@
     const now = performance.now();
     if (now - (lastAt[kind] || 0) < MIN_GAP_MS || voices >= MAX_VOICES) return;
     lastAt[kind] = now;
+    if (kind === 'footsteps') {  // never doubles the viewer's own steps: skipped while those are active, else a quiet distant step
+      if (now - clientSteps < 4000) return;
+      playSample('fs_dirt', gain * FS_BASE * 0.8, { rateJit: 0.1, gainJit: 0.3, lowpass: 4200 });
+      return;
+    }
     if (SAMPLED[kind] && playSample(SAMPLED[kind], gain)) return;
     const g = ctx.createGain();
     g.gain.value = gain * 0.9;
@@ -338,10 +362,15 @@
     if (stepTimes.length >= FS_MAX_PER_SEC) return;
     const crowd = 1 / (1 + 0.25 * stepTimes.length);   // many steppers blur into a softer murmur
     stepTimes.push(now);
+    clientSteps = now;
     w.side ^= 1;
     const key = 'fs_' + (surface || 'grass');
     const gain = FS_BASE * crowd * (w.side ? 1 : 0.85) / (1 + d / 5) * Math.min(1, zoom / 3 + 0.4);
     playSample(key, gain, { rate: w.rate, rateJit: 0.08, gainJit: 0.3, lowpass: 5200 });
+  }
+  /** Cheap gate for viewer.js: false when footsteps would be inaudible or silenced, so it can skip the work. */
+  function wantsSteps(zoom) {
+    return !!manifest && live() && !pendingStart && !document.hidden && zoom >= FS_MIN_ZOOM && state.vol > 0 && mixOf('footsteps') > 0;
   }
   function forgetWalkers(alive) { if (walkers.size > 200) for (const id of walkers.keys()) if (!alive.has(id)) walkers.delete(id); }
 
@@ -464,7 +493,7 @@
       const el = document.getElementById('mix-' + r.id);
       el.addEventListener('input', () => set(r.id, +el.value));
     }
-    document.getElementById('mix-reset').addEventListener('click', () => { state.vol = 0.6; state.mix = {}; save(); applyVolume(); renderUI(); });
+    document.getElementById('mix-reset').addEventListener('click', () => { state.vol = DEFAULT_VOL; state.mix = {}; save(); applyVolume(); renderUI(); });
     const open = (on) => { pop.hidden = !on; btn.setAttribute('aria-expanded', String(on)); if (on) document.getElementById('mix-master').focus(); };
     btn.addEventListener('click', (e) => { e.stopPropagation(); open(pop.hidden); });
     pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); open(false); btn.focus(); } });
@@ -532,7 +561,8 @@
   }
 
   window.SwarmSound = {
-    tick, setOn, get on() { return state.on; }, kinds: Object.keys(SYNTH), play, cue, step, forgetWalkers,
+    tick, setOn, get on() { return state.on; }, kinds: Object.keys(SYNTH), play, cue, step, wantsSteps, forgetWalkers,
+    get decodedBytes() { return decodedBytes; },
     get samples() { return !!manifest; }, categories: CATEGORIES.map((c) => c.id),
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

@@ -1838,7 +1838,6 @@
       if (e.target.dataset.key) wish.drafts.set(e.target.dataset.key, e.target.value);
     });
     box.addEventListener('submit', (e) => {
-      if (window.SwarmSound) SwarmSound.cue('ui_send', 0.6);
       e.preventDefault();
       const form = e.target.closest('form');
       const li = form && form.closest('.wish');
@@ -1848,6 +1847,7 @@
       const draft = input.dataset.key;
       const value = input.value.trim();
       if (!value) { input.focus(); return; }
+      sendCue();
       const clear = () => { if ((wish.drafts.get(draft) || '').trim() === value) wish.drafts.delete(draft); };
       if (form.dataset.act === 'reply') {
         answerWish(id, { reply: value }, (res) => {
@@ -2004,11 +2004,12 @@
 
     // creature positions for this frame
     const list = [];
+    const steps = !!window.SwarmSound && SwarmSound.wantsSteps(Z.view);
     for (const e of S.cres.values()) {
       const p = lerpPos(e, now);
       e.rx = p.x; e.ry = p.y;
       e.moving = p.t < 1 && (e.fx !== e.tx || e.fy !== e.ty);
-      if (e.moving && window.SwarmSound) SwarmSound.step(e.d.id, p.x, p.y, surfaceAt(Math.round(p.x), Math.round(p.y)), S.cam, Z.view);
+      if (e.moving && steps) SwarmSound.step(e.d.id, p.x, p.y, surfaceAt(Math.round(p.x), Math.round(p.y)), S.cam, Z.view);
       list.push(e);
     }
     if (window.SwarmSound && S.tick % 100 === 0) SwarmSound.forgetWalkers(S.cres);
@@ -2703,8 +2704,8 @@
     });
 
     $('panel-toggle').addEventListener('click', () => setPanel(document.body.classList.contains('panel-collapsed')));
-    $('voice-btn').addEventListener('click', () => { if (window.SwarmSound) SwarmSound.cue('ui_send', 0.5); openVoice(!S.voice.open); });
-    $('voice-form').addEventListener('submit', (e) => { e.preventDefault(); if (window.SwarmSound) SwarmSound.cue('ui_send', 0.6); sendVoice(); });
+    $('voice-btn').addEventListener('click', () => { if (!S.voice.open && window.SwarmSound) SwarmSound.cue('ui_send', 0.5); openVoice(!S.voice.open); });
+    $('voice-form').addEventListener('submit', (e) => { e.preventDefault(); if ($('voice-input').value.trim()) sendCue(); sendVoice(); });
     $('voice-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); openVoice(false); } });
     $('voice-scope').addEventListener('click', (e) => {
       if (e.target.closest('[data-everyone]')) { S.voice.target = null; renderVoiceScope(); $('voice-input').focus(); }
@@ -2813,11 +2814,15 @@
   }
 
   let toastTimer = null;
+  let lastSendCue = -1e9;
+  function sendCue() { lastSendCue = performance.now(); if (window.SwarmSound) SwarmSound.cue('ui_send', 0.6); }
+
   function toast(msg, kind) {
     const t = $('toast');
     t.textContent = msg;
     t.dataset.kind = kind || '';
-    if (window.SwarmSound && (kind === 'ok' || kind === 'warn')) SwarmSound.cue(kind === 'ok' ? 'ui_ok' : 'ui_warn', 0.5);
+    // the send cue already answered this action: the success toast stays quiet, a failure still gets its cue
+    if (window.SwarmSound && (kind === 'warn' || (kind === 'ok' && performance.now() - lastSendCue > 6000))) SwarmSound.cue(kind === 'ok' ? 'ui_ok' : 'ui_warn', 0.5);
     t.hidden = false;
     t.classList.remove('is-out');
     clearTimeout(toastTimer);

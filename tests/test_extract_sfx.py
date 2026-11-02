@@ -38,3 +38,18 @@ def test_missing_inbox_is_clean(tmp_path, capsys):
     assert extract_sfx.main(["x", str(tmp_path / "nope"), str(out)]) == 0
     assert not out.exists()
     assert "synthesized" in capsys.readouterr().out
+
+
+def test_shared_file_stored_once_and_stale_pruned(tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    base = "Crafting and Tinkering - Universal Sound Effects"
+    with zipfile.ZipFile(inbox / f"{base}.zip", "w") as z:
+        z.writestr(f"{base}/Cutting & Shaping/Cutting Stone - 1 (Single 1).ogg", b"stone")  # mapped to chop and knock
+    out = tmp_path / "out"
+    (out / "old").mkdir(parents=True)
+    (out / "old" / "stale.ogg").write_bytes(b"x")
+    sounds = extract_sfx.extract(inbox, out)
+    assert sounds["chop"] == sounds["knock"] and len(sounds["chop"]) == 1
+    assert sorted(p.name for p in out.rglob("*.ogg")) == [Path(sounds["chop"][0]).name]
+    assert not (out / "old").exists()

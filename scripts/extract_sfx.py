@@ -53,6 +53,7 @@ def extract(inbox: Path, out: Path) -> dict:
     zips = sorted(inbox.glob("*.zip")) if inbox.is_dir() else []
     sounds: dict[str, list[str]] = {}
     opened: dict[Path, zipfile.ZipFile] = {}
+    placed: dict[tuple[str, str], str] = {}  # (zip, member) -> file already written: shared between keys, stored once
     try:
         for key, rules in SOURCES.items():
             for token, folder, pattern in rules:
@@ -69,19 +70,28 @@ def extract(inbox: Path, out: Path) -> dict:
                         p = Path(name)
                         if p.suffix.lower() != ".ogg" or p.parent.name != folder or not re.search(pattern, p.stem):
                             continue
-                        rel = f"{key}/{slug(zp.name.split(' - ')[0])}-{slug(p.stem)}.ogg"
+                        rel = placed.get((zp.name, name)) or f"{key}/{slug(zp.name.split(' - ')[0])}-{slug(p.stem)}.ogg"
                         if rel in sounds.setdefault(key, []):
                             continue
-                        dest = out / rel
-                        data = zf.read(name)
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        if not dest.exists() or dest.stat().st_size != len(data):
-                            dest.write_bytes(data)
+                        if (zp.name, name) not in placed:
+                            placed[(zp.name, name)] = rel
+                            dest = out / rel
+                            data = zf.read(name)
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            if not dest.exists() or dest.stat().st_size != len(data):
+                                dest.write_bytes(data)
                         sounds[key].append(rel)
     finally:
         for zf in opened.values():
             zf.close()
     if sounds:
+        keep = {rel for files in sounds.values() for rel in files}
+        for f in out.rglob("*.ogg"):  # prune what the mapping no longer uses
+            if f.relative_to(out).as_posix() not in keep:
+                f.unlink()
+        for d in sorted((d for d in out.rglob("*") if d.is_dir()), reverse=True):
+            if not any(d.iterdir()):
+                d.rmdir()
         (out / "manifest.json").write_text(json.dumps({"credit": CREDIT, "sounds": sounds}, indent=1) + "\n")
     return sounds
 
