@@ -143,6 +143,10 @@ async def api_society(request: web.Request) -> web.Response:
     return web.json_response(request.app[STATE].society())
 
 
+async def api_history(request: web.Request) -> web.Response:
+    return web.json_response(request.app[STATE].history)
+
+
 async def api_nodes(request: web.Request) -> web.Response:
     st = request.app[STATE]
     return web.json_response([
@@ -179,6 +183,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_get("/api/inventions", api_inventions)
     app.router.add_post("/api/voice", api_voice)
     app.router.add_get("/api/society", api_society)
+    app.router.add_get("/api/history", api_history)
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)
 

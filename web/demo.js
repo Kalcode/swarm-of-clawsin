@@ -333,6 +333,7 @@
 
   /* ----------------------------------------------------------------- clock */
   let tick = START_TICK;
+  let weather = params.get('weather') === 'rain' ? 'rain' : 'clear';
   function clock() {
     const f = (tick % DAY) / DAY;
     let phase, light;
@@ -340,7 +341,7 @@
     else if (f < 0.55) { phase = 'day'; light = 1; }
     else if (f < 0.65) { phase = 'dusk'; light = 1 - 0.8 * ((f - 0.55) / 0.1); }
     else { phase = 'night'; light = 0.2; }
-    return { day: Math.floor(tick / DAY) + 1, phase, light: Math.round(light * 1000) / 1000 };
+    return { day: Math.floor(tick / DAY) + 1, phase, light: Math.round(light * 1000) / 1000, weather };
   }
 
   /* --------------------------------------------------------------- metrics */
@@ -813,6 +814,11 @@
       }
     }
     if (tick === START_TICK + 12) carvedEvent();
+    if ((tick - START_TICK) % 130 === 0) {
+      weather = weather === 'rain' ? 'clear' : 'rain';
+      pendingEvents.push({ tick, kind: 'weather', actor: null, x: CX, y: CY,
+        text: weather === 'rain' ? 'Clouds gather, and rain begins to fall.' : 'The rain stops and the clouds drift apart.' });
+    }
     if (tick === START_TICK + 18) {
       const [teacher, pupil] = [cres[2], cres[1]];
       tie(teacher, pupil).teach++;

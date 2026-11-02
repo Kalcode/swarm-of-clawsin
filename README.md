@@ -163,6 +163,14 @@ Agent code runs only inside a locked-down Lua sandbox in the world server, with 
 
 Every creature is pinned to one model for life. The Swarm tab compares models on the same metrics: thinks, latency, how often their intentions succeed, unparseable replies, repeated-failure loops, unique items made, discoveries, speech, building, and collapses from hunger. Every model receives exactly the same kind of first-person text, so differences come from the minds, not the interface. `uv run python scripts/analyze_run.py` summarizes any run per model, including how each model spends its thoughts.
 
+### A fair, turn-based benchmark
+
+The live world rewards fast hardware: a quicker model thinks more often. For clean comparisons, `bench/world_bench.py` runs the same small scenario for each model: a fresh world with a fixed seed and N creatures of one model. It runs turn by turn, so the clock only moves when every creature has answered. It reuses the live server's code, and reports when each model's creatures first reach milestones (rope, stone knife, stone axe, a placed campfire, an invention, a hoe, a fishing rod, planks), along with success rate, parse failures, recipes passed on, and talk.
+
+```bash
+uv run python bench/world_bench.py --model gemma-4-e4b-it-4bit --model Qwen3.5-4B-MLX-4bit --episodes 3
+```
+
 ## Project layout
 
 ```

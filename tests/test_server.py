@@ -166,3 +166,13 @@ async def test_society_graph(client):
     e = soc["edges"][0]
     assert {e["a"], e["b"]} == {a, b} and e["talk"] == 1 and e["gift"] == 1 and e["teach"] == 1
     await ws.close()
+
+
+async def test_history_snapshots(client):
+    ws, welcome = await _join(client, n=2)
+    st = client.app[STATE]
+    st.record_history()
+    resp = await client.get("/api/history")
+    hist = await resp.json()
+    assert hist and "mock" in hist[-1]["models"] and "recipes_known" in hist[-1]["world"]
+    await ws.close()

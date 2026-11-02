@@ -73,7 +73,7 @@
     sleep: [47, 19], eat: [33, 18], people: [44, 16], person: [43, 16], sun: [27, 11],
     night: [29, 12], plus: [36, 20], minus: [37, 20], right: [24, 20], left: [26, 20],
     book: [45, 5], bag: [46, 4], trophy: [40, 16], gear: [45, 16], heart: [39, 10],
-    target: [22, 14], dot: [21, 14], plant: [16, 6], chronicle: [45, 5], tame: [39, 10], invent: [29, 12], voice: [21, 6],
+    target: [22, 14], dot: [21, 14], plant: [16, 6], chronicle: [45, 5], tame: [39, 10], invent: [29, 12], voice: [21, 6], rain: [22, 6],
   };
 
   // Pixel font glyphs from the sheet (title text).

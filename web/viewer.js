@@ -13,16 +13,16 @@
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
-  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
+  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'weather', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
     say: 'Speech', craft: 'Craft', discover: 'Discovery', gather: 'Gather', fail: 'Fail', place: 'Place',
     write: 'Write', program: 'Program', collapse: 'Collapse', join: 'Join', sleep: 'Sleep', eat: 'Eat',
-    plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn',
+    plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn', weather: 'Weather',
   };
   const KIND_ICON = {
     say: 'say', craft: 'craft', discover: 'discover', gather: 'gather', fail: 'fail', place: 'place',
     write: 'write', program: 'program', collapse: 'collapse', join: 'join', sleep: 'sleep', eat: 'eat',
-    plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people',
+    plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people', weather: 'rain',
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
@@ -395,6 +395,7 @@
     const PHASE_LABEL = { dawn: 'dawn', day: 'daylight', dusk: 'dusk', night: 'night' };
     const ph = $('h-phase');
     setText(ph, c.phase ? '· ' + (PHASE_LABEL[phase] || phase) : '');
+    $('h-weather').hidden = c.weather !== 'rain';
     ph.dataset.phase = phase;
     const pi = $('h-phase-ico');
     pi.dataset.phase = phase;
@@ -1481,6 +1482,7 @@
     }
 
     drawNight(list, ox, oy, ts, now);
+    drawRain(ox, oy, ts, x0, y0, x1, y1, now, dt);
     for (const [hx, hy, o] of tamed) drawHeart(hx + ts / 2, hy + ts - (ANIMAL_TOP[o.kind] || 1) * ts - 2, ts);
     drawVoice(ox, oy, ts, now);
     drawLandmarks(ox, oy, ts);
@@ -1521,6 +1523,55 @@
       ctx.fillRect(0, 0, vw, vh);
       ctx.restore();
     }
+  }
+
+  /** Rain: a cool tint, a few hundred reused streaks and ripples on the water. Fades in and out. */
+  const rain = { level: 0, drops: [] };
+  for (let i = 0; i < 320; i++) rain.drops.push({ x: Math.random(), y: Math.random(), v: 0.55 + Math.random() * 0.45, l: 0.6 + Math.random() * 0.6 });
+  function drawRain(ox, oy, ts, x0, y0, x1, y1, now, dt) {
+    const want = S.clock && S.clock.weather === 'rain' ? 1 : 0;
+    rain.level += (want - rain.level) * (1 - Math.exp(-dt * 0.8));
+    if (rain.level < 0.01) return;
+    const L = rain.level;
+    ctx.save();
+    ctx.fillStyle = `rgba(28,44,72,${(0.2 * L).toFixed(3)})`;
+    ctx.fillRect(0, 0, vw, vh);
+    // ripples: a few tiles of water flicker with an expanding ring each moment
+    ctx.strokeStyle = `rgba(200,225,255,${(0.5 * L).toFixed(3)})`;
+    ctx.lineWidth = 1;
+    const beat = Math.floor(now / 350);
+    for (let y = y0; y <= y1; y++) {
+      const row = S.tiles[y];
+      if (!row) continue;
+      for (let x = x0; x <= x1; x++) {
+        if (row[x] !== 'w' && row[x] !== 'W') continue;
+        const hsh = T.hash2(x, y, beat);
+        if (hsh > 0.07 * L) continue;
+        const k = (now % 350) / 350;
+        const rx = ox + (x + 0.2 + T.hash2(x, y, beat + 1) * 0.6) * ts, ry = oy + (y + 0.2 + T.hash2(x, y, beat + 2) * 0.6) * ts;
+        ctx.globalAlpha = 1 - k;
+        ctx.beginPath(); ctx.ellipse(rx, ry, 1 + k * ts * 0.22, 0.5 + k * ts * 0.1, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    // streaks, falling slightly to the left
+    const n = Math.round(rain.drops.length * L);
+    const len = 9;
+    ctx.strokeStyle = `rgba(196,218,255,${(0.42 * L).toFixed(3)})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const d = rain.drops[i];
+      d.y += d.v * dt * 1.1;
+      d.x -= d.v * dt * 0.18;
+      if (d.y > 1) { d.y -= 1; d.x = Math.random(); }
+      if (d.x < 0) d.x += 1;
+      const px = Math.round(d.x * vw), py = Math.round(d.y * vh);
+      ctx.moveTo(px, py);
+      ctx.lineTo(px - 2 * d.l, py + len * d.l);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Named places as storybook labels: small caps with a faint ring, fading when zoomed in close. */

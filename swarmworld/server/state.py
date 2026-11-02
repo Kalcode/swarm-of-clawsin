@@ -22,7 +22,9 @@ from ..world.terrain import generate_world
 from .metrics import Metrics
 
 MIN_GAP_TICKS = 4
-CHRONICLE_EVERY = 600  # ticks (5 minutes of world time)
+CHRONICLE_EVERY = 600
+HISTORY_EVERY = 60
+HISTORY_MAX = 3000  # ticks (5 minutes of world time)
 JOB_TIMEOUT_S = 90
 MAX_PER_NODE = 60
 MAX_CREATURES = 200
@@ -80,7 +82,8 @@ class ServerState:
         self._job_seq = 0
         self.run_dir = run_dir
         self.world_path: Path | None = None
-        self.relations: dict[str, Counter] = {}  # "a|b" (sorted ids) -> counts of talk, gift, teach
+        self.relations: dict[str, Counter] = {}
+        self.history: list[dict] = []  # a snapshot every HISTORY_EVERY ticks, for charts  # "a|b" (sorted ids) -> counts of talk, gift, teach
         self.chronicle: list[dict] = []
         self.chronicle_due = self.world.tick + CHRONICLE_EVERY
         self.chronicle_from = self.world.tick
@@ -370,6 +373,33 @@ class ServerState:
             self._remember(c, "You notice you keep trying the same thing and failing. Try something different.", 3)
             dq.clear()
 
+    # ------------------------------------------------------------ history
+    def record_history(self) -> None:
+        w = self.world
+        models: dict[str, Counter] = {}
+        known_total = 0
+        for c in w.creatures.values():
+            m = models.setdefault(c.model, Counter())
+            m["creatures"] += 1
+            for k in ("crafted", "discoveries", "inventions", "speech", "built", "gathered", "writing", "collapses"):
+                m[k] += c.stats.get(k, 0)
+            m["learned"] += sum(c.stats.get(k, 0) for k in ("learned_by_watching", "learned_by_listening", "learned_by_reading"))
+            m["recipes_known"] += len(c.known_recipes)
+            known_total += len(c.known_recipes)
+        for tag, m in models.items():
+            m["thinks"] = self.metrics.models[tag]["thinks"]
+        structures = sum(1 for o in w.objects.values()
+                         if o.kind in ("campfire", "workbench", "furnace", "bed", "creation", "chest", "millstone", "sign", "wall", "door"))
+        self.history.append({
+            "tick": w.tick, "day": w.clock()["day"],
+            "models": {k: dict(v) for k, v in models.items()},
+            "world": {"recipes_known": known_total, "firsts": len(w.discoveries), "structures": structures,
+                      "camps": sum(1 for lm in getattr(w, "landmarks", []) if lm["kind"] == "camp"),
+                      "inventions": len(getattr(w.catalog, "inventions", [])), "ties": len(self.relations)},
+        })
+        if len(self.history) > HISTORY_MAX:
+            del self.history[: len(self.history) - HISTORY_MAX]
+
     # ------------------------------------------------------------ society
     def _note_relation(self, ev) -> None:
         kind = {"say": "talk", "give": "gift", "learn": "teach"}.get(ev.kind)
@@ -448,6 +478,8 @@ class ServerState:
 
     def tick_message(self, new_events: list) -> str:
         w = self.world
+        if w.tick % HISTORY_EVERY == 0:
+            self.record_history()
         upsert, removed = w.take_object_changes()
         for ev in new_events:
             if ev.kind in ("craft", "discover") and ev.actor in w.creatures:

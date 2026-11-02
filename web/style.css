@@ -40,6 +40,7 @@
   --k-invent: #ffd75e;
   --k-voice: #a9dcff;
   --k-learn: #5fd6c4;
+  --k-weather: #9fb3cc;
 
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Book Antiqua", serif;
 
@@ -155,6 +156,8 @@ html:not(.sprites-ok) .brand-fallback { display: inline; }
 .hstat-main b { font-weight: 650; }
 .hstat-sub { font-size: 11.5px; line-height: 15px; color: var(--text-3); }
 .phase { text-transform: capitalize; color: var(--text-2); }
+.weather { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: #a9c4e6; font-size: 12px; }
+.weather .ico { color: #a9c4e6; transform: scale(0.85); }
 .phase[data-phase="dawn"] { color: #f2a873; }
 .phase[data-phase="day"] { color: #f2d27a; }
 .phase[data-phase="dusk"] { color: #e6876a; }
@@ -736,6 +739,7 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 [data-kind="invent"] { --k: var(--k-invent); }
 [data-kind="voice"] { --k: var(--k-voice); }
 [data-kind="learn"] { --k: var(--k-learn); }
+[data-kind="weather"] { --k: var(--k-weather); }
 
 /* filters hide rows by kind (class on the feed) */
 .feed.hide-say .ev[data-kind="say"], .feed.hide-craft .ev[data-kind="craft"],
@@ -746,7 +750,10 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 .feed.hide-sleep .ev[data-kind="sleep"], .feed.hide-eat .ev[data-kind="eat"],
 .feed.hide-plant .ev[data-kind="plant"], .feed.hide-chronicle .ev[data-kind="chronicle"],
 .feed.hide-tame .ev[data-kind="tame"], .feed.hide-invent .ev[data-kind="invent"],
-.feed.hide-voice .ev[data-kind="voice"], .feed.hide-learn .ev[data-kind="learn"] { display: none; }
+.feed.hide-voice .ev[data-kind="voice"], .feed.hide-learn .ev[data-kind="learn"],
+.feed.hide-weather .ev[data-kind="weather"] { display: none; }
+.ev[data-kind="weather"] { color: #b9c7d8; font-style: italic; background: rgba(120, 150, 190, 0.06); }
+.ev[data-kind="weather"] .ico { color: var(--k-weather); }
 
 /* learning: cultural transmission, gentle teal */
 .ev[data-kind="learn"] {
