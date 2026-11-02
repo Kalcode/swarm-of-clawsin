@@ -10,6 +10,7 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
+from .harness import Harness
 from .persistence import restore, save
 from .state import ServerState
 
@@ -202,9 +203,9 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 
 def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.5,
                run_dir: Path | None = None, start_loop: bool = True, world_path: Path | None = None,
-               resume: bool = True) -> web.Application:
+               resume: bool = True, harness: Harness | None = None) -> web.Application:
     app = web.Application()
-    st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir)
+    st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness)
     st.world_path = world_path
     if world_path and resume and world_path.exists():
         restore(st, world_path)

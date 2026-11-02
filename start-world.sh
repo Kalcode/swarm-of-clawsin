@@ -9,6 +9,8 @@
 #   MODEL_SERVER: think on another machine's model server instead of this Mac's oMLX, e.g. the gaming PC:
 #   MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
 #   A model can name its own server: MODEL2="Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1" keeps it on this Mac.
+#   HARNESS: layers in this world, e.g. HARNESS=plan,disclose,recall; each goes to half of every model's creatures.
+#   HARNESS_ALL: layers every creature gets, e.g. HARNESS_ALL=plan.
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
@@ -48,6 +50,8 @@ WORLD_ARGS=(--seed "$SEED" --tick "$TICK" --port "$PORT" --world "$WORLD")
 NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "$SLOTS")
 [[ -n "${MODEL2:-}" ]] && NODE_ARGS+=(--model "$MODEL2")
 [[ -n "${MODEL_SERVER:-}" ]] && NODE_ARGS+=(--model-server "$MODEL_SERVER")
+[[ -n "${HARNESS:-}" ]] && WORLD_ARGS+=(--harness "$HARNESS")
+[[ -n "${HARNESS_ALL:-}" ]] && WORLD_ARGS+=(--harness-all "$HARNESS_ALL")
 for a in ${ADOPT:-}; do NODE_ARGS+=(--adopt "$a"); done
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")

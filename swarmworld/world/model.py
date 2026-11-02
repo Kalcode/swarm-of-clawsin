@@ -108,6 +108,7 @@ class Creature:
     minds: list = field(default_factory=list)  # earlier models that thought for this body: {"model", "until"}
     stats_base: Counter = field(default_factory=Counter)  # stats earned before the current mind took over
     stats: Counter = field(default_factory=Counter)
+    harness: dict = field(default_factory=dict)  # layer -> decided on/off for this creature (the trial split)
 
     @property
     def collapsed(self) -> bool:

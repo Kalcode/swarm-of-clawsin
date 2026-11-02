@@ -25,7 +25,7 @@ def _creature_dict(c: Creature) -> dict:
         "inventory": dict(c.inventory), "satiety": c.satiety, "energy": c.energy, "health": c.health,
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
         "spots": {k: list(v) for k, v in c.spots.items()},
-        "minds": c.minds, "stats_base": dict(c.stats_base),
+        "minds": c.minds, "stats_base": dict(c.stats_base), "harness": dict(c.harness),
     }
 
 
@@ -108,7 +108,7 @@ def restore(st: "ServerState", path: Path) -> None:
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
                      spots={k: tuple(v) for k, v in cd.get("spots", {}).items()},
-                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})))
+                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})))
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r
@@ -143,5 +143,6 @@ def restore(st: "ServerState", path: Path) -> None:
         st.metrics.retired[m].update(r)
     for m, items in data.get("metric_items", {}).items():
         st.metrics.items[m].update(items)
+    st.harness.assign(w.creatures.values())
     st.chronicle_from = w.tick
     st.chronicle_due = w.tick + 600

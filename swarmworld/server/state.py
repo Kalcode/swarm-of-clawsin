@@ -19,6 +19,7 @@ from ..world.model import Creature
 from ..world.perception import perceive
 from ..world.simulation import Simulation
 from ..world.terrain import generate_world
+from .harness import Harness
 from .metrics import Metrics
 from .wishes import Wishes
 
@@ -62,8 +63,10 @@ class Job:
 
 
 class ServerState:
-    def __init__(self, seed: int = 7, token: str | None = None, tick_seconds: float = 0.5, run_dir: Path | None = None):
+    def __init__(self, seed: int = 7, token: str | None = None, tick_seconds: float = 0.5, run_dir: Path | None = None,
+                 harness: Harness | None = None):
         self.world = generate_world(seed)
+        self.harness = harness or Harness()
         self.memories: dict[str, Memory] = {}
         try:
             from ..scripting.terminal import run_terminal
@@ -175,6 +178,7 @@ class ServerState:
                 self.owner[c.id] = name
             assigned += picked
             budget -= len(picked)
+        self.harness.assign(self.world.creatures.values())
         self.world.emit("join", None, *self.world.center, f"Brain node '{name}' joined with {len(assigned)} creatures.")
         return node, assigned
 
@@ -355,7 +359,8 @@ class ServerState:
         output = msg.get("output")
         log = {"tick": self.world.tick, "creature": c.id, "name": c.name, "model": c.model, "kind": job.kind, "ok": ok,
                "output": output, "error": msg.get("error"), "latency_ms": msg.get("latency_ms"),
-               "tokens_in": msg.get("tokens_in"), "cached_tokens": msg.get("cached_tokens")}
+               "tokens_in": msg.get("tokens_in"), "cached_tokens": msg.get("cached_tokens"),
+               "harness": sorted(self.harness.layers_for(c))}
 
         def write_log(result: dict | None = None) -> None:
             if self._thinks_fh:
@@ -565,6 +570,7 @@ class ServerState:
             "people": [f"{n}: {v}" for n, v in mem.people.items()],
             "recent": mem.recent(15),
             "stats": dict(c.stats),
+            "harness": sorted(self.harness.layers_for(c)),
         }
 
     def tick_message(self, new_events: list) -> str:
