@@ -68,6 +68,8 @@ class Intention:
     goal: str = ""
     thought: str = ""
     speech: str = ""
+    plan: list[str] = field(default_factory=list)
+    step_done: bool = False
 
     def summary(self) -> str:
         bits = [self.action]
@@ -90,6 +92,7 @@ class ActionResult:
     message: str
     instant: bool = True
     noop: bool = False  # succeeded, but changed nothing (walking to where you already are)
+    step_done: bool = False  # an activity that ended had been started with step_done (harness plan layer)
 
 
 # --------------------------------------------------------------------- parsing
@@ -144,6 +147,10 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
         count = int(raw.get("count") or 1)
     except (TypeError, ValueError):
         count = 1
+    plan = raw.get("plan") or []
+    if not isinstance(plan, list):
+        plan = []
+    plan = [str(s).strip()[:80] for s in plan if str(s).strip()][:5]
     return Intention(
         action=action,
         target=str(raw.get("target") or "").strip()[:80],
@@ -153,6 +160,8 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
         goal=str(raw.get("goal") or "").strip()[:160],
         thought=str(raw.get("thought") or "").strip()[:300],
         speech=str(raw.get("speech") or "").strip().strip('"')[:200],
+        plan=plan,
+        step_done=raw.get("step_done") is True,
     )
 
 
@@ -1450,6 +1459,12 @@ def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def step_activity(world: World, c: Creature) -> ActionResult | None:
+    flagged = bool((c.activity or {}).get("step_done"))
+    res = _step_activity(world, c)
+    return replace(res, step_done=True) if res is not None and flagged else res
+
+
+def _step_activity(world: World, c: Creature) -> ActionResult | None:
     act = c.activity
     if not act or c.collapsed:
         return None
@@ -1491,6 +1506,8 @@ def step_activity(world: World, c: Creature) -> ActionResult | None:
             if act.get("then"):
                 then = apply_intention(world, c, act["then"])
                 if c.activity:  # e.g. gathering takes a few ticks; report when it's done
+                    if act.get("step_done"):
+                        c.activity["step_done"] = True
                     c.activity["result"] = f"{act['result']} {c.activity['result']}"
                     return None
                 return ActionResult(then.ok, f"{act['result']} {then.message}")

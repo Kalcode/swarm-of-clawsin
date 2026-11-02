@@ -12,6 +12,7 @@ from pathlib import Path
 from aiohttp import web
 
 from .app import STATE, create_app
+from .harness import LAYERS, Harness
 from .persistence import save
 
 
@@ -26,6 +27,13 @@ def lan_ip() -> str:
         s.close()
 
 
+def layers(arg: str) -> set[str]:
+    names = {n.strip() for n in arg.split(",") if n.strip()}
+    if names - set(LAYERS):
+        raise SystemExit(f"unknown harness layer(s) {sorted(names - set(LAYERS))}; choose from {', '.join(LAYERS)}")
+    return names
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Swarm World server")
     ap.add_argument("--seed", type=int, default=7)
@@ -37,8 +45,11 @@ def main() -> None:
     ap.add_argument("--world", default="worlds/default.json", help="save file; the world resumes from it if it exists")
     ap.add_argument("--fresh", action="store_true", help="start a brand-new world (the old save file is kept as .bak)")
     ap.add_argument("--no-inspiration", action="store_true", help="no vague hunches for curious creatures (purely unassisted discovery)")
+    ap.add_argument("--harness", default="", help="harness layers in this world, comma separated (plan,disclose,recall)")
+    ap.add_argument("--harness-all", default="", help="layers every creature gets; the rest go to half of each model")
     args = ap.parse_args()
 
+    everyone = layers(args.harness_all)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     token = args.token or (secrets.token_urlsafe(8) if args.lan else None)
     host = "0.0.0.0" if args.lan else "127.0.0.1"
@@ -48,7 +59,8 @@ def main() -> None:
         world_path.rename(world_path.with_suffix(f".{time.strftime('%Y%m%d-%H%M%S')}.bak"))
     if world_path.exists():
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
-    app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path)
+    app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
+                     harness=Harness(layers(args.harness) | everyone, everyone))
     app[STATE].sim.inspiration = not args.no_inspiration
 
     advert = None
