@@ -226,6 +226,17 @@ def test_shortfall_says_where_material_comes_from(world):
     assert not res.ok and "grass" in res.message
 
 
+def test_eating_a_ripe_crop_beside_you_harvests_and_eats_it(world):
+    c = creature(world)
+    c.satiety = 10
+    world.add_object("crop", 11, 10, crop="carrot", stage=2)
+    res = act(world, c, action="eat", target="carrot")
+    assert res.ok and c.satiety > 10 and not any(o.kind == "crop" for o in world.objects.values())
+    world.add_object("crop", 11, 10, crop="carrot", stage=0)
+    res = act(world, c, action="eat", target="carrot")
+    assert not res.ok and "ripe" in res.message
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)

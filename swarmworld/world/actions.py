@@ -630,6 +630,14 @@ def _explore(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(False, "There's nowhere to go from here.")
 
 
+def _harvest(world: World, crop: WorldObject) -> Counter:
+    """Pull up a ripe crop: three of its produce and a seed or two to plant again."""
+    kind = crop.data.get("crop", "wheat")
+    got = Counter({kind: 3, f"{kind}_seeds": world.rng.choice((1, 2))})
+    world.remove_object(crop.id)
+    return got
+
+
 def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
     cat = world.catalog
     target = it.target or (it.items[0] if it.items else "")
@@ -769,11 +777,8 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         elif obj.kind == "crop":
             if obj.data.get("stage", 0) < 2:
                 return ActionResult(False, f"The {obj.name} isn't ripe yet. Wait a while.")
-            crop = obj.data.get("crop", "wheat")
-            label = f"harvesting {crop}"
-            got[crop] += 3
-            got[f"{crop}_seeds"] += world.rng.choice((1, 2))
-            world.remove_object(obj.id)
+            label = f"harvesting {obj.data.get('crop', 'wheat')}"
+            got.update(_harvest(world, obj))
             break
         elif obj.kind in ANIMALS:
             if not obj.data.get("tamed_by"):
@@ -928,6 +933,14 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
             bush.data["regrow_at"] = world.tick + 400
         c.inventory["berries"] += 1
         iid = "berries"
+    if iid and c.inventory.get(iid, 0) <= 0:  # "eat carrot" beside a carrot patch: pull one up and eat it
+        crop = next((o for o, d, _ in visible_objects(world, c, 1) if o.kind == "crop" and o.data.get("crop") == iid), None)
+        if crop is not None:
+            if crop.data.get("stage", 0) < 2:
+                return ActionResult(False, f"The {world.catalog.name(iid)} beside you isn't ripe yet, so it isn't food. Eat something else for now.")
+            c.inventory.update(_harvest(world, crop))
+            ate = _eat(world, c, Intention("eat", target=world.catalog.name(iid), count=it.count))
+            return ActionResult(ate.ok, f"You pull up the ripe {world.catalog.name(iid)}. {ate.message}")
     iid, err = _resolve_held(world, c, name if iid is None else world.catalog.name(iid))
     if not iid:
         return ActionResult(False, err)
