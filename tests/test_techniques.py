@@ -32,7 +32,14 @@ def test_every_verb_is_core_or_a_technique():
 
 
 def test_core_prompt_is_much_shorter():
-    assert len(SYSTEM_PROMPT_CORE) <= 0.7 * len(SYSTEM_PROMPT)
+    assert len(SYSTEM_PROMPT_CORE) <= 0.75 * len(SYSTEM_PROMPT)  # 0.74 since the manners lines stay in the core
+
+
+def test_core_prompt_keeps_the_manners():
+    for line in ("Only name things you can actually see, carry or remember.",
+                 "Skip empty pleasantries; talk about useful things: where food and materials are, what you made and how, "
+                 "what you need, plans to work together."):
+        assert line in SYSTEM_PROMPT and line in SYSTEM_PROMPT_CORE
 
 
 def test_terminal_in_sight_discloses_program():

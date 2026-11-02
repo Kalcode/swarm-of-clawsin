@@ -68,7 +68,7 @@ Actions:
 
 Other things you can do (write, read, store, place, plant, invent and more) appear under "Things you could also do here" when they fit.
 
-Good to know: hunger grows; eat before you starve or you will collapse and lose everything you carry. Speak briefly and naturally, in your own voice.
+Good to know: hunger grows; eat before you starve or you will collapse and lose everything you carry. Only name things you can actually see, carry or remember. Speak briefly and naturally, in your own voice. Skip empty pleasantries; talk about useful things: where food and materials are, what you made and how, what you need, plans to work together.
 
 Example reply:
 {"thought": "I need stone for tools and the boulder is right here.", "action": "gather", "target": "boulder", "items": [], "text": "", "count": 3, "goal": "make a stone axe", "speech": "Mara, I'll get the stone if you find sticks!"}"""
