@@ -147,3 +147,19 @@ def test_rain_and_cold_wear_you_down_unless_warm(world):
     for _ in range(300):
         sim.tick()
     assert out.energy < warm.energy - 5
+
+
+def test_tired_creatures_sleep_through_the_night(world):
+    from swarmworld.world.model import DAY_TICKS
+    sim = Simulation(world)
+    c = creature(world, "Tam", 10, 10)
+    c.energy = 30
+    world.tick = DAY_TICKS * 2 + int(DAY_TICKS * 0.7)  # night
+    sim.tick()
+    assert (c.activity or {}).get("sleep")
+    sim.wake(c, "met")
+    assert c.wake_reason is None  # not roused by someone walking past
+    world.tick = DAY_TICKS * 3 + 10  # dawn of the next day
+    for _ in range(25):
+        sim.tick()
+    assert not (c.activity or {}).get("sleep") and c.energy > 30

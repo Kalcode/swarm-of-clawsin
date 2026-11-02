@@ -15,6 +15,7 @@ SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starvi
 ENERGY_EVERY = 30  # about 40 energy a day: a creature needs a good rest roughly once a day
 STARVE_EVERY = 4
 IDLE_TICKS = 30
+SLEEP_BELOW = 55  # energy under which a creature with nothing to do will sleep through the night
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -40,9 +41,11 @@ class Simulation:
         self.inspiration = True  # occasional vague hunches for curious minds; off = purely unassisted
 
     # ------------------------------------------------------------------
-    def wake(self, c: Creature, reason: str) -> None:
+    def wake(self, c: Creature, reason: str, addressed: bool = False) -> None:
         if c.collapsed or c.asleep:
             return
+        if (c.activity or {}).get("sleep") and reason not in ("hungry", "result") and not addressed:
+            return  # asleep for the night: only hunger, waking up, or being spoken to directly rouses you
         prio = {"heard": 0, "hungry": 1, "result": 2, "woke": 2, "met": 3, "idle": 4}
         if c.wake_reason is None or prio.get(reason, 5) < prio.get(c.wake_reason, 5):
             c.wake_reason = reason
@@ -80,6 +83,7 @@ class Simulation:
                     self.remember(c, res.message, 1)
                 self.wake(c, "result")
             self._notice_others(c, t)
+            self._maybe_sleep(c)
             idle_after = IDLE_TICKS * (2 if (c.persona or {}).get("initiative") == "reactive" else 1)
             if c.activity is None and not c.thinking and c.wake_reason is None and t - c.last_think_tick >= idle_after:
                 self.wake(c, "idle")
@@ -88,6 +92,8 @@ class Simulation:
             self._regrow(t)
         if t % 4 == 0:
             self._animals()
+        if t % 20 == 0:
+            self._wake_sleepers()
         if t % 50 == 0:
             self._weather(t)
         if t % 10 == 5:
@@ -159,6 +165,28 @@ class Simulation:
             hunch = f"Turning your {names[0]} over in your hands, you sense it could be part of something more."
         self.remember(c, hunch, 2)
         c.stats["inspirations"] += 1
+
+    def _maybe_sleep(self, c: Creature) -> None:
+        """At night a tired creature with nothing to do lies down and sleeps until dawn or until it's rested."""
+        w = self.world
+        if c.activity or c.thinking or c.energy >= SLEEP_BELOW or w.clock()["phase"] != "night":
+            return
+        from .actions import station_near
+        snug = station_near(w, c, "bed") or self.exposure(c) is None
+        c.activity = {"type": "busy", "ticks": 10_000, "label": "sleeping" + ("" if snug else " out in the cold"),
+                      "result": "You wake up.", "rest": True, "bed": station_near(w, c, "bed"), "sleep": True}
+        c.wake_reason = None
+        c.stats["nights_slept"] += 1
+
+    def _wake_sleepers(self) -> None:
+        w = self.world
+        day = w.clock()["phase"] in ("dawn", "day")
+        for c in w.creatures.values():
+            act = c.activity or {}
+            if act.get("sleep") and (day or c.energy >= 98):
+                c.activity = None
+                self.remember(c, "You wake up rested." if c.energy >= 60 else "You wake up, still tired.", 1)
+                self.wake(c, "woke")
 
     def _reflex_eat(self, c: Creature) -> None:
         """A survival reflex that needs no thought: a starving body eats whatever food it carries."""
@@ -239,7 +267,7 @@ class Simulation:
                     while said and said[0] < w.tick - CHAT_WINDOW:
                         said.popleft()
                     if len(said) < CHAT_LIMIT or ev.data.get("to") == h.id and len(said) < CHAT_LIMIT + 2:
-                        self.wake(h, "heard")
+                        self.wake(h, "heard", addressed=ev.data.get("to") == h.id)
             elif ev.kind == "give":
                 rec = w.creatures.get(ev.data.get("to"))
                 if rec:

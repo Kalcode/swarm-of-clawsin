@@ -222,6 +222,8 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
                 desc += ", collapsed on the ground"
             elif o.asleep:
                 desc += ", curled up on the ground fast asleep (they won't stir for a long while)"
+            elif (o.activity or {}).get("sleep"):
+                desc += ", asleep for the night"
             else:
                 act = (o.activity or {}).get("label")
                 if act:
