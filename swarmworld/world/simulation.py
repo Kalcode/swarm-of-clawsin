@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict, deque
 from typing import Callable
 
+from . import perception
 from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
@@ -204,6 +205,9 @@ class Simulation:
             if warm:
                 goals = {(x, y) for x in range(warm.x - 2, warm.x + 3) for y in range(warm.y - 2, warm.y + 3)
                          if w.walkable(x, y)} - occupied_tiles(w, c.id)
+                roof = perception.roof_over(w, warm.x, warm.y)
+                if roof:  # a bed inside a building: lie down inside it, not against its outer wall
+                    goals = {g for g in goals if perception.roof_over(w, *g) == roof}
                 path = bfs_path(w, (c.x, c.y), goals, avoid=occupied_tiles(w, c.id)) if goals else None
                 if path:
                     c.activity = {"type": "walk", "path": path, "label": f"heading to the {warm.name} to sleep",
@@ -451,7 +455,7 @@ class Simulation:
         rain = getattr(w, "weather", "clear") in ("rain", "storm")
         if not (night or rain):
             return None
-        if near_lit_fire(w, c.x, c.y, 3) or station_near(w, c, "bed"):
+        if near_lit_fire(w, c.x, c.y, 3) or station_near(w, c, "bed") or perception.roof_over(w, c.x, c.y):
             return None
         return "rain" if rain else "cold"
 

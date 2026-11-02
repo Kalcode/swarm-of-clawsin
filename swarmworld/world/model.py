@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from .catalog import Catalog
 from .events import Event
 # Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
-from .registry import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
+from .registry import ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
 
 TICK_SECONDS = 0.5
 DAY_TICKS = 1200
@@ -101,6 +101,7 @@ class World:
         self.removed_objects: set[str] = set()
         self.recall_hook: Callable[[Creature, str], list[tuple[str, str]]] | None = None  # set by the server: (creature, query) -> [(kind, text)]
         self.ext: dict = {}  # packs' world state, by pack name: ext["nature"]["rivers"] (JSON-able; saved)
+        self.buildings_changed = False  # a building went up or came down since the last tick message (viewer)
 
     # --- ids / objects -------------------------------------------------
     def new_id(self, prefix: str) -> str:
@@ -147,9 +148,11 @@ class World:
             self.changed_objects.discard(oid)
 
     def walkable(self, x: int, y: int) -> bool:
-        if not self.in_bounds(x, y) or self.tile(x, y) == "W":
+        if not self.in_bounds(x, y):
             return False
         obj = self.object_at(x, y)
+        if self.tile(x, y) == "W" and not (obj and KINDS.get(obj.kind, {}).get("over_water")):
+            return False  # deep water, unless something to walk on spans it (a kind with "over_water": a bridge)
         return not (obj and (obj.kind in BLOCKING or obj.kind in ANIMALS))
 
     def occupied(self, x: int, y: int, ignore: str | None = None) -> bool:
@@ -277,7 +280,23 @@ class World:
             "clock": self.clock(),
             "items": {i: it.name for i, it in self.catalog.items.items()},
             "landmarks": getattr(self, "landmarks", []),
+            "buildings": self.building_dicts(),
         }
+
+    def building_dicts(self) -> list[dict]:
+        """What creatures have built, for the viewer to draw floors and roofs (the building pack keeps it in
+        ext["building"]["built"]): {"id", "design", "x0", "y0", "x1", "y1" (an inclusive rectangle of tiles),
+        "door": [x, y] or None, "roof": bool}."""
+        built = (self.ext.get("building") or {}).get("built") or {}
+        return [{"id": bid, "design": b["design"], "x0": b["x0"], "y0": b["y0"], "x1": b["x1"], "y1": b["y1"],
+                 "door": b.get("door"), "roof": bool(b.get("roof"))} for bid, b in built.items()]
+
+    def take_building_changes(self) -> list[dict] | None:
+        """Every building, if one went up or came down since the last call; otherwise None."""
+        if not self.buildings_changed:
+            return None
+        self.buildings_changed = False
+        return self.building_dicts()
 
     def take_object_changes(self) -> tuple[list[dict], list[str]]:
         upsert = []
