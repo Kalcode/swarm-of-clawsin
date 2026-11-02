@@ -154,6 +154,26 @@ async def api_voice(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "heard_by": heard})
 
 
+async def api_wishes(request: web.Request) -> web.Response:
+    return web.json_response({"can_answer": is_direct_local(request), "wishes": request.app[STATE].wishes.ranked()})
+
+
+async def api_wish_answer(request: web.Request) -> web.Response:
+    """Answer a wish from the sky, grant it, or note it. Only from this machine, or with the join token."""
+    st = request.app[STATE]
+    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+        raise web.HTTPForbidden(text="wishes can only be answered from the world's own machine")
+    try:
+        body = await request.json()
+        out = st.answer_wish(request.match_info["wid"], reply=str(body.get("reply") or ""), grant=str(body.get("grant") or ""),
+                             count=int(body.get("count") or 1), status=str(body.get("status") or ""))
+    except KeyError:
+        raise web.HTTPNotFound(text="no such wish")
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "bad request")
+    return web.json_response(out)
+
+
 async def api_society(request: web.Request) -> web.Response:
     return web.json_response(request.app[STATE].society())
 
@@ -200,6 +220,8 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_get("/api/inventions", api_inventions)
     app.router.add_post("/api/voice", api_voice)
     app.router.add_get("/api/society", api_society)
+    app.router.add_get("/api/wishes", api_wishes)
+    app.router.add_post("/api/wishes/{wid}", api_wish_answer)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)

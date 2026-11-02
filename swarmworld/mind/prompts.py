@@ -37,6 +37,7 @@ Actions:
 - plant (target, count): plant seeds or berries in the soil beside you (needs a tool to break the soil).
 - invent (target, items, text): create something brand new from 2-4 things you carry, even other inventions. target is its name, text says what it is or does. Once a day.
 - rest (count): recover energy. wait: pause and watch.
+- wish (text): wish for something this world doesn't have yet, or that you need and can't find or make. Say it plainly, e.g. "a roof that keeps the rain off". The sky listens, most of all at the wishing stone.
 
 Good to know: most tools begin with sticks, stone and plant fiber, and trying combinations is how anything new is found. Hunger grows; eat before you starve or you will collapse and lose everything you carry. Nights are dark, and fire gives light. Discoveries are precious: tell others what you learn, teach them, write recipes on signs. Only name things you can actually see, carry or remember. Speak briefly and naturally, in your own voice. Skip empty pleasantries; talk about useful things: where food and materials are, what you made and how, what you need, plans to work together.
 
@@ -206,6 +207,7 @@ def build_reflect_messages(c: Creature, memory: Memory) -> list[dict]:
         f"Your current goal: {memory.goal or '(none)'}\n\n"
         "In 2 to 4 short sentences, in first person, write down what you have learned about this world "
         "(including any recipes or useful places), who matters to you and why, and what you mean to do next. "
+        "If something you need doesn't seem to exist in this world, say what you wish for (\"I wish...\"). "
         f"{REFLECT_BY_TEMPERAMENT.get((c.persona or {}).get('role'), '')} "
         f"{REFLECT_BY_TEMPERAMENT.get((c.persona or {}).get('novelty'), '')} "
         "Write plain sentences only, no lists, no JSON."

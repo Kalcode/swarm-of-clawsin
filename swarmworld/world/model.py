@@ -20,7 +20,7 @@ TILE_NAMES = {
 }
 BLOCKING = {
     "tree", "pine", "rock", "copper_vein", "iron_vein", "wall",
-    "workbench", "furnace", "chest", "basket", "terminal", "campfire", "millstone", "bed",
+    "workbench", "furnace", "chest", "basket", "terminal", "campfire", "millstone", "bed", "wishing_stone",
 }
 OBJECT_NAMES = {
     "tree": "oak tree", "pine": "pine tree", "stump": "tree stump", "bush": "berry bush",
@@ -29,11 +29,12 @@ OBJECT_NAMES = {
     "workbench": "workbench", "furnace": "furnace", "wall": "wooden wall", "sign": "sign",
     "chest": "chest", "basket": "basket", "terminal": "strange terminal", "tablet": "stone tablet",
     "crop": "wheat", "sapling": "berry sapling", "millstone": "millstone", "bed": "bed", "door": "door",
-    "chicken": "chicken", "sheep": "sheep", "cow": "cow", "creation": "creation",
+    "chicken": "chicken", "sheep": "sheep", "cow": "cow", "creation": "creation", "wishing_stone": "wishing stone",
 }
 ANIMALS = {"chicken", "sheep", "cow"}
 # Words a creature might use for an object kind (besides its display name).
 OBJECT_ALIASES = {
+    "wishing_stone": ["wishing stone", "wish stone", "wishing rock", "altar", "shrine"],
     "tree": ["tree", "oak", "oak tree", "trees"],
     "pine": ["tree", "pine", "pine tree", "trees"],
     "stump": ["stump", "tree stump"],

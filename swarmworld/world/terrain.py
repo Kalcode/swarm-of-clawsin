@@ -57,6 +57,20 @@ def _fractal(rng: random.Random, w: int, h: int) -> list[list[float]]:
 ANIMAL_POPULATION = {"chicken": 6, "sheep": 5, "cow": 4}
 
 
+WISHING_TEXT = "Worn letters on the stone: 'TELL ME WHAT YOU WISH FOR. THE SKY LISTENS.'"
+
+
+def place_wishing_stone(world: World) -> None:
+    """An old stone at the meadow's north edge where creatures can make wishes (the experimenters read them)."""
+    cx, cy = world.center
+    for r in range(4, 12):
+        for dx in range(-r, r + 1):
+            x, y = cx + dx, cy - r
+            if world.in_bounds(x, y) and world.tile(x, y) in "gd" and (x, y) not in world.grid:
+                world.add_object("wishing_stone", x, y, text=WISHING_TEXT)
+                return
+
+
 def spawn_animals(world: World, rng: random.Random, limit: int | None = None) -> int:
     """Top up wild animal numbers on open grassland away from the meadow. Returns how many were added."""
     cx, cy = world.center
@@ -229,5 +243,6 @@ def generate_world(seed: int = 7, width: int = 64, height: int = 64) -> World:
         world.add_object("tablet", tx, ty, text=TABLET_TEXT)
         placed += 1
 
+    place_wishing_stone(world)
     world.changed_objects.clear()
     return world

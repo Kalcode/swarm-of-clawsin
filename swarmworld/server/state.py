@@ -20,6 +20,7 @@ from ..world.perception import perceive
 from ..world.simulation import Simulation
 from ..world.terrain import generate_world
 from .metrics import Metrics
+from .wishes import Wishes
 
 MIN_GAP_TICKS = 4
 CHRONICLE_EVERY = 600
@@ -85,6 +86,7 @@ class ServerState:
         self.relations: dict[str, Counter] = {}
         self.history: list[dict] = []  # a snapshot every HISTORY_EVERY ticks, for charts  # "a|b" (sorted ids) -> counts of talk, gift, teach
         self.chronicle: list[dict] = []
+        self.wishes = Wishes(self.world.catalog)
         self.chronicle_due = self.world.tick + CHRONICLE_EVERY
         self.chronicle_from = self.world.tick
         self.chronicle_inflight = False
@@ -347,6 +349,7 @@ class ServerState:
         if job.kind == "reflect":
             text = output if isinstance(output, str) else json.dumps(output)
             mem.apply_reflection(text)
+            self.wishes.observe_reflection(c.name, text, self.world.tick)
             self.last.setdefault(c.id, {})["reflection"] = mem.summary
             c.wake_reason = job.wake_reason or "woke"
             return
@@ -465,6 +468,53 @@ class ServerState:
         w.emit("voice", None, cx, cy, f'A voice from the sky: "{text}"', line=text)
         return heard
 
+    def answer_wish(self, wid: str, reply: str = "", grant: str = "", count: int = 1, status: str = "") -> dict:
+        """The people running the world answer a wish: a reply from the sky, a gift, or a note that it will be built."""
+        w = self.wishes.get(wid)
+        if w is None:
+            raise KeyError(wid)
+        reply = " ".join(str(reply).split())[:300]
+        if not (reply or grant or status):
+            raise ValueError("answer with a reply, a gift or a status")
+        wishers = [c for c in self.world.creatures.values() if c.name in w["by"]]
+        granted_to = None
+        if grant:
+            iid = self.world.catalog.resolve(grant)
+            if iid is None:
+                raise ValueError(f"there's no '{grant}' in this world")
+            latest = next((q["name"] for q in reversed(w["quotes"])), "")
+            c = next((c for c in wishers if c.name == latest), wishers[0] if wishers else None)
+            if c is None:
+                raise ValueError("nobody who wished for it is in the world now")
+            n = max(1, min(5, int(count or 1)))
+            c.inventory[iid] += n
+            what = f"{n} {self.world.catalog.name(iid)}"
+            self._remember(c, f"Your wish for {w['thing']} was heard: {what} appeared in your hands, as if from the sky.", 3)
+            self.sim.wake(c, "heard")
+            self.world.emit("grant", c.id, c.x, c.y, f"The sky granted {c.name}'s wish: {what}.", item=iid)
+            w["granted"], w["status"], granted_to = f"{what} to {c.name}", "granted", c.name
+        heard = []
+        if reply:
+            for c in wishers:
+                if c.collapsed:
+                    continue
+                if c.asleep:
+                    self._remember(c, f'In a dream, a voice from the sky answered your wish for {w["thing"]}: "{reply}"', 3)
+                else:
+                    line = f'A voice from the sky answers your wish for {w["thing"]}: "{reply}"'
+                    self.sim.heard[c.id].append(line)
+                    self._remember(c, line, 3)
+                    self.sim.wake(c, "heard")
+                heard.append(c.name)
+            self.world.emit("voice", None, *self.world.center, f'A voice from the sky answers the wish for {w["thing"]}: "{reply}"',
+                            line=reply)
+            w["answer"] = reply
+            if w["status"] in ("open", "noted"):
+                w["status"] = "answered"
+        if status in ("open", "noted", "closed"):
+            w["status"] = status
+        return {"ok": True, "wish": self.wishes.view(w), "heard_by": heard, "granted_to": granted_to}
+
     # ------------------------------------------------------------ views
     def creature_detail(self, cid: str) -> dict | None:
         c = self.world.creatures.get(cid)
@@ -495,7 +545,9 @@ class ServerState:
         if w.tick % HISTORY_EVERY == 0:
             self.record_history()
         upsert, removed = w.take_object_changes()
+        names = {c.id: c.name for c in w.creatures.values()} if new_events else {}
         for ev in new_events:
+            self.wishes.observe(ev, names)
             if ev.kind in ("craft", "discover") and ev.actor in w.creatures:
                 self.metrics.item(w.creatures[ev.actor].model, ev.data.get("item", ""))
             self._note_relation(ev)

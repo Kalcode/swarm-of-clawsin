@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from ..mind.memory import Entry, Memory
 from ..world.catalog import Catalog
 from ..world.model import Creature, World, WorldObject
+from .wishes import Wishes
 
 if TYPE_CHECKING:
     from .state import ServerState
@@ -50,6 +51,7 @@ def snapshot(st: "ServerState") -> dict:
         "chronicle": st.chronicle,
         "relations": {k: dict(v) for k, v in st.relations.items()},
         "history": st.history,
+        "wishes": st.wishes.to_dict(),
         "inventions": getattr(st.world.catalog, "inventions", []),
         "metrics": {m: dict(cnt) for m, cnt in st.metrics.models.items()},
         "metric_items": {m: sorted(v) for m, v in st.metrics.items.items()},
@@ -110,8 +112,10 @@ def restore(st: "ServerState", path: Path) -> None:
             from ..mind.prompts import make_temperament
             c.persona.update(make_temperament(_r.Random(c.id + c.name)))
         w.creatures[c.id] = c
-    from ..world.terrain import spawn_animals
+    from ..world.terrain import place_wishing_stone, spawn_animals
     spawn_animals(w, w.rng)  # older saves predate animals
+    if not any(o.kind == "wishing_stone" for o in w.objects.values()):  # nor did they have a wishing stone
+        place_wishing_stone(w)
     w.changed_objects.clear()
     st.world = w
     st.sim.world = w
@@ -128,6 +132,8 @@ def restore(st: "ServerState", path: Path) -> None:
     st.chronicle = data.get("chronicle", [])
     st.relations = {k: Counter(v) for k, v in data.get("relations", {}).items()}
     st.history = data.get("history", [])
+    st.wishes = Wishes(w.catalog)
+    st.wishes.load(data.get("wishes"))
     for m, cnt in data.get("metrics", {}).items():
         st.metrics.models[m].update(cnt)
     for m, items in data.get("metric_items", {}).items():

@@ -1,0 +1,83 @@
+import json
+
+from swarmworld.server.persistence import restore, save
+from swarmworld.server.state import ServerState
+from swarmworld.server.wishes import Wishes
+from swarmworld.world.actions import Intention, apply_intention
+from swarmworld.world.catalog import Catalog
+from swarmworld.world.model import Event
+
+
+def ev(kind, actor, text, **data):
+    return Event(1000, kind, actor, 0, 0, text, data)
+
+
+def test_wishes_come_from_speech_failures_and_the_wish_action():
+    w = Wishes(Catalog.load())
+    names = {"c1": "Inka", "c2": "Tam"}
+    w.observe(ev("say", "c1", "", line="It's so wet, I wish we had a proper roof.", speaker="Inka"), names)
+    w.observe(ev("say", "c2", "", line="If only we had a proper roof!", speaker="Tam"), names)
+    w.observe(ev("say", "c2", "", line="I need to eat something.", speaker="Tam"), names)  # not a wish for a thing
+    w.observe(ev("fail", "c1", "Inka tried to craft pattern key: You've never heard of a 'pattern key'."), names)
+    w.observe(ev("wish", "c2", "", line="a boat to cross the lake"), names)
+    ranked = w.ranked()
+    assert [x["thing"] for x in ranked][:1] == ["proper roof"]  # two creatures want it
+    roof = ranked[0]
+    assert roof["creatures"] == 2 and roof["kinds"]["said"] == 2 and not roof["exists"]
+    assert {x["thing"] for x in ranked} == {"proper roof", "pattern key", "boat to cross the lake"}
+    assert next(x for x in ranked if x["thing"] == "pattern key")["kinds"]["failed"] == 1
+
+
+def test_needs_for_things_that_exist_rank_below_true_wishes():
+    w = Wishes(Catalog.load())
+    names = {"c1": "Inka", "c2": "Tam"}
+    w.observe(ev("say", "c1", "", line="We need more stone.", speaker="Inka"), names)
+    w.observe(ev("say", "c2", "", line="We need stone!", speaker="Tam"), names)
+    w.observe(ev("say", "c1", "", line="I wish we had a windmill.", speaker="Inka"), names)
+    ranked = w.ranked()
+    assert ranked[0]["thing"] == "windmill" and ranked[1]["thing"] == "stone" and ranked[1]["exists"]
+
+
+def test_wish_action_at_the_wishing_stone():
+    st = ServerState(seed=7)
+    stones = [o for o in st.world.objects.values() if o.kind == "wishing_stone"]
+    assert len(stones) == 1
+    c = st.new_creature("mock")
+    c.x, c.y = stones[0].x + 1, stones[0].y
+    res = apply_intention(st.world, c, Intention("wish", text="a roof that keeps the rain off"))
+    assert res.ok and "wishing stone" in res.message
+    assert any(e.kind == "wish" and e.data.get("at_stone") for e in st.world.events)
+    assert not apply_intention(st.world, c, Intention("wish")).ok
+
+
+def test_answer_and_grant_reach_the_wisher():
+    st = ServerState(seed=7)
+    c = st.new_creature("mock")
+    c.asleep = False
+    st.wishes.observe(ev("say", c.id, "", line="I wish we had more rope.", speaker=c.name), {c.id: c.name})
+    wid = st.wishes.ranked()[0]["id"]
+    out = st.answer_wish(wid, reply="Look for tall grass by the river.", grant="rope", count=2)
+    assert out["heard_by"] == [c.name] and out["granted_to"] == c.name and c.inventory["rope"] == 2
+    assert any("Look for tall grass" in t for t in st.memory(c.id).recent())
+    assert out["wish"]["status"] == "granted" and "2 rope" in out["wish"]["granted"]
+
+
+def test_wishes_survive_a_restart(tmp_path):
+    st = ServerState(seed=7)
+    st.wishes.observe(ev("say", "c9", "", line="I wish we had a windmill.", speaker="Ola"), {"c9": "Ola"})
+    save(st, tmp_path / "w.json")
+    st2 = ServerState(seed=99)
+    restore(st2, tmp_path / "w.json")
+    assert st2.wishes.ranked()[0]["thing"] == "windmill"
+
+
+def test_restoring_an_old_save_adds_the_wishing_stone(tmp_path):
+    st = ServerState(seed=7)
+    for o in [o for o in st.world.objects.values() if o.kind == "wishing_stone"]:
+        st.world.remove_object(o.id)
+    save(st, tmp_path / "old.json")
+    data = json.loads((tmp_path / "old.json").read_text())
+    assert not any(o["kind"] == "wishing_stone" for o in data["world"]["objects"])
+    st2 = ServerState(seed=99)
+    restore(st2, tmp_path / "old.json")
+    assert sum(o.kind == "wishing_stone" for o in st2.world.objects.values()) == 1

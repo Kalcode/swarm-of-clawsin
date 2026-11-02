@@ -231,3 +231,23 @@ def test_think_log_records_what_happened(tmp_path):
     st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "say", "text": "hello"}})
     line = json.loads((tmp_path / "thinks.jsonl").read_text().splitlines()[-1])
     assert line["result"]["ok"] is True and line["result"]["noop"] is False and "hello" in line["result"]["message"]
+
+
+async def test_wishes_api_lists_and_answers_locally_only(client):
+    ws, welcome = await _join(client, n=1)
+    st = client.app[STATE]
+    c = st.world.creatures[welcome["creatures"][0]["id"]]
+    st.world.emit("say", c.id, c.x, c.y, "", line="I wish we had a windmill.", speaker=c.name)
+    st.tick_message(st.world.events[-1:])
+    body = await (await client.get("/api/wishes")).json()
+    assert body["can_answer"] and body["wishes"][0]["thing"] == "windmill"
+    wid = body["wishes"][0]["id"]
+    tunnel = {"CF-Connecting-IP": "203.0.113.9"}
+    assert (await client.get("/api/wishes", headers=tunnel)).status == 200
+    assert not (await (await client.get("/api/wishes", headers=tunnel)).json())["can_answer"]
+    assert (await client.post(f"/api/wishes/{wid}", json={"reply": "hi"}, headers=tunnel)).status == 403
+    assert (await client.post(f"/api/wishes/{wid}", json={"grant": "unobtainium"})).status == 400
+    assert (await client.post("/api/wishes/w999", json={"reply": "hi"})).status == 404
+    out = await (await client.post(f"/api/wishes/{wid}", json={"status": "noted"})).json()
+    assert out["wish"]["status"] == "noted"
+    await ws.close()

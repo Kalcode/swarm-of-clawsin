@@ -15,9 +15,10 @@ from .perception import DIRS, dist, direction, sight_range, spot_name, visible_c
 
 VERBS = [
     "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
-    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take", "teach",
+    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take", "teach", "wish",
 ]
 VERB_ALIASES = {
+    "pray": "wish", "wish_for": "wish", "make_wish": "wish", "make_a_wish": "wish",
     "walk": "walk_to", "go": "walk_to", "go_to": "walk_to", "goto": "walk_to", "move": "walk_to",
     "move_to": "walk_to", "approach": "walk_to", "head_to": "walk_to", "walkto": "walk_to",
     "wander": "explore", "search": "explore", "scout": "explore",
@@ -398,6 +399,8 @@ def _next_hint(obj: WorldObject) -> str:
         return "You can read it now."
     if obj.kind == "terminal":
         return "You can read or program it now."
+    if obj.kind == "wishing_stone":
+        return "You can make a wish here (wish)."
     if obj.kind in ("bush_empty", "stump"):
         return "It has nothing to take right now."
     return ""
@@ -464,7 +467,7 @@ def _use_beside(world: World, c: Creature, obj: WorldObject) -> ActionResult | N
     """What a creature that walks again to the thing it already stands beside most likely means to do with it."""
     if obj.kind in GATHERABLE:
         return _gather(world, c, Intention("gather", target=obj.name))
-    if obj.kind in ("sign", "tablet", "terminal") or (obj.kind in CARVABLE and obj.data.get("text")):
+    if obj.kind in ("sign", "tablet", "terminal", "wishing_stone") or (obj.kind in CARVABLE and obj.data.get("text")):
         return _read(world, c, Intention("read", target=obj.name))
     return None
 
@@ -870,6 +873,20 @@ def _say(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f'You say{" to " + to.name if to else ""}: "{text}"')
 
 
+def _wish(world: World, c: Creature, it: Intention) -> ActionResult:
+    """Wish for something the world doesn't have, or ask the sky for help. The people running the world read wishes."""
+    text = (it.text or it.target or it.speech).strip().strip('"')[:200]
+    if not text:
+        return ActionResult(False, "Wish for what? Put your wish in text.")
+    stone = find_object(world, c, "", max_dist=1, kinds={"wishing_stone"})
+    where = "at the wishing stone" if stone else "to the sky"
+    c.stats["wishes"] += 1
+    world.emit("wish", c.id, c.x, c.y, f'{c.name} wished {where}: "{text}"', line=text, at_stone=bool(stone))
+    if stone:
+        return ActionResult(True, f'You lay your hand on the wishing stone and wish: "{text}". The stone is warm.')
+    return ActionResult(True, f'You whisper a wish to the sky: "{text}".')
+
+
 def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) -> ActionResult:
     if dist(c.x, c.y, animal.x, animal.y) > 1:
         return _walk_then(world, c, animal, it)
@@ -1062,7 +1079,7 @@ def _write(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _read(world: World, c: Creature, it: Intention) -> ActionResult:
-    readable = {"sign", "tablet", "terminal"}
+    readable = {"sign", "tablet", "terminal", "wishing_stone"}
     obj = find_object(world, c, it.target or "sign", max_dist=1, kinds=readable)
     if not obj:  # carvings on trees and boulders
         obj = next((o for o, d, _ in visible_objects(world, c, 1) if o.kind in CARVABLE and o.data.get("text")), None)
@@ -1343,7 +1360,7 @@ def _wait(world: World, c: Creature, it: Intention) -> ActionResult:
 
 HANDLERS = {
     "walk_to": _walk_to, "explore": _explore, "gather": _gather, "combine": _combine, "craft": _craft,
-    "eat": _eat, "drink": _drink, "say": _say, "give": _give, "pick_up": _pick_up, "drop": _drop,
+    "eat": _eat, "drink": _drink, "say": _say, "wish": _wish, "give": _give, "pick_up": _pick_up, "drop": _drop,
     "place": _place, "write": _write, "read": _read, "program": _program, "rest": _rest, "wait": _wait,
     "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach,
 }
@@ -1357,7 +1374,7 @@ def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
         res = HANDLERS[it.action](world, c, it)
     except Exception as exc:  # never let one bad intention break the world
         res = ActionResult(False, f"Something went wrong as you tried that ({type(exc).__name__}).")
-    if it.speech and it.action not in ("say", "teach"):  # talking while working
+    if it.speech and it.action not in ("say", "teach", "wish"):  # talking while working
         addressed = next((o for o, d, _ in visible_creatures(world, c) if o.name.lower() in it.speech.lower()), None)
         _say(world, c, Intention("say", target=addressed.name if addressed else "", text=it.speech))
         res = replace(res, message=f'{res.message} (While doing it you say: "{it.speech[:160]}")')
