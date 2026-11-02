@@ -579,7 +579,7 @@ class ServerState:
 
     # ------------------------------------------------------------ society
     def _note_relation(self, ev) -> None:
-        kind = {"say": "talk", "give": "gift", "learn": "teach"}.get(ev.kind)
+        kind = {"say": "talk", "give": "gift", "learn": "teach", "play": "play"}.get(ev.kind)
         if not kind:
             return
         if ev.kind == "learn":
@@ -598,8 +598,8 @@ class ServerState:
         edges = []
         for key, cnt in self.relations.items():
             a, b = key.split("|")
-            weight = cnt["talk"] + 3 * cnt["gift"] + 4 * cnt["teach"]
-            edges.append({"a": a, "b": b, "talk": cnt["talk"], "gift": cnt["gift"], "teach": cnt["teach"], "weight": weight})
+            weight = cnt["talk"] + 3 * cnt["gift"] + 4 * cnt["teach"] + 2 * cnt["play"]
+            edges.append({"a": a, "b": b, "talk": cnt["talk"], "gift": cnt["gift"], "teach": cnt["teach"], "play": cnt["play"], "weight": weight})
         edges.sort(key=lambda e: -e["weight"])
         degree: Counter = Counter()
         for e in edges:
