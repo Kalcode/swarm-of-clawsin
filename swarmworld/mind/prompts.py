@@ -223,6 +223,13 @@ def tip_limit(layers) -> int:
     return TIPS_WITH_RECALL if "recall" in layers else 5
 
 
+def tips_for(world: World, c: Creature, layers) -> list[str]:
+    """The techniques listed under "Things you could also do here": with the disclose layer, the core and the packs'
+    ones that fit; without it only the packs' (the full system prompt already describes the core verbs, and it can't
+    describe the packs'), so every creature can find new content."""
+    return relevant(world, c, tip_limit(layers), packs_only="disclose" not in layers)
+
+
 RECALL_HINT = "(You can think back with recall: target is what you want to remember.)"
 
 
@@ -268,12 +275,11 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     wl = WAKE_LINES.get(wake_reason or "", "")
     if wl:
         lines.append(wl)
-    if "disclose" in layers:
-        tips = relevant(world, c, tip_limit(layers))
-        if tips:
-            lines.append("")
-            lines.append("Things you could also do here:")
-            lines += [f"- {t}" for t in tips]
+    tips = tips_for(world, c, layers)
+    if tips:
+        lines.append("")
+        lines.append("Things you could also do here:")
+        lines += [f"- {t}" for t in tips]
     if "recall" in layers or "disclose" in layers:  # disclose moved lore out of the prompt: recall finds it
         lines.append("")
         lines.append(RECALL_HINT)

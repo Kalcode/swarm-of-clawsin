@@ -209,8 +209,14 @@ def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source
 
 
 def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = ()) -> None:
-    """A new action, valid in every intention (it joins the schema's enum). Disclose it with a Technique."""
+    """A new action, valid in every intention (it joins the schema's enum). Disclose it with a Technique: the system
+    prompts only describe the core verbs."""
     _register_verb(name, handler, aliases, _caller())
+
+
+def pack_verbs() -> list[str]:
+    """The verbs packs registered (not the core verbs of swarmworld.world.actions), in schema order."""
+    return [v for v in VERBS if _OWNERS.get(("verb", v)) != CORE_VERBS_MODULE]
 
 
 # ------------------------------------------------------------------ techniques
@@ -221,6 +227,7 @@ class Technique:
     line: str
     trigger: Callable[["World", "Creature"], float | None]  # higher is more relevant; None means not now
     verbs: tuple[str, ...] | None = None  # None means the verb is the name; () means a use of a core verb
+    pack: bool = False  # a pack's (register_technique): shown to every creature, not only those with "disclose"
 
     def __post_init__(self):
         if self.verbs is None:
@@ -231,9 +238,12 @@ TECHNIQUES: list[Technique] = []  # the core techniques first (swarmworld.mind.t
 
 
 def register_technique(t: Technique) -> None:
+    """A pack's technique. Every creature is shown it when its trigger fits (the core techniques only reach creatures
+    with the "disclose" harness layer, whose system prompt leaves their verbs out)."""
     source = _caller()
     _check_free("technique", t.name, source)
     _OWNERS[("technique", t.name)] = source
+    t.pack = True
     TECHNIQUES.append(t)
 
 

@@ -2,13 +2,25 @@ import random
 
 from swarmworld.mind.memory import Memory
 from swarmworld.mind.prompts import INTENTION_SCHEMA, SYSTEM_PROMPT, build_act_messages, build_reflect_messages, make_persona
+from swarmworld.mind.techniques import TECHNIQUES
+from swarmworld.world import registry
 from swarmworld.world.actions import VERBS
 from swarmworld.world.catalog import Catalog
 from swarmworld.world.model import Creature, World
+from swarmworld.world.registry import Technique
 
 
 def _world():
     return World(10, 10, [["g"] * 10 for _ in range(10)], Catalog.load())
+
+
+def undisclosed_verbs() -> list[str]:
+    """Verbs a mind would have no way to learn of: a core verb missing from the system prompt (recall is introduced in
+    the recall layer's per-turn message), or a pack's verb that no registered technique names (packs don't edit the
+    system prompts)."""
+    packs = set(registry.pack_verbs())
+    named = {v for t in TECHNIQUES if t.pack for v in t.verbs}
+    return [v for v in VERBS if (v not in named if v in packs else v not in SYSTEM_PROMPT and v != "recall")]
 
 
 def test_system_prompt_static():
@@ -18,9 +30,18 @@ def test_system_prompt_static():
     ma = build_act_messages(w, a, Memory(), "You see grass.")
     mb = build_act_messages(w, b, Memory(), "You see a tree.")
     assert ma[0] == mb[0] and ma[0]["content"] == SYSTEM_PROMPT
-    for v in VERBS:
-        assert v in SYSTEM_PROMPT or v == "recall"  # recall is introduced in the per-turn message of the recall layer
+    assert undisclosed_verbs() == []
     assert set(INTENTION_SCHEMA["required"]) == set(INTENTION_SCHEMA["properties"])
+
+
+def test_pack_verb_without_a_technique_fails_the_check():
+    with registry.sandbox():
+        registry.register_verb("probe_dig", lambda world, c, it: None)
+        assert "probe_dig" in registry.pack_verbs() and "gather" not in registry.pack_verbs()
+        assert undisclosed_verbs() == ["probe_dig"]
+        registry.register_technique(Technique("probe_dig", "probe_dig (target): dig a hole.", lambda world, c: None))
+        assert undisclosed_verbs() == []
+    assert "probe_dig" not in registry.pack_verbs()
 
 
 def test_messages_order():

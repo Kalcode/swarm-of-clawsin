@@ -120,8 +120,9 @@ LORE = [
 ]
 
 
-def relevant(world: World, c: Creature, limit: int = 5) -> list[str]:
-    scored = [(s, t.line) for t in TECHNIQUES if (s := t.trigger(world, c)) is not None]
+def relevant(world: World, c: Creature, limit: int = 5, packs_only: bool = False) -> list[str]:
+    """The lines of the techniques that fit now, best first; packs_only: only those packs registered."""
+    scored = [(s, t.line) for t in TECHNIQUES if (t.pack or not packs_only) and (s := t.trigger(world, c)) is not None]
     scored.sort(key=lambda p: -p[0])
     return [line for _, line in scored[:limit]]
 
