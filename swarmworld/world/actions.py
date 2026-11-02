@@ -1120,8 +1120,13 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
     name = " ".join(it.target.lower().split())
     if not NAME_RE.match(name or ""):
         return ActionResult(False, "Name your invention in target with a short plain name, like 'berry cake' or 'stone bench'.")
-    if cat.resolve(name):
-        return ActionResult(False, f"'{name}' already exists. Try combining things to make it, or invent something new.")
+    existing = cat.resolve(name)
+    if existing:  # they mean "make this": craft it if they know how, otherwise try the things they named
+        verb = "craft" if existing in c.known_recipes else "combine"
+        if verb == "combine" and not it.items:
+            return ActionResult(False, f"'{name}' already exists. Try combining things you carry to make it, or invent something new.")
+        res = HANDLERS[verb](world, c, Intention(verb, target=name, items=it.items))
+        return replace(res, message=f"The {cat.name(existing)} already exists, so you try to make one. {res.message}")
     used_today = c.stats.get(f"invented_day_{world.clock()['day']}", 0)
     if used_today >= 1:
         return ActionResult(False, "You've already invented something today. Let the idea rest until tomorrow.")

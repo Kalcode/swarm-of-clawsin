@@ -136,6 +136,15 @@ def test_noop_survives_speaking_while_acting(world):
     assert res.noop
 
 
+def test_inventing_a_known_thing_makes_it(world):
+    c = creature(world)
+    c.inventory.update({"stick": 1, "stone": 1, "rope": 1})
+    res = act(world, c, action="invent", target="stone axe", items=["stick", "stone", "rope"])
+    assert res.ok and c.inventory.get("stone_axe") == 1 and "already exists" in res.message
+    c.inventory.update({"plant_fiber": 3})
+    assert act(world, c, action="invent", target="rope").ok and c.inventory.get("rope") == 1  # known recipe: craft
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
