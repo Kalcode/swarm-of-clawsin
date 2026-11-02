@@ -18,6 +18,7 @@ IDLE_TICKS = 30
 SLEEP_BELOW = {"reactive": 101, "proactive": 80}  # at night, idle creatures under this energy turn in (reactive: always)
 ANIMAL_HUNGER_CHANCE = 0.25  # per evaluation: about 75 hunger a day if never grazing
 ANIMAL_GRAZE_FILL = 3
+ANIMAL_EVERY = 4  # ticks between animal evaluations
 ANIMAL_BREED_CHANCE = 0.08
 ANIMAL_CAP = 12  # per kind, world-wide
 MET_FORGET = 200
@@ -101,7 +102,7 @@ class Simulation:
         self._process_events()
         if t % 10 == 0:
             self._regrow(t)
-        if t % 4 == 0:
+        if t % ANIMAL_EVERY == 0:
             self._animals()
         if t % 20 == 0:
             self._wake_sleepers()
@@ -445,8 +446,6 @@ class Simulation:
         for o in animals:
             d = o.data
             d.setdefault("hunger", 20)
-            if w.rng.random() < ANIMAL_HUNGER_CHANCE:
-                d["hunger"] = min(100, d["hunger"] + 1)
             owner = next((c for c in w.creatures.values() if c.name == d.get("tamed_by")), None) if d.get("tamed_by") else None
             home = d.get("home")
             near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
@@ -487,6 +486,10 @@ class Simulation:
                         nx, ny = o.x + dx, o.y + dy
                         if not (home and max(abs(nx - home[0]), abs(ny - home[1])) > 3) and w.tile(nx, ny) in "gf":
                             self._animal_step(o, nx, ny)
+            if d["state"] != "rest" and w.rng.random() < ANIMAL_HUNGER_CHANCE:  # asleep at night: no hunger
+                d["hunger"] = min(100, d["hunger"] + 1)
+            if d["hunger"] >= WELL_FED and d.get("ready_at", 0) > w.tick:
+                d["ready_at"] += ANIMAL_EVERY  # the production timer pauses while hungry
             self._breed(o, animals, counts, day)
 
     def _animal_step(self, o, tx: int, ty: int, away: bool = False) -> bool:

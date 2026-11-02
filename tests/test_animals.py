@@ -188,3 +188,23 @@ def test_animals_rest_at_night_bunched_together(world):
     b = world.add_object("sheep", 24, 20)
     run(Simulation(world), 80)
     assert a.data["state"] == "rest" and max(abs(a.x - b.x), abs(a.y - b.y)) <= 2
+
+
+def test_ready_timer_pauses_while_hungry(world):
+    hen = world.add_object("chicken", 20, 20)
+    tame(hen)
+    hen.data.update(hunger=90, ready_at=world.tick + 20)
+    sim = Simulation(world)
+    for _ in range(100):
+        hen.data["hunger"] = 90  # kept hungry (no grazing)
+        sim.tick()
+    assert hen.data["ready_at"] > world.tick  # not ready though the original time passed
+    hen.data["hunger"] = 0
+    assert world.tick < hen.data["ready_at"]
+
+
+def test_hunger_does_not_grow_while_resting_at_night(world):
+    world.tick = DAY_TICKS * 3 // 4
+    sheep = world.add_object("sheep", 20, 20, hunger=30)
+    run(Simulation(world), 100)
+    assert sheep.data["state"] == "rest" and sheep.data["hunger"] == 30
