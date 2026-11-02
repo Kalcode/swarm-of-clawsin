@@ -56,11 +56,6 @@ OLD_WORLD_DENSITY = 0.5  # plants in a world from before this pack, which its cr
 
 
 # ------------------------------------------------------------------------------------------- reading the land
-def biome_code(world: World, x: int, y: int) -> str | None:
-    rows = (world.ext.get("nature") or {}).get("biomes")
-    return rows[y][x] if rows and world.in_bounds(x, y) else None
-
-
 def _free(world: World, x: int, y: int) -> bool:
     return (world.in_bounds(x, y) and (x, y) not in world.grid and world.tile(x, y) not in "wW"
             and not world.occupied(x, y))
