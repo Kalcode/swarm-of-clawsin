@@ -1,6 +1,7 @@
 """Review a world's behavior from its run logs: where minds fail, stall, starve, or want things the world lacks.
 
     uv run python scripts/review_world.py runs/20261102-082718              # one run
+    uv run python scripts/review_world.py runs/X --split     # compare creatures by model and harness layers
     uv run python scripts/review_world.py --since 20261101-210224 --until 20261102-074900   # a span of runs
 """
 
@@ -33,15 +34,65 @@ def load(dirs: list[Path]):
     return events, thinks
 
 
+def split_report(thinks: list[dict], events: list[dict]) -> dict:
+    """Per (model, layers) group, e.g. ("m", "plan+recall") or ("m", "none"): how the harness halves compare."""
+    group_of: dict[str, tuple] = {}
+    rows: dict[tuple, dict] = {}
+    last: dict[str, tuple] = {}
+    run_len: dict[str, int] = defaultdict(int)
+    for t in thinks:
+        key = (t["model"], "+".join(sorted(t.get("harness") or [])) or "none")
+        group_of[t["creature"]] = key
+        if t["kind"] != "act":
+            continue
+        g = rows.setdefault(key, defaultdict(float))
+        g["replies"] += 1
+        r = t.get("result") or {}
+        g["noop" if r.get("noop") else "ok" if r.get("ok") else "failures"] += 1
+        g["uncached"] += (t.get("tokens_in") or 0) - (t.get("cached_tokens") or 0)
+        g["out"] += t.get("tokens_out") or 0
+        o = t.get("output")
+        if isinstance(o, dict) and o.get("action"):
+            g["recall_uses"] += o["action"] == "recall"
+            k = (o["action"], str(o.get("target", "")).lower())
+            run_len[t["creature"]] = run_len[t["creature"]] + 1 if last.get(t["creature"]) == k else 1
+            last[t["creature"]] = k
+            g["streaks"] += run_len[t["creature"]] == 4
+    for e in events:
+        key = group_of.get(e.get("actor"))
+        if key and e["kind"] in ("collapse", "craft"):
+            rows.setdefault(key, defaultdict(float))["collapses" if e["kind"] == "collapse" else "crafted"] += 1
+    out = {}
+    for key, g in rows.items():
+        n = g["replies"] or 1
+        out[key] = {"replies": int(g["replies"]), "success_rate": g["ok"] / n, "noop_rate": g["noop"] / n,
+                    "streaks": int(g["streaks"]), "failures": int(g["failures"]), "collapses": int(g["collapses"]),
+                    "crafted": int(g["crafted"]), "recall_uses": int(g["recall_uses"]),
+                    "uncached_in": g["uncached"] / n, "tokens_out": g["out"] / n}
+    return out
+
+
+def print_split(rep: dict) -> None:
+    cols = ["replies", "success_rate", "noop_rate", "streaks", "failures", "collapses", "crafted", "recall_uses",
+            "uncached_in", "tokens_out"]
+    print(f"{'model':28} {'layers':16} " + " ".join(f"{c:>12}" for c in cols))
+    for (m, layers), r in sorted(rep.items()):
+        print(f"{m[:28]:28} {layers:16} " + " ".join(f"{r[c]:12.2f}" if isinstance(r[c], float) else f"{r[c]:12d}" for c in cols))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="*")
     ap.add_argument("--since")
     ap.add_argument("--until")
+    ap.add_argument("--split", action="store_true", help="compare creatures by model and harness layers")
     a = ap.parse_args()
     dirs = [Path(r) for r in a.runs] or [p for p in sorted(Path("runs").glob("2*"))
                                          if (not a.since or p.name >= a.since) and (not a.until or p.name <= a.until)]
     events, thinks = load(dirs)
+    if a.split:
+        print_split(split_report(thinks, events))
+        return
     model_of = {t["name"]: t["model"] for t in thinks}
     print(f"# Review of {len(dirs)} run(s): {dirs[0].name} .. {dirs[-1].name}\n")
     print(f"{len(thinks)} model replies, {len(events)} world events\n")
@@ -65,9 +116,9 @@ def main() -> None:
         if r:
             outcomes[t["model"]]["no-op" if r.get("noop") else "ok" if r.get("ok") else "failed"] += 1
         key = (o["action"], str(o.get("target", "")).lower())
-        run_len[t["name"]] = run_len[t["name"]] + 1 if last.get(t["name"]) == key else 1
-        last[t["name"]] = key
-        if run_len[t["name"]] == 4:
+        run_len[t["creature"]] = run_len[t["creature"]] + 1 if last.get(t["creature"]) == key else 1
+        last[t["creature"]] = key
+        if run_len[t["creature"]] == 4:
             streaks[t["model"]] += 1
     fails: dict[str, Counter] = defaultdict(Counter)
     fail_examples: dict[tuple, str] = {}
