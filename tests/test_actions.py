@@ -335,13 +335,13 @@ def test_invented_shelter_and_light_have_effects(world):
     from swarmworld.world.perception import sight_range
     c = creature(world)
     c.inventory.update({"stick": 6, "plant_fiber": 4, "stone": 4, "flint": 2})
-    res = act(world, c, action="invent", target="grass hut", items=["stick", "plant fiber"], text="a little shelter to sleep in")
+    res = act(world, c, action="invent", target="grass hut", items=["stick", "plant fiber", "stone"], text="a little shelter to sleep in")
     assert res.ok and "like a bed" in res.message
     assert act(world, c, action="place", target="grass hut").ok
     res = act(world, c, action="rest")
     assert "bed" in res.message
     world.tick += 1300
-    res = act(world, c, action="invent", target="flint torch", items=["stick", "stone", "plant fiber"], text="a torch that lights the night")
+    res = act(world, c, action="invent", target="flint torch", items=["stick", "flint", "plant fiber"], text="a torch that lights the night")
     assert res.ok and "lights up the night" in res.message
     assert act(world, c, action="place", target="flint torch").ok
     world.tick = 2 * 1200 + 1000  # night
@@ -402,6 +402,23 @@ def test_explore_turns_at_the_edge_and_animals_arent_food(world):
 
 def test_known_recipe_among_extra_items(world):
     c = creature(world)
-    c.inventory.update({"plant_fiber": 3, "stick": 1})
-    res = act(world, c, action="combine", items=["plant fiber", "stick"])
-    assert res.ok and c.inventory["rope"] == 1 and c.inventory["stick"] == 1
+    c.inventory.update({"plant_fiber": 3, "clay": 1})
+    res = act(world, c, action="combine", items=["plant fiber", "clay"])
+    assert res.ok and c.inventory["rope"] == 1 and c.inventory["clay"] == 1
+
+
+def test_shared_basket_and_tending_fire(world):
+    a = creature(world, "Tam", 10, 10)
+    a.inventory.update({"plant_fiber": 4, "stick": 3, "berries": 5})
+    assert act(world, a, action="combine", items=["plant fiber", "stick"]).ok and a.inventory["basket"] == 1
+    assert act(world, a, action="place", target="basket").ok
+    res = act(world, a, action="store", target="basket", items=["berries"])
+    assert res.ok and a.inventory["berries"] == 0
+    b = creature(world, "Mara", 12, 10)
+    res = act(world, b, action="take", target="basket", items=["berries"], count=3)
+    assert res.ok and b.inventory["berries"] == 3
+    from swarmworld.world.perception import perceive
+    assert "basket (holding 2 berries)" in perceive(world, b)
+    fire = world.add_object("campfire", 10, 11, lit=False, lit_until=0)
+    res = act(world, a, action="give", target="campfire", items=["stick"])
+    assert res.ok and fire.data["lit"] and "relight" in res.message

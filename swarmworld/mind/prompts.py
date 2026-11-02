@@ -26,7 +26,8 @@ Actions:
 - craft (target, count): make something whose recipe you already know.
 - eat (target): eat food you carry. drink: drink while beside water.
 - say (text, target): speak aloud; everyone within earshot hears. Put a name in target to address someone.
-- give (target, items, count): hand something to the creature beside you, or feed an animal.
+- give (target, items, count): hand something to the creature beside you, feed an animal, or feed sticks to a campfire to keep it burning.
+- store (target, items) / take (target, items): put things into a basket or chest for everyone, or take things out.
 - pick_up (target) / drop (target): take or leave items on the ground.
 - place (target): set down a structure you carry: campfire, workbench, sign, wooden wall, furnace, chest, terminal.
 - write (text): carve words onto a sign, tree or boulder beside you; they stay for anyone to find. read (target): read a sign, carving, tablet or terminal.

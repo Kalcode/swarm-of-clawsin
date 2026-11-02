@@ -20,14 +20,14 @@ TILE_NAMES = {
 }
 BLOCKING = {
     "tree", "pine", "rock", "copper_vein", "iron_vein", "wall",
-    "workbench", "furnace", "chest", "terminal", "campfire", "millstone", "bed",
+    "workbench", "furnace", "chest", "basket", "terminal", "campfire", "millstone", "bed",
 }
 OBJECT_NAMES = {
     "tree": "oak tree", "pine": "pine tree", "stump": "tree stump", "bush": "berry bush",
     "bush_empty": "picked-over bush", "rock": "boulder", "copper_vein": "green-streaked rock",
     "iron_vein": "rust-streaked rock", "clay": "clay bank", "campfire": "campfire",
     "workbench": "workbench", "furnace": "furnace", "wall": "wooden wall", "sign": "sign",
-    "chest": "chest", "terminal": "strange terminal", "tablet": "stone tablet",
+    "chest": "chest", "basket": "basket", "terminal": "strange terminal", "tablet": "stone tablet",
     "crop": "wheat", "sapling": "berry sapling", "millstone": "millstone", "bed": "bed", "door": "door",
     "chicken": "chicken", "sheep": "sheep", "cow": "cow", "creation": "creation",
 }
@@ -48,7 +48,8 @@ OBJECT_ALIASES = {
     "furnace": ["furnace", "forge", "smelter"],
     "wall": ["wall", "wooden wall"],
     "sign": ["sign", "signpost"],
-    "chest": ["chest", "box"],
+    "chest": ["chest", "box", "store", "storage"],
+    "basket": ["basket", "store", "storage", "shared store"],
     "terminal": ["terminal", "computer", "machine", "strange terminal"],
     "tablet": ["tablet", "stone tablet", "inscription"],
     "crop": ["wheat", "crop", "crops", "field", "wheat field", "ripe wheat", "wheat sprouts", "growing wheat",
@@ -255,6 +256,8 @@ class World:
             d["crop"] = o.data["crop"]
         if o.data.get("tamed_by"):
             d["tamed_by"] = o.data["tamed_by"]
+        if o.kind in ("basket", "chest"):
+            d["text"] = ", ".join(f"{n} {self.catalog.name(i)}" for i, n in (o.data.get("items") or {}).items()) or "empty"
         if o.data.get("text"):
             d["text"] = o.data["text"][:200]
         if o.kind == "terminal" and o.data.get("screen"):

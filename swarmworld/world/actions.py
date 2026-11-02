@@ -15,7 +15,7 @@ from .perception import DIRS, dist, direction, sight_range, visible_creatures, v
 
 VERBS = [
     "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
-    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent",
+    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take",
 ]
 VERB_ALIASES = {
     "walk": "walk_to", "go": "walk_to", "go_to": "walk_to", "goto": "walk_to", "move": "walk_to",
@@ -26,7 +26,7 @@ VERB_ALIASES = {
     "make": "craft", "build": "craft", "create": "craft",
     "mix": "combine", "experiment": "combine",
     "speak": "say", "talk": "say", "tell": "say", "shout": "say", "ask": "say", "reply": "say",
-    "pickup": "pick_up", "take": "pick_up", "grab": "pick_up",
+    "pickup": "pick_up", "grab": "pick_up", "deposit": "store", "stash": "store", "put_in": "store", "withdraw": "take",
     "sleep": "rest", "idle": "wait", "look": "wait", "observe": "wait",
     "inspect": "read", "examine": "read", "consume": "eat", "trade": "give", "hand": "give",
     "put": "place", "set_up": "place", "code": "program", "write_code": "program",
@@ -815,7 +815,33 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
     return ActionResult(True, f"The {animal.name} eats warily from your hand. Maybe it will trust you if you feed it again.")
 
 
+def _feed_fire(world: World, c: Creature, fire: WorldObject, it: Intention) -> ActionResult:
+    if dist(c.x, c.y, fire.x, fire.y) > 1:
+        return _walk_then(world, c, fire, it)
+    name = it.items[0] if it.items else (it.text or "stick")
+    iid, err = _resolve_held(world, c, name)
+    if not iid:
+        return ActionResult(False, err)
+    fuel = {"stick": 300, "log": 900, "charcoal": 1200, "plant_fiber": 60}.get(iid)
+    if not fuel:
+        return ActionResult(False, f"The {world.catalog.name(iid)} won't burn.")
+    n = min(max(it.count, 1), c.inventory[iid])
+    c.inventory[iid] -= n
+    if c.inventory[iid] <= 0:
+        del c.inventory[iid]
+    was_lit = fire.data.get("lit")
+    fire.data["lit"] = True
+    fire.data["lit_until"] = max(fire.data.get("lit_until", 0), world.tick) + fuel * n
+    world.changed_objects.add(fire.id)
+    c.stats["tended_fire"] += 1
+    world.emit("tend", c.id, fire.x, fire.y, f"{c.name} {'fed' if was_lit else 'relit'} the campfire with {n} {world.catalog.name(iid)}.")
+    return ActionResult(True, f"You {'feed' if was_lit else 'relight'} the campfire with {n} {world.catalog.name(iid)}. It will burn a good while longer.")
+
+
 def _give(world: World, c: Creature, it: Intention) -> ActionResult:
+    fire = find_object(world, c, it.target, kinds={"campfire"}) if it.target and not find_creature(world, c, it.target) else None
+    if fire:
+        return _feed_fire(world, c, fire, it)
     other = find_creature(world, c, it.target)
     if not other:
         animal = find_object(world, c, it.target, kinds=ANIMALS) if it.target else None
@@ -920,7 +946,7 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
         data.update(lit=True, lit_until=world.tick + 1200)
     elif kind == "sign":
         data.update(text="")
-    elif kind == "chest":
+    elif kind in ("chest", "basket"):
         data.update(items={})
     elif kind == "terminal":
         data.update(code="", screen=[f"A new terminal built by {c.name}.", "> READY: awaiting a Lua program", '> example:  say("hello")'], memory={})
@@ -1127,6 +1153,66 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f"You invent the {name}: {desc} It is {kind}. Recipe: {recipe}. Others can learn it if you share how.")
 
 
+STORES = {"basket", "chest"}
+
+
+def _store(world: World, c: Creature, it: Intention) -> ActionResult:
+    box = find_object(world, c, it.target or "basket", kinds=STORES) or find_object(world, c, "", kinds=STORES)
+    if not box:
+        return ActionResult(False, "There's no basket or chest in sight to store things in.")
+    if dist(c.x, c.y, box.x, box.y) > 1:
+        return _walk_then(world, c, box, it)
+    names = it.items or [it.text] if (it.items or it.text) else []
+    if not names:
+        return ActionResult(False, "Store what? Put the items in items.")
+    stored: Counter = Counter()
+    for n in names:
+        iid, err = _resolve_held(world, c, n)
+        if not iid:
+            if not stored:
+                return ActionResult(False, err)
+            continue
+        k = c.inventory[iid] if it.count == 1 else min(it.count, c.inventory[iid])
+        c.inventory[iid] -= k
+        if c.inventory[iid] <= 0:
+            del c.inventory[iid]
+        stored[iid] += k
+    contents = Counter(box.data.get("items") or {})
+    contents.update(stored)
+    box.data["items"] = dict(contents)
+    world.changed_objects.add(box.id)
+    c.stats["stored"] += sum(stored.values())
+    world.emit("store", c.id, box.x, box.y, f"{c.name} stored {_items_text(world, stored)} in the {box.name}.")
+    return ActionResult(True, f"You put {_items_text(world, stored)} into the {box.name}. It now holds {_items_text(world, contents)}.")
+
+
+def _take(world: World, c: Creature, it: Intention) -> ActionResult:
+    box = find_object(world, c, it.target or "basket", kinds=STORES) or find_object(world, c, "", kinds=STORES)
+    if not box:
+        return _pick_up(world, c, it)  # "take" with no store around means picking up from the ground
+    if dist(c.x, c.y, box.x, box.y) > 1:
+        return _walk_then(world, c, box, it)
+    contents = Counter(box.data.get("items") or {})
+    if not contents:
+        return ActionResult(False, f"The {box.name} is empty.")
+    names = it.items or ([it.text] if it.text else [])
+    wanted = [world.catalog.resolve(n) for n in names] if names else list(contents)
+    taken: Counter = Counter()
+    for iid in wanted:
+        if iid and contents.get(iid, 0) > 0:
+            k = min(contents[iid], max(it.count, 1) if names else contents[iid], 10)
+            contents[iid] -= k
+            taken[iid] += k
+    if not taken:
+        return ActionResult(False, f"The {box.name} holds {_items_text(world, contents)}, but not that.")
+    box.data["items"] = {i: n for i, n in contents.items() if n > 0}
+    c.inventory.update(taken)
+    world.changed_objects.add(box.id)
+    c.stats["took_from_store"] += sum(taken.values())
+    world.emit("take", c.id, box.x, box.y, f"{c.name} took {_items_text(world, taken)} from the {box.name}.")
+    return ActionResult(True, f"You take {_items_text(world, taken)} from the {box.name}.")
+
+
 def _rest(world: World, c: Creature, it: Intention) -> ActionResult:
     if station_near(world, c, "bed"):
         return _busy(c, 10 * it.count, "resting in bed", "You rest in the bed and feel restored.", rest=True, bed=True)
@@ -1141,7 +1227,7 @@ HANDLERS = {
     "walk_to": _walk_to, "explore": _explore, "gather": _gather, "combine": _combine, "craft": _craft,
     "eat": _eat, "drink": _drink, "say": _say, "give": _give, "pick_up": _pick_up, "drop": _drop,
     "place": _place, "write": _write, "read": _read, "program": _program, "rest": _rest, "wait": _wait,
-    "plant": _plant, "invent": _invent,
+    "plant": _plant, "invent": _invent, "store": _store, "take": _take,
 }
 
 

@@ -99,6 +99,7 @@ Creatures start knowing only **rope** and **campfire**. Everything else has to b
 The first era is stone, wood and farming:
 
 - **Stone and wood:** stone knife, stone axe (logs), stone pickaxe (ore), planks, workbench, signs, walls, doors, beds, chests.
+- **Sharing:** baskets (plant fiber and a stick) and chests are shared stores anyone can `store` into or `take` from; campfires can be fed sticks or logs to keep them burning through the night.
 - **Fire and food:** campfires (light at night, cooking), roasted berries, cooked fish (needs a fishing rod), cooked eggs, bread.
 - **Farming:** grass sometimes yields wheat or carrot seeds (more often with a knife). A hoe lets creatures plant seeds or berries. Crops sprout, grow and ripen; wheat goes to the millstone for flour, and flour to the fire for bread.
 - **Animals:** chickens, sheep and cows roam. Feed one twice and it trusts you, stays near home, and gives eggs, milk or (with a knife) wool. Wool becomes cloth.

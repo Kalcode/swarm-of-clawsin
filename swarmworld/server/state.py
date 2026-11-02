@@ -381,7 +381,7 @@ class ServerState:
         for c in w.creatures.values():
             m = models.setdefault(c.model, Counter())
             m["creatures"] += 1
-            for k in ("crafted", "discoveries", "inventions", "speech", "built", "gathered", "writing", "collapses"):
+            for k in ("crafted", "discoveries", "inventions", "speech", "built", "gathered", "writing", "collapses", "stored", "tended_fire"):
                 m[k] += c.stats.get(k, 0)
             m["learned"] += sum(c.stats.get(k, 0) for k in ("learned_by_watching", "learned_by_listening", "learned_by_reading"))
             m["recipes_known"] += len(c.known_recipes)

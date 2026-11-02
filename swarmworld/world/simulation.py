@@ -256,7 +256,7 @@ class Simulation:
                                teacher=ev.actor, how="watching", item=item)
                         learned = " Now you know how to make it too."
                     self.remember(h, f"You watched {maker.name if maker else 'someone'} make {w.catalog.name(item)}{how}.{learned}", 3 if learned else 2)
-            elif ev.kind == "place":
+            elif ev.kind in ("place", "store", "take", "tend"):
                 for h in hearers(w, ev.x, ev.y, WITNESS_RADIUS):
                     if h.id != ev.actor:
                         self.remember(h, ev.text, 1)

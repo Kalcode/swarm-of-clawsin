@@ -229,5 +229,12 @@
    "wool": 2
   },
   "station": "workbench"
+ },
+ {
+  "output": "basket",
+  "inputs": {
+   "plant_fiber": 4,
+   "stick": 1
+  }
  }
 ]

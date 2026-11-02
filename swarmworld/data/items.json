@@ -235,7 +235,7 @@
   "tags": [
    "building"
   ],
-  "desc": "A box to keep things in."
+  "desc": "Set it down, then anyone can store things in it or take things out."
  },
  "roasted_berries": {
   "name": "roasted berries",
@@ -576,5 +576,19 @@
    "crop"
   ],
   "desc": "Crunchy and sweet."
+ },
+ "basket": {
+  "name": "basket",
+  "aliases": [
+   "woven basket",
+   "storage basket",
+   "store"
+  ],
+  "placeable": true,
+  "tags": [
+   "building",
+   "storage"
+  ],
+  "desc": "Set it down, then anyone can store things in it or take things out: a shared store."
  }
 }

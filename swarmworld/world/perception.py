@@ -189,6 +189,9 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             label = "sign with writing"
         elif o.data.get("text") and o.kind in ("tree", "pine", "rock", "stump"):
             label = f"{o.name} with words carved into it"
+        elif o.kind in ("basket", "chest"):
+            held = o.data.get("items") or {}
+            label = f"{o.name} (holding " + ", ".join(f"{n} {world.catalog.name(i)}" for i, n in held.items()) + ")" if held else f"empty {o.name}"
         if o.kind == "terminal":
             label = "strange terminal (running a program)" if o.data.get("code") else "strange terminal (its screen glows, waiting)"
         groups[label].append((d, dirn))
