@@ -273,6 +273,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             lines.append("You are soaked and shivering; a fire or shelter would help." if getattr(world, "weather", "clear") == "rain"
                          else "The night air is cold; you'd be better off by a fire or under shelter.")
     foods = [(i, n) for i, n in c.inventory.items() if n > 0 and world.catalog.items[i].food > 0]
+    foods = [(i, n) for i, n in foods if "seed" not in world.catalog.items[i].tags] or foods  # seeds only in a pinch
     if c.satiety < 40 and foods:
         lines.append("Your stomach growls. You carry food you could eat right now: "
                      + ", ".join(f"{n} {world.catalog.name(i)}" for i, n in foods) + ".")

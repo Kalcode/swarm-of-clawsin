@@ -753,10 +753,10 @@ def _craft(world: World, c: Creature, it: Intention) -> ActionResult:
 def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
     name = it.target or (it.items[0] if it.items else "")
     if not name:
-        foods = [i for i in c.inventory if world.catalog.items[i].food > 0]
+        foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
         if not foods:
             return ActionResult(False, "You have nothing to eat.")
-        name = foods[0]
+        name = max(foods, key=lambda i: world.catalog.items[i].food)
     iid = world.catalog.resolve(name)
     if iid is None and any(w in ("chicken", "cow", "sheep", "hen", "lamb", "animal") for w in _words(name)):
         return ActionResult(False, "You can't eat a live animal. But an animal that trusts you (feed it twice) gives eggs, milk or wool.")

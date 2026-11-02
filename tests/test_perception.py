@@ -55,3 +55,13 @@ def test_relative_directions():
     assert direction(2, 2) == "southeast"
     assert direction(-1, 0) == "west"
     assert direction(0, 0) == "here"
+
+
+def test_hunger_offers_seeds_only_when_nothing_better(world):
+    c = add_creature(world)
+    c.satiety = 30
+    c.inventory.update({"wheat_seeds": 3, "berries": 2})
+    text = perceive(world, c)
+    assert "2 berries" in text and "wheat seeds" not in text.split("You carry food")[1].split("\n")[0]
+    c.inventory.pop("berries")
+    assert "3 wheat seeds" in perceive(world, c).split("You carry food")[1]

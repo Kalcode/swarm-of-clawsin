@@ -165,6 +165,17 @@ def test_eat_and_drink(world):
     assert act(world, c, action="drink").ok
 
 
+def test_seeds_are_a_poor_meal_in_a_pinch(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update({"wheat_seeds": 2, "berries": 1})
+    assert act(world, c, action="eat").ok  # no target: the best food goes first
+    assert not c.inventory.get("berries") and c.inventory["wheat_seeds"] == 2
+    before = c.satiety
+    assert act(world, c, action="eat", target="wheat seeds").ok
+    assert c.satiety == before + 2 * 3 and not c.inventory.get("wheat_seeds")
+
+
 def test_gather_far_walks_then_gathers(world):
     c = creature(world)
     world.add_object("bush", 14, 10, berries=4)
