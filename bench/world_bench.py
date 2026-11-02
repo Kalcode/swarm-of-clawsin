@@ -67,6 +67,9 @@ async def episode(model: str, brain, seed: int, creatures: int, ticks: int, slot
     return {"model": model, "seed": seed, "first": first, "thinks": m["thinks"], "success_rate": m["act_ok"] / acts if acts else 0,
             "parse_failures": m["parse_failures"], "errors": m["errors"], "loops": m["loops"], "learned": learned,
             "speech": speech, "crafted": sum(c.stats.get("crafted", 0) for c in st.world.creatures.values()),
+            "noop_rate": m["noops"] / acts if acts else 0,
+            "collapses": sum(c.stats.get("collapses", 0) for c in st.world.creatures.values()),
+            "inventions": sum(c.stats.get("inventions", 0) for c in st.world.creatures.values()),
             "wall_s": round(time.time() - t0, 1)}
 
 
@@ -74,7 +77,8 @@ def summarize(results: list[dict], ticks: int) -> str:
     by_model: dict[str, list[dict]] = {}
     for r in results:
         by_model.setdefault(r["model"], []).append(r)
-    head = ["model", "episodes", "thinks", "success", "parse fail", "learned", "speech", "crafted"] + [f"{m} @tick" for m in MILESTONES]
+    head = (["model", "episodes", "thinks", "success", "no-op", "parse fail", "learned", "speech", "crafted", "inventions", "collapses"]
+            + [f"{m} @tick" for m in MILESTONES])
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for model, rs in by_model.items():
         def avg(k):
@@ -85,8 +89,9 @@ def summarize(results: list[dict], ticks: int) -> str:
             return f"{len(got)}/{len(rs)}" + (f" ~{int(statistics.mean(got))}" if got else "")
 
         rows.append("| " + " | ".join([model, str(len(rs)), f"{avg('thinks'):.0f}", f"{avg('success_rate'):.0%}",
-                                        f"{avg('parse_failures'):.1f}", f"{avg('learned'):.1f}", f"{avg('speech'):.0f}",
-                                        f"{avg('crafted'):.0f}"] + [reached(ms) for ms in MILESTONES]) + " |")
+                                        f"{avg('noop_rate'):.0%}", f"{avg('parse_failures'):.1f}", f"{avg('learned'):.1f}",
+                                        f"{avg('speech'):.0f}", f"{avg('crafted'):.0f}", f"{avg('inventions'):.1f}",
+                                        f"{avg('collapses'):.1f}"] + [reached(ms) for ms in MILESTONES]) + " |")
     return (f"Turn-based episodes of {ticks} ticks. Milestones: how many episodes reached it, and the average tick when they did.\n\n"
             + "\n".join(rows))
 
@@ -111,7 +116,7 @@ async def main() -> None:
         for ep in range(args.episodes):
             r = await episode(model, brain, args.seed + ep, args.creatures, args.ticks, args.slots)
             results.append(r)
-            print(f"  {model} episode {ep + 1}: thinks {r['thinks']}, success {r['success_rate']:.0%}, "
+            print(f"  {model} episode {ep + 1}: thinks {r['thinks']}, success {r['success_rate']:.0%}, no-op {r['noop_rate']:.0%}, "
                   f"milestones {r['first']}, learned {r['learned']}, {r['wall_s']}s", flush=True)
         await brain.close()
     table = summarize(results, args.ticks)
