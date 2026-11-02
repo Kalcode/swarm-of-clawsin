@@ -6,6 +6,8 @@
 #   ./start-world.sh --no-inspiration  # no hunches: purely unassisted discovery
 #   (flags combine, e.g. ./start-world.sh --fresh --lan; SEED=42 gives a different map)
 # Settings (environment variables): MODEL, CREATURES, SLOTS, SEED, TICK, PORT, WORLD, MODEL2 ("NAME:N" second model; MODEL2= for one model only)
+#   MODEL_SERVER: think on another machine's model server instead of this Mac's oMLX, e.g. the gaming PC:
+#   MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
 set -euo pipefail
 cd "$(dirname "$0")"
 MODEL="${MODEL:-gemma-4-e4b-it-4bit}"
@@ -30,11 +32,16 @@ start_omlx() {
   omlx serve --model-dir ~/models --max-concurrent-requests 16 --memory-guard-gb 20 --paged-ssd-cache-dir ~/.omlx/cache --paged-ssd-cache-max-size 10GB >> runs/omlx.log 2>&1 &
   for _ in $(seq 90); do curl -sf http://127.0.0.1:8000/v1/models >/dev/null && break; sleep 1; done
 }
-curl -sf http://127.0.0.1:8000/v1/models >/dev/null || start_omlx
+if [[ -n "${MODEL_SERVER:-}" ]]; then
+  curl -sf --max-time 5 "$MODEL_SERVER/models" >/dev/null || { echo "No model server answering at $MODEL_SERVER"; exit 1; }
+else
+  curl -sf http://127.0.0.1:8000/v1/models >/dev/null || start_omlx
+fi
 
 WORLD_ARGS=(--seed "$SEED" --tick "$TICK" --port "$PORT" --world "$WORLD")
 NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "$SLOTS")
 [[ -n "${MODEL2:-}" ]] && NODE_ARGS+=(--model "$MODEL2")
+[[ -n "${MODEL_SERVER:-}" ]] && NODE_ARGS+=(--model-server "$MODEL_SERVER")
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")
   NODE_ARGS+=(--token "$TOKEN")
@@ -67,6 +74,7 @@ NODE_PID=$!
 misses=0
 while kill -0 "$WORLD_PID" 2>/dev/null; do
   sleep 60 & wait $!  # interruptible, so Ctrl-C or a kill stops everything at once
+  [[ -n "${MODEL_SERVER:-}" ]] && continue  # another machine's model server looks after itself
   if curl -sf --max-time 20 http://127.0.0.1:8000/v1/models >/dev/null; then
     misses=0
   else
