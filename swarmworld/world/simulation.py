@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict, deque
 from typing import Callable
 
-from .actions import ActionResult, step_activity
+from .actions import ANIMAL_FOOD, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
 from .perception import note_spots, visible_creatures
@@ -16,6 +16,10 @@ ENERGY_EVERY = 30  # about 40 energy a day: a creature needs a good rest roughly
 STARVE_EVERY = 4
 IDLE_TICKS = 30
 SLEEP_BELOW = {"reactive": 101, "proactive": 80}  # at night, idle creatures under this energy turn in (reactive: always)
+ANIMAL_HUNGER_CHANCE = 0.25  # per evaluation: about 75 hunger a day if never grazing
+ANIMAL_GRAZE_FILL = 3
+ANIMAL_BREED_CHANCE = 0.08
+ANIMAL_CAP = 12  # per kind, world-wide
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -432,17 +436,93 @@ class Simulation:
                     break
 
     def _animals(self) -> None:
+        """Needs-driven animal behaviour (runs every 4 ticks): wary, follow, rest, home or graze."""
         w = self.world
-        for o in list(w.objects.values()):
-            if o.kind not in ANIMALS or w.rng.random() > 0.35:
-                continue
-            dx, dy = w.rng.choice(((1, 0), (-1, 0), (0, 1), (0, -1)))
-            nx, ny = o.x + dx, o.y + dy
-            home = o.data.get("home")
-            if home and max(abs(nx - home[0]), abs(ny - home[1])) > 3:
-                continue
-            if not w.occupied(nx, ny):
-                w.move_object(o, nx, ny)
+        day = w.clock()["day"]
+        night = w.clock()["phase"] == "night"
+        animals = [o for o in w.objects.values() if o.kind in ANIMALS]
+        counts = Counter(o.kind for o in animals)
+        for o in animals:
+            d = o.data
+            d.setdefault("hunger", 20)
+            if w.rng.random() < ANIMAL_HUNGER_CHANCE:
+                d["hunger"] = min(100, d["hunger"] + 1)
+            owner = next((c for c in w.creatures.values() if c.name == d.get("tamed_by")), None) if d.get("tamed_by") else None
+            home = d.get("home")
+            near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
+                    and max(abs(c.x - o.x), abs(c.y - o.y)) < 3] if not owner and not d.get("tamed_by") else []
+            following = bool(owner and max(abs(owner.x - o.x), abs(owner.y - o.y)) <= 6
+                             and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_FOOD))
+            if near:
+                d["state"] = "wary"
+                c = min(near, key=lambda c: max(abs(c.x - o.x), abs(c.y - o.y)))
+                steps = 2 if max(abs(c.x - o.x), abs(c.y - o.y)) <= 1 else 1
+                for _ in range(steps):
+                    self._animal_step(o, c.x, c.y, away=True)
+            elif following:
+                d["state"] = "follow"
+                d["following"] = True
+                gap = max(abs(owner.x - o.x), abs(owner.y - o.y))
+                for _ in range(2 if gap > 3 else 1 if gap > 2 else 0):  # trail 1-2 tiles behind, hurrying if it falls back
+                    self._animal_step(o, owner.x, owner.y)
+            else:
+                if d.pop("following", False) and home and max(abs(o.x - home[0]), abs(o.y - home[1])) > 6:
+                    d["home"] = home = [o.x, o.y]
+                if night:
+                    d["state"] = "rest"
+                    mates = [m for m in animals if m is not o and m.kind == o.kind and max(abs(m.x - o.x), abs(m.y - o.y)) <= 5]
+                    if mates and w.rng.random() < 0.3:
+                        m = min(mates, key=lambda m: max(abs(m.x - o.x), abs(m.y - o.y)))
+                        if max(abs(m.x - o.x), abs(m.y - o.y)) > 1:
+                            self._animal_step(o, m.x, m.y)
+                elif home and max(abs(o.x - home[0]), abs(o.y - home[1])) > 3:
+                    d["state"] = "home"
+                    self._animal_step(o, home[0], home[1])
+                else:
+                    d["state"] = "graze"
+                    if w.tile(o.x, o.y) in "gf":
+                        d["hunger"] = max(0, d["hunger"] - ANIMAL_GRAZE_FILL)
+                    if w.rng.random() < 0.3:
+                        dx, dy = w.rng.choice(((1, 0), (-1, 0), (0, 1), (0, -1)))
+                        nx, ny = o.x + dx, o.y + dy
+                        if not (home and max(abs(nx - home[0]), abs(ny - home[1])) > 3) and w.tile(nx, ny) in "gf":
+                            self._animal_step(o, nx, ny)
+            self._breed(o, animals, counts, day)
+
+    def _animal_step(self, o, tx: int, ty: int, away: bool = False) -> bool:
+        """Move one tile toward (or away from) a target, taking the best free tile; False if boxed in."""
+        w = self.world
+        def score(p):
+            d = (p[0] - tx) ** 2 + (p[1] - ty) ** 2
+            return -d if away else d
+        here = score((o.x, o.y))
+        opts = [(o.x + dx, o.y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+        w.rng.shuffle(opts)
+        for p in sorted(opts, key=score):
+            if score(p) >= here:
+                break
+            if not w.occupied(*p) and w.move_object(o, *p):
+                return True
+        return False
+
+    def _breed(self, o, animals, counts, day: int) -> None:
+        w, d = self.world, o.data
+        if not d.get("tamed_by") or d["hunger"] >= WELL_FED or d.get("bred_day") == day or counts[o.kind] >= ANIMAL_CAP:
+            return
+        mate = next((m for m in animals if m is not o and m.kind == o.kind and m.data.get("tamed_by")
+                     and m.data.get("hunger", 20) < WELL_FED and m.data.get("bred_day") != day
+                     and max(abs(m.x - o.x), abs(m.y - o.y)) <= 2), None)
+        if not mate or w.rng.random() > ANIMAL_BREED_CHANCE:
+            return
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            x, y = o.x + dx, o.y + dy
+            if w.walkable(x, y) and (x, y) not in w.grid and w.tile(x, y) not in "wW" and not w.occupied(x, y):
+                owner = d["tamed_by"]
+                w.add_object(o.kind, x, y, tamed_by=owner, home=list(d.get("home") or [o.x, o.y]), label=f"{owner}'s {o.kind}",
+                             ready_at=w.tick + 300, hunger=20, fed=2, bred_day=day)
+                d["bred_day"] = mate.data["bred_day"] = day
+                counts[o.kind] += 1
+                return
 
     def _terminals(self, t: int) -> None:
         if not self.terminal_runner:

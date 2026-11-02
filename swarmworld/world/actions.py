@@ -51,6 +51,7 @@ SOURCE_HINT = {
     "clay": "dig it from clay banks", "sand": "scoop it up on sandy ground", "fish": "catch them in water with a fishing rod",
     "wheat": "grow it from wheat seeds", "egg": "a chicken that trusts you lays them",
 }
+WELL_FED = 40  # animal hunger below this: it gives eggs, milk, wool and may breed
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
 EMPTY_KINDS = {"bush_empty", "stump"}
 CARVABLE = {"tree", "pine", "rock", "stump"}
@@ -740,6 +741,8 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             if not obj.data.get("tamed_by"):
                 world.move_object(obj, *_flee(world, c, obj))
                 return ActionResult(False, f"The wild {obj.kind} shies away from you. Animals might trust someone who feeds them.")
+            if obj.data.get("hunger", 20) >= WELL_FED:
+                return ActionResult(False, f"The {obj.name} looks hungry and has nothing for you. Feed it or let it graze first.")
             if world.tick < obj.data.get("ready_at", 0):
                 return ActionResult(False, f"The {obj.name} has nothing for you yet. Come back later.")
             if obj.kind == "chicken":
@@ -947,6 +950,8 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
         del c.inventory[iid]
     fed = animal.data.get("fed", 0) + 1
     animal.data["fed"] = fed
+    animal.data["hunger"] = max(0, animal.data.get("hunger", 20) - 60)
+    animal.data["fed_by"] = sorted({*animal.data.get("fed_by", ()), c.name})
     if animal.data.get("tamed_by"):
         return ActionResult(True, f"The {animal.name} eats happily from your hand. It already belongs to {animal.data['tamed_by']}.")
     if fed >= 2:
