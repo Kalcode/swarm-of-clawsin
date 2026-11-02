@@ -403,6 +403,26 @@ def _next_hint(obj: WorldObject) -> str:
     return ""
 
 
+NOT_A_THING = {"nothing", "none", "something", "anything", "everything", "thing", "things", "stuff", "item", "items",
+               "ground", "floor", "air", "here", "inventory", "hand", "hands", "self", "myself", "me", "it", "them", "all",
+               "new", "unknown", "idea", "materials", "resources", "mixture", "combination", "together", "random"}
+
+
+def _dream(world: World, c: Creature, hint: str) -> str:
+    """The name of a thing nobody has made yet, if the hint reads like one (a short noun phrase, not a person or place)."""
+    words = _words(hint or "")
+    if not 1 <= len(words) <= 3 or any(w.isdigit() for w in words) or NOT_A_THING & set(words):
+        return ""
+    dream = " ".join(words)
+    if len(dream) <= 2 or world.catalog.resolve(dream) or set(words) & set(DIRS):
+        return ""
+    if any(o.name.lower() in words for o in world.creatures.values()):
+        return ""
+    if find_creature(world, c, hint) or find_object(world, c, hint) or find_landmark(world, c, hint):
+        return ""
+    return dream
+
+
 def _noop_key(it: Intention) -> str:
     return f"{it.action} {it.target.lower()}"
 
@@ -727,8 +747,8 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         if known:
             return ActionResult(False, f"You know how to make {world.catalog.name(wanted)}: {world.catalog.describe_recipe(known)}.")
         lacking = f" ({missing[0].rstrip('.')}.)" if missing else ""
-        dream = " ".join(_words(hint)) if hint and not world.catalog.resolve(hint) else ""
-        if dream and len(dream) > 2 and not find_creature(world, c, hint) and not find_object(world, c, hint):
+        dream = _dream(world, c, hint)
+        if dream:
             return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it. No one has ever made a '{dream}'. "
                                        f"If you believe in it, you could invent it with these things.{lacking}")
         if world.catalog.near_miss(ids):

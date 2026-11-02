@@ -145,6 +145,17 @@ def test_inventing_a_known_thing_makes_it(world):
     assert act(world, c, action="invent", target="rope").ok and c.inventory.get("rope") == 1  # known recipe: craft
 
 
+def test_myth_hint_only_for_names_of_things(world):
+    c = creature(world)
+    creature(world, "Mara", 35, 35)  # out of sight, but they know her name
+    for hint in ("nothing", "the ground", "my inventory", "Mara", "3 sticks", "a very long name for a big thing"):
+        c.inventory.update({"stick": 1, "berries": 1})
+        res = act(world, c, action="combine", items=["stick", "berries"], target=hint)
+        assert "No one has ever made" not in res.message, hint
+    res = act(world, c, action="combine", items=["stick", "berries"], target="berry wand")
+    assert "No one has ever made a 'berry wand'" in res.message
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
