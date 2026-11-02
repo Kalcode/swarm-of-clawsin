@@ -6,10 +6,10 @@ rw = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rw)
 
 
-def act(cid, name, model, harness, action, ok=True, noop=False, tin=1000, cached=400, tout=50, **extra):
-    return {"creature": cid, "name": name, "model": model, "kind": "act", "harness": harness, "output": {"action": action, "target": "x"},
-            "result": {"ok": ok, "noop": noop, "message": ""}, "tokens_in": tin, "cached_tokens": cached,
-            "tokens_out": tout, **extra}
+def act(cid, name, model, harness, action, ok=True, noop=False, tin=1000, cached=400, tout=50, tick=10, **extra):
+    return {"tick": tick, "creature": cid, "name": name, "model": model, "kind": "act", "harness": harness,
+            "output": {"action": action, "target": "x"}, "result": {"ok": ok, "noop": noop, "message": ""},
+            "tokens_in": tin, "cached_tokens": cached, "tokens_out": tout, **extra}
 
 
 def test_split_report_groups_by_model_and_layers():
@@ -21,9 +21,9 @@ def test_split_report_groups_by_model_and_layers():
               {"creature": "c1", "name": "Ann", "model": "m1", "kind": "reflect", "harness": ["plan", "recall"]},
               act("c2", "Bob", "m1", [], "walk_to"),
               act("c3", "Cy", "m2", [], "eat")]
-    events = [{"kind": "collapse", "actor": "c2", "text": "Bob collapses"},
-              {"kind": "craft", "actor": "c1", "text": "Ann made a rope"},
-              {"kind": "craft", "actor": "c1", "text": "Ann made a net"}]
+    events = [{"tick": 20, "kind": "collapse", "actor": "c2", "text": "Bob collapses"},
+              {"tick": 20, "kind": "craft", "actor": "c1", "text": "Ann made a rope"},
+              {"tick": 20, "kind": "craft", "actor": "c1", "text": "Ann made a net"}]
     r = rw.split_report(thinks, events)
     assert set(r) == {("m1", "plan+recall"), ("m1", "none"), ("m2", "none")}
     a = r[("m1", "plan+recall")]
@@ -38,3 +38,26 @@ def test_split_report_groups_by_model_and_layers():
     assert a["uncached_in"] == (600 + 800 + 600 + 600 + 600) / 5
     assert a["tokens_out"] == (50 + 150 + 50 + 50 + 50) / 5
     assert r[("m1", "none")]["collapses"] == 1
+
+
+def test_split_report_skips_pre_harness_think_lines():
+    old = act("c1", "Ann", "m1", None, "gather")
+    del old["harness"]  # logged before the harness existed
+    r = rw.split_report([old, act("c2", "Bob", "m1", [], "eat")],
+                        [{"tick": 20, "kind": "craft", "actor": "c1", "text": "Ann made a rope"}])
+    assert set(r) == {("m1", "none")}
+    assert r[("m1", "none")]["replies"] == 1 and r[("m1", "none")]["crafted"] == 0
+
+
+def test_split_report_credits_events_to_the_group_in_force_then():
+    thinks = [act("c1", "Ann", "m1", [], "gather", tick=10),
+              act("c1", "Ann", "m1", ["plan"], "gather", tick=100),  # the world restarted with the plan layer
+              act("c1", "Ann", "m1", ["plan"], "gather", tick=200)]
+    events = [{"tick": 5, "kind": "craft", "actor": "c1", "text": "before any think"},
+              {"tick": 50, "kind": "craft", "actor": "c1", "text": "Ann made a rope"},
+              {"tick": 100, "kind": "collapse", "actor": "c1", "text": "Ann collapses"},
+              {"tick": 150, "kind": "craft", "actor": "c1", "text": "Ann made a net"},
+              {"tick": 160, "kind": "craft", "actor": "c1", "text": "Ann made a net"}]
+    r = rw.split_report(thinks, events)
+    assert r[("m1", "none")]["crafted"] == 1 and r[("m1", "none")]["collapses"] == 0
+    assert r[("m1", "plan")]["crafted"] == 2 and r[("m1", "plan")]["collapses"] == 1
