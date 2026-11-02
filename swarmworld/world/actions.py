@@ -782,7 +782,7 @@ def _drink(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _say(world: World, c: Creature, it: Intention) -> ActionResult:
-    text = it.text.strip().strip('"')[:300]
+    text = (it.text or it.speech).strip().strip('"')[:300]  # minds often put a say's words in speech
     if not text:
         return ActionResult(False, "You open your mouth but have nothing to say. (Put your words in text.)")
     to = find_creature(world, c, it.target) if it.target else None

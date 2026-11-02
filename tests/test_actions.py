@@ -119,6 +119,15 @@ def test_say_emits_event(world):
     assert ev.data["to_name"] == "Mara" and ev.data["line"] == "hello!"
 
 
+def test_say_with_words_only_in_speech_is_heard_once(world):
+    c = creature(world)
+    creature(world, "Mara", 12, 10)
+    res = act(world, c, action="say", target="Mara", speech="Want to build a fire?")
+    assert res.ok
+    said = [e for e in world.events if e.kind == "say"]
+    assert len(said) == 1 and said[0].data["line"] == "Want to build a fire?" and said[0].data["to_name"] == "Mara"
+
+
 def test_eat_and_drink(world):
     c = creature(world)
     c.satiety = 30
