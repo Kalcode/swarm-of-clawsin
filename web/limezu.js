@@ -7,7 +7,9 @@
  *
  * Everything is driven by web/assets/limezu/manifest.json: kind/item -> sheet
  * + rect (+ frames). New kinds only need a manifest entry. Kinds without one
- * are drawn with the Kenney art so they still show up.
+ * are drawn as their roguelike glyph (tiles.js) so they still show up. The
+ * manifest may also hold pieces of the Modern User Interface pack ("ui"),
+ * which dress the viewer's chrome while this skin is on.
  */
 (function () {
   'use strict';
@@ -39,12 +41,11 @@
       for (const layer of M.characters.layers) {
         jobs.push(loadImage(BASE + M.characters[layer].src).then((i) => { img['ch_' + layer] = i; }));
       }
-      for (const kind of ANIMAL_KINDS) {
-        for (const file of (M.animals && M.animals[kind] ? M.animals[kind].sheets : [])) {
-          jobs.push(loadImage(BASE + file).then((i) => { img[file] = i; }));
-        }
+      for (const kind of animalKinds()) {
+        for (const file of M.animals[kind].sheets) jobs.push(loadImage(BASE + file).then((i) => { img[file] = i; }));
       }
       await Promise.all(jobs);
+      buildUI();
       ready = true;
       return true;
     } catch (err) {
@@ -54,7 +55,8 @@
   }
 
   const hash = (s) => K.hashStr(s);
-  const ANIMAL_KINDS = ['chicken', 'sheep', 'cow'];
+  // every manifest animal with sheets (chicken, sheep, cow, and the wild game)
+  const animalKinds = () => Object.keys(M.animals || {}).filter((k) => M.animals[k] && Array.isArray(M.animals[k].sheets));
   const pickVariant = (spec, id) => spec.variants[hash(id) % spec.variants.length];
 
   /* --------------------------------------------------------------- terrain */
@@ -85,7 +87,10 @@
     return true;
   }
 
-  function renderTerrain(tiles, width, height) {
+  // biomes (init's nature rows) tint the land a little: an olive marsh, a cool dark pine forest, grey hills
+  const BIOME_TINT = { k: 'rgba(96,88,20,0.22)', p: 'rgba(0,26,40,0.22)', h: 'rgba(64,52,64,0.14)', b: 'rgba(120,96,40,0.06)' };
+
+  function renderTerrain(tiles, width, height, land) {
     const cv = document.createElement('canvas');
     cv.width = width * TILE;
     cv.height = height * TILE;
@@ -138,6 +143,23 @@
     }
     g.imageSmoothingEnabled = true;
     g.drawImage(mask, 0, 0, width * TILE, height * TILE);
+    const biomes = land && land.biomes;
+    if (biomes) {
+      // biome edges are ragged, so their tint is blurred over a couple of tiles before it is laid on
+      mg.clearRect(0, 0, width, height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const tint = BIOME_TINT[(biomes[y] || '')[x]];
+          if (tint) { mg.fillStyle = tint; mg.fillRect(x, y, 1, 1); }
+        }
+      }
+      const soft = document.createElement('canvas');
+      soft.width = width * 4; soft.height = height * 4;
+      const sg = soft.getContext('2d');
+      sg.filter = 'blur(5px)';
+      sg.drawImage(mask, 0, 0, soft.width, soft.height);
+      g.drawImage(soft, 0, 0, width * TILE, height * TILE);
+    }
     g.imageSmoothingEnabled = false;
     // grass creeps over the edges of every bare tile (dirt, sand, gravel, beach)
     for (let y = 0; y < height; y++) {
@@ -221,11 +243,14 @@
     return cv;
   }
 
+  /** A kind this skin has no sprite for: its roguelike glyph, the same one the other skins use. */
+  const glyph = (ctx, obj, dx, dy, ts) => K.drawGlyph(ctx, K.kindGlyph(obj.kind, obj.id), dx, dy, ts);
+
   function drawWishingStone(ctx, obj, dx, dy, ts, t) {
     const own = own_(M.objects, 'wishing_stone');
     const spec = own || own_(M.objects, 'rock');
     const sheet = spec && img[spec.sheet];
-    if (!sheet || !Array.isArray(spec.variants) || !spec.variants.length) return K.drawObject(ctx, obj, dx, dy, ts, t);
+    if (!sheet || !Array.isArray(spec.variants) || !spec.variants.length) return glyph(ctx, obj, dx, dy, ts);
     const seed = hash(obj.id);
     K.drawWishAura(ctx, dx + ts / 2, dy + ts, ts, t, seed);
     let b;
@@ -251,7 +276,8 @@
     if (animal && Array.isArray(animal.sheets)) return drawAnimal(ctx, obj, dx, dy, ts, t, anim);
     if (obj.kind === 'wishing_stone') return drawWishingStone(ctx, obj, dx, dy, ts, t);
     const spec = own_(M.objects, obj.kind);
-    if (!spec) return K.drawObject(ctx, obj, dx, dy, ts, t);
+    if (!spec) return glyph(ctx, obj, dx, dy, ts);
+    if (spec.draw && INSECTS[spec.draw]) return INSECTS[spec.draw](ctx, obj, dx, dy, ts, t);
     if (obj.kind === 'campfire') {
       if (obj.lit === false) return drawRect(ctx, img.objects, pickVariant(spec.unlit, obj.id).rect, dx, dy, ts, 1);
       const f = spec.frames[Math.floor(t / (1000 / spec.fps) + hash(obj.id)) % spec.frames.length];
@@ -280,11 +306,17 @@
         return;
       }
     }
-    // an entry this code can't draw (no sheet or no variants) falls back to the Kenney art
-    if (!img[spec.sheet] || !Array.isArray(spec.variants) || !spec.variants.length) return K.drawObject(ctx, obj, dx, dy, ts, t);
-    // a store with something in it (obj.text lists the contents) shows its full sprite
+    // an entry this code can't draw (no sheet or no variants) falls back to the kind's glyph
+    if (!img[spec.sheet] || !Array.isArray(spec.variants) || !spec.variants.length) return glyph(ctx, obj, dx, dy, ts);
+    // a store with something in it (obj.text lists the contents) shows its full sprite; fullMatch picks one by
+    // words in the contents ("fish|perch": a drying rack of fish hangs fish, not meat)
     const full = spec.full && obj.text && !/^\s*(empty|nothing)/i.test(String(obj.text));
-    const r = full ? spec.full[hash(obj.id) % spec.full.length].rect : pickVariant(spec, obj.id).rect;
+    let fulls = full ? spec.full : null;
+    if (full && spec.fullMatch) {
+      const text = String(obj.text).toLowerCase();
+      for (const [words, list] of Object.entries(spec.fullMatch)) if (words.split('|').some((w) => text.includes(w))) { fulls = list; break; }
+    }
+    const r = fulls ? fulls[hash(obj.id) % fulls.length].rect : pickVariant(spec, obj.id).rect;
     const b = drawRect(ctx, img[spec.sheet], r, dx, dy, ts, spec.dy || 0);
     if (spec.sparkle) {
       // a slow glitter over inventions so they stand out from ordinary props
@@ -308,6 +340,52 @@
     }
     return b;
   }
+
+  /* --------------------------------------------------------------- insects */
+  // The packs have no insects, so they are drawn here in pixels: a few hovering bees, a fluttering butterfly, a
+  // cluster of firefly sparks (their light at night is the viewer's: kinds with "glow" in their data).
+  const px = (ctx, x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+  const INSECTS = {
+    bees(ctx, obj, dx, dy, ts, t) {
+      const p = Math.max(1, Math.round(ts / 16));
+      const seed = hash(obj.id);
+      for (let i = 0; i < 3; i++) {
+        const a = t / (700 + i * 90) + seed % 7 + i * 2.1;
+        const x = dx + ts / 2 + Math.cos(a) * ts * 0.22 + Math.sin(a * 2.3) * ts * 0.06;
+        const y = dy + ts * 0.42 + Math.sin(a * 1.7) * ts * 0.16;
+        px(ctx, x - p, y, 3 * p, 2 * p, '#2a1c10');
+        px(ctx, x - p, y, p, 2 * p, '#f4c430');
+        px(ctx, x + p, y, p, 2 * p, '#f4c430');
+        if (Math.floor(t / 60 + i) % 2) px(ctx, x, y - p, p, p, 'rgba(236,244,255,0.9)');
+      }
+    },
+    butterfly(ctx, obj, dx, dy, ts, t) {
+      const p = Math.max(1, Math.round(ts / 16));
+      const seed = hash(obj.id);
+      const wing = ['#f08a3a', '#6ab0ff', '#f2f0ea'][seed % 3], dark = ['#8a3a10', '#24508a', '#8a8478'][seed % 3];
+      const a = t / 1500 + seed % 11;
+      const x = dx + ts / 2 + Math.sin(a) * ts * 0.25, y = dy + ts * 0.4 + Math.sin(a * 2) * ts * 0.12;
+      const open = Math.floor(t / 140 + seed) % 3 !== 0;
+      px(ctx, x, y - p, p, 3 * p, '#2a1c10');                       // body
+      if (open) {
+        px(ctx, x - 2 * p, y - 2 * p, 2 * p, 2 * p, wing); px(ctx, x + p, y - 2 * p, 2 * p, 2 * p, wing);
+        px(ctx, x - 2 * p, y, 2 * p, p, dark); px(ctx, x + p, y, 2 * p, p, dark);
+      } else {
+        px(ctx, x - p, y - 2 * p, p, 2 * p, wing); px(ctx, x + p, y - 2 * p, p, 2 * p, wing);
+      }
+    },
+    fireflies(ctx, obj, dx, dy, ts, t) {
+      const p = Math.max(1, Math.round(ts / 16));
+      const seed = hash(obj.id);
+      for (let i = 0; i < 4; i++) {
+        const a = t / (1300 + i * 170) + (seed % 13) + i * 1.7;
+        const k = 0.5 + 0.5 * Math.sin(t / (420 + i * 60) + i * 2 + seed);
+        const x = dx + ts / 2 + Math.cos(a) * ts * 0.3, y = dy + ts * 0.45 + Math.sin(a * 1.3) * ts * 0.25;
+        ctx.fillStyle = `rgba(216,255,112,${(0.25 + 0.75 * k).toFixed(2)})`;
+        ctx.fillRect(Math.round(x), Math.round(y), p, p);
+      }
+    },
+  };
 
   /* ------------------------------------------------------------ characters */
   const C = () => M.characters;
@@ -419,12 +497,23 @@
   }
 
   /** 32x32 canvas for any item id: atlas icon, composed invention, or tinted Kenney glyph. */
+  /** An item's icon cell: { sheet, rect } from icons.items, or from icons.more (the living world's items). */
+  function iconRect(id) {
+    if (!M || !M.icons) return null;
+    const r = own_(M.icons.items, id);
+    if (r) return { sheet: 'icons', rect: r };
+    const more = M.icons.more;
+    const r2 = more && own_(more.items, id);
+    return r2 && img[more.sheet] ? { sheet: more.sheet, rect: r2 } : null;
+  }
+
   function itemCell(id, depth) {
-    const r = M.icons.items[id];
-    if (r) {
+    const ir = iconRect(id);
+    if (ir) {
+      const r = ir.rect;
       const cv = document.createElement('canvas');
       cv.width = 32; cv.height = 32;
-      cv.getContext('2d').drawImage(img.icons, r[0], r[1], r[2], r[3], 0, 0, 32, 32);
+      cv.getContext('2d').drawImage(img[ir.sheet], r[0], r[1], r[2], r[3], 0, 0, 32, 32);
       return cv;
     }
     if (inventions.has(id)) return composeInvention(id, depth + 1);
@@ -490,7 +579,7 @@
     const inputs = Object.entries(inv.inputs || {});
     // The most distinctive ingredient leads (inventions, then crafted things,
     // then raw materials). A placeable structure is led by its bulk material.
-    const score = (k) => (k.startsWith('inv_') ? 4 : BASIC.has(k) ? 1 : M.icons.items[k] ? 3 : 2);
+    const score = (k) => (k.startsWith('inv_') ? 4 : BASIC.has(k) ? 1 : iconRect(k) ? 3 : 2);
     if (inv.placeable) inputs.sort((a, b) => (b[1] || 0) - (a[1] || 0) || score(b[0]) - score(a[0]) || (a[0] < b[0] ? -1 : 1));
     else inputs.sort((a, b) => score(b[0]) - score(a[0]) || (b[1] || 0) - (a[1] || 0) || (a[0] < b[0] ? -1 : 1));
     const cells = [];
@@ -546,7 +635,8 @@
   /** CSS for an item icon of `px` size, or null when the manifest has none. */
   function iconStyle(itemId, px) {
     if (!M || !itemId) return null;
-    const r = M.icons.items[itemId];
+    const ir = iconRect(itemId);
+    const r = ir && ir.rect;
     if (!r) {
       const cv = inventions.has(itemId) ? composeInvention(itemId, 0) : null;
       if (!cv) return null;
@@ -555,9 +645,54 @@
       return `background-image:url(${url});background-position:0 0;background-size:${px}px ${px}px`;
     }
     const s = px / 32;
-    const sheet = img.icons;
-    return `background-image:url(${BASE}${M.sheets.icons});background-position:${-r[0] * s}px ${-r[1] * s}px;` +
+    const sheet = img[ir.sheet];
+    return `background-image:url(${BASE}${M.sheets[ir.sheet]});background-position:${-r[0] * s}px ${-r[1] * s}px;` +
       `background-size:${sheet.naturalWidth * s}px ${sheet.naturalHeight * s}px`;
+  }
+
+  /* --------------------------------------------------------------------- ui */
+  // Modern User Interface pieces from the manifest ("ui"): each becomes its own small image (CSS border-image
+  // can't cut a sheet), published as CSS variables --lz-<piece> with the html class "lz-ui"; and the speech
+  // bubbles on the map are drawn as 9-slices of the "button" piece. Without them the chrome stays as it is.
+  const UI = { pieces: {}, ok: false };
+  function buildUI() {
+    const spec = M.ui;
+    const sheet = spec && img[spec.sheet];
+    if (!sheet) return;
+    for (const [name, piece] of Object.entries(spec)) {
+      if (!piece || !Array.isArray(piece.rect)) continue;
+      const [x, y, w, h] = piece.rect;
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(sheet, x, y, w, h, 0, 0, w, h);
+      UI.pieces[name] = { canvas: cv, slice: piece.slice || 4, url: cv.toDataURL() };
+    }
+    UI.ok = !!UI.pieces.button;
+  }
+
+  /** Publishes the UI pieces to CSS (or takes them back when another skin is chosen). */
+  function applyUI(root, on) {
+    root.classList.toggle('lz-ui', !!(on && UI.ok));
+    if (!UI.ok) return;
+    for (const [name, p] of Object.entries(UI.pieces)) {
+      root.style.setProperty('--lz-' + name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()), `url(${p.url})`);
+    }
+  }
+
+  /** Draws a UI piece as a 9-slice box at (x, y, w, h), with its pixels scaled by `scale`. */
+  function drawPiece(ctx, name, x, y, w, h, scale) {
+    const p = UI.pieces[name];
+    if (!p) return false;
+    const cv = p.canvas, s = p.slice, k = scale || 2, d = s * k;
+    const sw = cv.width, sh = cv.height;
+    const cols = [[0, s, 0, d], [s, sw - 2 * s, d, w - 2 * d], [sw - s, s, w - d, d]];
+    const rows = [[0, s, 0, d], [s, sh - 2 * s, d, h - 2 * d], [sh - s, s, h - d, d]];
+    for (const [sx, sW, dx, dW] of cols) {
+      for (const [sy, sH, dy, dH] of rows) {
+        if (dW > 0 && dH > 0) ctx.drawImage(cv, sx, sy, sW, sH, Math.round(x + dx), Math.round(y + dy), Math.ceil(dW), Math.ceil(dH));
+      }
+    }
+    return true;
   }
 
   window.SwarmLimeZu = {
@@ -570,5 +705,8 @@
     inventionId: (name) => invByName.get(String(name || '').toLowerCase()) || null,
     objectName: K.objectName, terrainName: K.terrainName,
     hasObject: (kind) => !!(M && (own_(M.objects, kind) || own_(M.animals, kind))),
+    /** Where smoke leaves a station's sprite (fractions of its box), from the manifest; null when it smokes not. */
+    smokeAt: (kind) => { const o = M && own_(M.objects, kind); return o && Array.isArray(o.smoke) ? o.smoke : null; },
+    get ui() { return UI.ok ? UI : null; }, applyUI, drawPiece,
   };
 })();

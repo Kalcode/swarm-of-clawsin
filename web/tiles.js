@@ -63,7 +63,109 @@
     creation: { name: 'invention', s: [27, 12], tint: '#f4b41b' },
     basket: { name: 'basket', s: [46, 4], tint: '#c98a4e' },
   };
-  const UNKNOWN_OBJECT = { name: 'thing', s: [38, 13], tint: '#9d8f9f' };
+
+  /* ---------------------------------------------------------------- glyphs */
+  // One roguelike glyph per kind: [char, color, optional colors picked per object]. The ASCII skin draws every
+  // kind with it, and the other skins fall back to it for a kind they have no art for. A kind's data may set its
+  // own ("glyph": {"char", "color"} in objects.json, sent in the init message's kinds), which wins over this
+  // table; a kind in neither gets the first letter of its name in a neutral color.
+  const GLYPHS = {
+    tree: ['♣', '#5cb85a'], pine: ['♠', '#3fae7c'], stump: ['∩', '#a8774a'],
+    bush: ['¥', '#4fbf5a'], bush_empty: ['¥', '#6f8f58'], sapling: ['τ', '#7fdc6e'], crop: ['ψ', '#e8c25a'],
+    rock: ['●', '#a39ca6'], wishing_stone: ['◊', '#b9c9f2'], copper_vein: ['$', '#d0874e'], iron_vein: ['$', '#a6b0c2'],
+    clay: ['%', '#c97c5e'], campfire: ['☼', '#ffb347'], workbench: ['π', '#c98a4e'], furnace: ['Θ', '#e6824a'],
+    wall: ['#', '#bf7958'], sign: ['¶', '#d2b48c'], chest: ['Ξ', '#d09a5a'], basket: ['U', '#c98a4e'],
+    terminal: ['▣', '#38d973'], tablet: ['∏', '#cfc6b8'], pile: ['&', '#c9a27e'], millstone: ['Ø', '#b8aa98'],
+    bed: ['▬', '#c9a27e'], door: ['+', '#bf7958'], creation: ['✦', '#ffd75e'],
+    chicken: ['c', '#f0e6d2'], sheep: ['s', '#f2efe6'], cow: ['C', '#c9a27e'],
+    // nature (S1)
+    flower_patch: ['*', '#e9a8f0', ['#f4e27a', '#f2f0ea', '#e9a8f0', '#b9a6f0']], picked_flowers: [':', '#7f9f5c'],
+    reed_bed: ['"', '#b0bc62'], cut_reeds: ['¨', '#c8b878'], mushroom_patch: [',', '#ecd2ae'], shell_bed: ['§', '#f2d8c8'],
+    driftwood: ['/', '#d8d0c0'], flint_outcrop: ['♦', '#8f96ae'],
+    honeybee: ['ж', '#f4c430'], butterfly: ['Ж', '#f08a3a', ['#f08a3a', '#6ab0ff', '#f2f0ea']], firefly: ['•', '#d8ff70'],
+    // food (S4)
+    deer: ['d', '#c8a070'], rabbit: ['r', '#c4b4a0'], boar: ['b', '#a07a5c'], herb_patch: ['†', '#7fdc6e'],
+    herb_patch_cut: ['ı', '#6a9a58'], oven: ['Ω', '#d07850'], smoker: ['⌂', '#a89078'], drying_rack: ['~', '#c99a5e'],
+    well: ['O', '#9ab8d8'],
+    // building (S6): its kinds' own data glyphs win over these
+    hut: ['⌂', '#d0a070'], tent: ['⌂', '#c8b090'], shelter: ['⌂', '#c8a882'], bridge: ['=', '#c98a4e'],
+  };
+  const GLYPH_NEUTRAL = '#b9aebb';
+  let KINDS = {};                        // kind -> { name, look?, glyph?, glow? }, from the init message
+  const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+  const COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%deg]+\)|[a-z]{3,20})$/i;
+
+  /** The init message's kinds: names, look hints, glyphs and glows from the world's data. */
+  function setKinds(kinds) { KINDS = kinds && typeof kinds === 'object' ? kinds : {}; }
+  function kindInfo(kind) { return own(KINDS, kind) && KINDS[kind] && typeof KINDS[kind] === 'object' ? KINDS[kind] : null; }
+
+  /** A kind's glyph { char, color }: its data's own, else this table's, else the first letter of its name. `id`
+   *  picks one of a kind's colors (flowers come in several), so each object keeps its own. Never "?". */
+  function kindGlyph(kind, id) {
+    const info = kindInfo(kind);
+    const data = info && info.glyph;
+    if (data && typeof data.char === 'string' && data.char.trim() && data.char.trim() !== '?') {
+      return { char: [...data.char.trim()][0], color: typeof data.color === 'string' && COLOR_RE.test(data.color.trim()) ? data.color.trim() : GLYPH_NEUTRAL };
+    }
+    if (own(GLYPHS, kind)) {
+      const g = GLYPHS[kind];
+      return { char: g[0], color: g[2] && id != null ? g[2][hashStr(id) % g[2].length] : g[1] };
+    }
+    const name = String((info && info.name) || kind || 'thing').replace(/_/g, ' ');
+    const m = name.match(/[\p{L}\p{N}]/u);
+    return { char: m ? m[0] : '¤', color: GLYPH_NEUTRAL };
+  }
+
+  // Glyphs are drawn from small cached canvases (one per char, color and size), so a screen full of them is cheap.
+  const glyphCache = new Map();
+  const MONO = (typeof getComputedStyle === 'function' && getComputedStyle(document.documentElement).getPropertyValue('--mono').trim()) ||
+    'ui-monospace, Menlo, Consolas, monospace';
+  /** A canvas of `ch` in `color`, `px` device pixels high, with a dark outline when `outline`. */
+  function glyphSprite(ch, color, px, outline, weight) {
+    const key = ch + '|' + color + '|' + px + '|' + (outline ? 1 : 0) + '|' + (weight || 700);
+    let cv = glyphCache.get(key);
+    if (cv) return cv;
+    if (glyphCache.size > 1600) glyphCache.clear();
+    const pad = outline ? Math.max(1, Math.round(px / 10)) : 0;
+    const size = Math.ceil(px * 1.25) + pad * 2;
+    cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    const g = cv.getContext('2d');
+    g.font = `${weight || 700} ${px}px ${MONO}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const cx = size / 2, cy = size / 2 + px * 0.04;
+    if (outline) {
+      g.lineJoin = 'round';
+      g.lineWidth = pad * 2;
+      g.strokeStyle = 'rgba(8,6,12,0.85)';
+      g.strokeText(ch, cx, cy);
+    }
+    g.fillStyle = color;
+    g.fillText(ch, cx, cy);
+    glyphCache.set(key, cv);
+    return cv;
+  }
+
+  /** Draws a glyph centred on the tile at (dx, dy) of size ts (CSS pixels on a context scaled by the device
+   *  pixel ratio). opts: { scale (of the tile, default 0.8), outline, alpha, dy (CSS px), weight }. */
+  function drawGlyph(ctx, glyph, dx, dy, ts, opts) {
+    const o = opts || {};
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const px = Math.max(6, Math.round(ts * (o.scale || 0.8) * dpr));
+    const cv = glyphSprite(glyph.char, glyph.color, px, o.outline !== false, o.weight);
+    const w = cv.width / dpr;
+    const x = Math.round((dx + ts / 2 - w / 2) * dpr) / dpr, y = Math.round((dy + ts / 2 - w / 2 + (o.dy || 0)) * dpr) / dpr;
+    const a = ctx.globalAlpha;
+    if (o.alpha != null) ctx.globalAlpha = a * o.alpha;
+    ctx.drawImage(cv, x, y, w, w);
+    ctx.globalAlpha = a;
+  }
+
+  /** How the Kenney skin draws a kind: its own sprite, or its glyph (for kinds this sheet has no art for). */
+  function kenneyLook(kind) {
+    return knownObject(kind) ? { type: 'sprite' } : { type: 'glyph', ...kindGlyph(kind) };
+  }
 
   // Shared character sprites; each creature picks one by id hash and is tinted.
   const CREATURES = [[25, 0], [27, 1], [28, 1], [26, 2], [24, 3], [29, 4], [30, 3], [25, 4]];
@@ -190,8 +292,11 @@
   /* ---------------------------------------------------------------- terrain */
   function isWater(code) { return code === 'w' || code === 'W'; }
 
+  // biomes (init's nature rows) shade the ground: an olive marsh, a cool pine forest, grey hills, warm beach
+  const BIOME_SHADE = { k: ['#3a3a12', 0.3], p: ['#0a2a2a', 0.25], h: ['#3a3440', 0.2], b: ['#5c4b34', 0.12] };
+
   /** Pre-renders the whole map at 16 px per tile; the viewer scales it. */
-  function renderTerrain(tiles, width, height) {
+  function renderTerrain(tiles, width, height, land) {
     const cv = document.createElement('canvas');
     cv.width = width * TILE; cv.height = height * TILE;
     const g = cv.getContext('2d');
@@ -204,6 +309,8 @@
         const t = TERRAIN[code] || TERRAIN.g;
         const px = x * TILE, py = y * TILE;
         g.fillStyle = t.base[Math.floor(hash2(x, y, 3) * t.base.length)];
+        const shade = !t.water && land && land.biomes && BIOME_SHADE[(land.biomes[y] || '')[x]];
+        if (shade) g.fillStyle = mix(g.fillStyle, shade[0], shade[1]);
         g.fillRect(px, py, TILE, TILE);
 
         if (t.water) continue;
@@ -267,9 +374,13 @@
 
   /* ---------------------------------------------------------------- objects */
   // own keys only, so a kind like "constructor" is just an unknown thing
-  const knownObject = (kind) => Object.prototype.hasOwnProperty.call(OBJECTS, kind);
-  function objectSpec(kind) { return knownObject(kind) ? OBJECTS[kind] : UNKNOWN_OBJECT; }
-  function objectName(kind) { return knownObject(kind) ? OBJECTS[kind].name : String(kind || 'thing').replace(/_/g, ' '); }
+  function knownObject(kind) { return Object.prototype.hasOwnProperty.call(OBJECTS, kind); }
+  /** The name creatures read for a kind (from the world's data), else this sheet's, else the kind's id. */
+  function objectName(kind) {
+    const info = kindInfo(kind);
+    if (info && info.name) return String(info.name);
+    return knownObject(kind) ? OBJECTS[kind].name : String(kind || 'thing').replace(/_/g, ' ');
+  }
   function terrainName(code) { return (TERRAIN[code] || { name: 'unknown ground' }).name; }
 
   /** A wishing stone's quiet light, shared by both skins: a pale halo on the ground under the
@@ -317,7 +428,8 @@
   }
 
   function drawObject(ctx, obj, dx, dy, size, t) {
-    const spec = objectSpec(obj.kind);
+    if (!knownObject(obj.kind)) return drawGlyph(ctx, kindGlyph(obj.kind, obj.id), dx, dy, size);  // no art: its glyph
+    const spec = OBJECTS[obj.kind];
     const p = size / TILE;
     if (!ready) return drawObjectFallback(ctx, obj, spec, dx, dy, size, t);
 
@@ -403,7 +515,7 @@
       case 'terminal': R(3, 3, 10, 9, PAL.bone); R(5, 5, 6, 5, '#183a2a'); if (Math.floor(t / 530) % 2 === 0) R(6, 7, 2, 1, PAL.green); break;
       case 'tablet': R(4, 3, 8, 11, PAL.bone); R(6, 6, 4, 1, PAL.plum); R(6, 8, 4, 1, PAL.plum); break;
       case 'pile': circle(8, 11, 4, PAL.brown); break;
-      default: R(5, 5, 6, 6, '#9d8f9f');
+      default: drawGlyph(ctx, kindGlyph(k, obj.id), dx, dy, size);
     }
   }
 
@@ -494,7 +606,8 @@
     glyphCanvas,
     name: 'kenney', credit: 'Art: Kenney 1-Bit Pack (CC0)',
     spriteTopTiles: 1, drawsWater: true, iconStyle: () => null, hasObject: knownObject,
-    TILE, SHEET_SRC, PAL, TERRAIN, OBJECTS, CREATURES, ICONS,
+    TILE, SHEET_SRC, PAL, TERRAIN, OBJECTS, CREATURES, ICONS, GLYPHS, MONO,
+    setKinds, kindInfo, kindGlyph, glyphSprite, drawGlyph, kenneyLook,
     load, get ready() { return ready; },
     hash2, hashStr, rgb, mix, rgba, readable,
     renderTerrain, drawWater, isWater,

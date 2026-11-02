@@ -9,7 +9,13 @@
   'use strict';
 
   const T = window.SwarmTiles;      // Kenney art + shared helpers; always loaded
-  let SK = T;                       // active world skin: LimeZu when present, else Kenney
+  let SK = T;                       // active world skin: LimeZu when present, else Kenney; or ASCII
+  const FX = window.SwarmFX || null; // effects.js: decoration only, never needed to understand the world
+  // The world skins, by the name the switcher and localStorage use. LimeZu needs its gitignored art.
+  const SKINS = { limezu: () => window.SwarmLimeZu, kenney: () => T, ascii: () => window.SwarmASCII };
+  const SKIN_LABEL = { limezu: 'LimeZu', kenney: 'Kenney', ascii: 'ASCII' };
+  const SKIN_KEY = 'swarmworld.skin';
+  const isSkin = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(SKINS, k);
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
@@ -86,8 +92,8 @@
   /* ----------------------------------------------------------------- state */
   const S = {
     loaded: false,
-    width: 64, height: 64, tiles: [], terrain: null,
-    objects: new Map(), lit: [], wishStones: [], objAt: new Map(), objAnim: new Map(),
+    width: 64, height: 64, tiles: [], terrain: null, land: null,
+    objects: new Map(), lit: [], wishStones: [], glowing: [], objAt: new Map(), objAnim: new Map(),
     inventions: new Map(), invByName: new Map(), landmarks: [],
     voice: { open: false, target: null, radius: 6, disabled: false, busy: false, pulse: 0 },
     cres: new Map(),               // id -> { d: Cre, fx, fy, tx, ty, rx, ry, face }
@@ -248,7 +254,10 @@
     S.width = (m.width | 0) || 64;
     S.height = (m.height | 0) || 64;
     S.tiles = Array.isArray(m.tiles) ? m.tiles : [];
-    S.terrain = SK.renderTerrain(S.tiles, S.width, S.height);
+    S.land = landRows(m.nature, S.width, S.height);
+    T.setKinds(m.kinds);
+    S.terrain = SK.renderTerrain(S.tiles, S.width, S.height, S.land);
+    if (FX) FX.reset();
     S.objects = new Map();
     for (const o of m.objects || []) S.objects.set(o.id, o);
     indexObjects();
@@ -283,6 +292,14 @@
     renderVeil();
     renderHeader();
     renderCreaturePanel();
+  }
+
+  /** The init message's biomes and river flow (rows aligned with the tiles), or null when it has none. */
+  function landRows(nature, w, h) {
+    if (!nature || typeof nature !== 'object') return null;
+    const ok = (rows) => Array.isArray(rows) && rows.length === h && rows.every((r) => typeof r === 'string' && r.length === w);
+    const land = { biomes: ok(nature.biomes) ? nature.biomes : null, flow: ok(nature.flow) ? nature.flow : null };
+    return land.biomes || land.flow ? land : null;
   }
 
   function applyTick(m) {
@@ -340,6 +357,7 @@
     }
     if (objChanged) indexObjects();
     S.tickAt = now;
+    if (FX) FX.events(m.events, S);
 
     if (isNum(m.tick)) S.tick = m.tick;
     if (m.clock) S.clock = m.clock;
@@ -361,10 +379,13 @@
   function indexObjects() {
     S.lit = [];
     S.wishStones = [];
+    S.glowing = [];
     S.objAt = new Map();
     for (const o of S.objects.values()) {
       if (o.lit) S.lit.push(o);
       if (o.kind === 'wishing_stone') S.wishStones.push(o);
+      const info = T.kindInfo(o.kind);
+      if (info && info.glow > 0) S.glowing.push(o);   // soft lights in the data (fireflies)
       const k = o.x + ',' + o.y;
       const arr = S.objAt.get(k);
       if (arr) arr.push(o); else S.objAt.set(k, [o]);
@@ -406,7 +427,9 @@
     const PHASE_LABEL = { dawn: 'dawn', day: 'daylight', dusk: 'dusk', night: 'night' };
     const ph = $('h-phase');
     setText(ph, c.phase ? '· ' + (PHASE_LABEL[phase] || phase) : '');
-    $('h-weather').hidden = c.weather !== 'rain';
+    const wx = $('h-weather');
+    wx.hidden = !c.weather || c.weather === 'clear';
+    if (!wx.hidden) { setText($('h-weather-label'), String(c.weather)); wx.title = WEATHER_TITLE[c.weather] || String(c.weather); }
     ph.dataset.phase = phase;
     const pi = $('h-phase-ico');
     pi.dataset.phase = phase;
@@ -425,6 +448,8 @@
     setText($('h-away'), String(away));
     $('h-away-wrap').hidden = !away;
   }
+
+  const WEATHER_TITLE = { rain: 'Raining', drizzle: 'A fine drizzle', fog: 'Foggy', wind: 'Windy', storm: 'A storm', heat: 'Heavy heat' };
 
   /* ================================================================ events */
   function speechOf(text, name) {
@@ -980,7 +1005,7 @@
         S.inventions.set(inv.id, inv);
         if (inv.name) S.invByName.set(String(inv.name).toLowerCase(), inv.id);
       }
-      if (SK.setInventions) SK.setInventions(list);
+      if (window.SwarmLimeZu) window.SwarmLimeZu.setInventions(list);
       // everything that shows an item icon picks up the composed icons
       for (const li of document.querySelectorAll('.ev[data-kind="invent"][data-inv]')) {
         const icon = itemIcon(li.dataset.inv, 20);
@@ -1880,22 +1905,38 @@
     });
   }
 
+  let limezuOk = null;               // whether the LimeZu art loaded (null: not tried yet)
   function renderCredit() {
     const foot = $('panel-foot');
-    const q = new URLSearchParams(location.search);
-    let link = '';
-    if (SK.name === 'limezu') {
-      q.set('skin', 'kenney');
-      link = `<a href="?${esc(q.toString())}">Kenney skin</a>`;
-    } else if (params.get('skin') === 'kenney') {
-      q.delete('skin');
-      link = `<a href="?${esc(q.toString())}">LimeZu skin</a>`;
-    }
     const credit = SK.name === 'limezu'
-      ? 'Art: <a href="https://limezu.itch.io" target="_blank" rel="noopener" title="World art by LimeZu. UI glyphs: Kenney 1-Bit Pack (CC0).">LimeZu (limezu.itch.io)</a>'
-      : 'Art: Kenney 1-Bit Pack (CC0)';
+      ? 'Art: <a href="https://limezu.itch.io" target="_blank" rel="noopener" title="World and UI art by LimeZu. UI glyphs: Kenney 1-Bit Pack (CC0).">LimeZu (limezu.itch.io)</a>'
+      : SK.name === 'ascii' ? 'Art: characters · UI glyphs: Kenney 1-Bit Pack (CC0)' : 'Art: Kenney 1-Bit Pack (CC0)';
     const sfx = window.SwarmSound && SwarmSound.samples ? '<span>Sound: ElvGames &amp; Pegonthetrack</span>' : '';
-    foot.innerHTML = `<span>${credit}</span>${sfx}${link ? `<span>${link}</span>` : ''}`;
+    const opts = Object.keys(SKINS).filter((k) => SKINS[k]() && (k !== 'limezu' || limezuOk !== false));
+    const sw = `<span class="skin-switch" role="radiogroup" aria-label="World art">${opts.map((k) =>
+      `<button type="button" role="radio" data-skin="${k}" aria-checked="${SK.name === k}">${SKIN_LABEL[k]}</button>`).join('')}</span>`;
+    foot.innerHTML = `<span class="foot-credit">${credit}</span>${sfx}${sw}`;
+  }
+
+  /** Switches the world's art, live. LimeZu loads its art the first time; when it can't, Kenney stays. */
+  async function setSkin(name, remember) {
+    const next = isSkin(name) && SKINS[name]();
+    if (!next) return false;
+    if (name === 'limezu' && !next.ready) {
+      limezuOk = await next.load();
+      if (!limezuOk) { renderCredit(); return false; }
+    }
+    SK = next;
+    if (remember) { try { localStorage.setItem(SKIN_KEY, name); } catch (e) { /* private mode */ } }
+    const root = document.documentElement;
+    root.dataset.skin = SK.name;
+    if (window.SwarmLimeZu && window.SwarmLimeZu.applyUI) window.SwarmLimeZu.applyUI(root, SK.name === 'limezu');
+    if (S.loaded) S.terrain = SK.renderTerrain(S.tiles, S.width, S.height, S.land);
+    portraitKey = null;
+    renderCredit();
+    renderCreaturePanel();
+    if (S.tab === 'creature' && !S.selected) renderRoster();
+    return true;
   }
 
   document.addEventListener('swarmsound-samples', renderCredit);
@@ -2009,7 +2050,11 @@
       const p = lerpPos(e, now);
       e.rx = p.x; e.ry = p.y;
       e.moving = p.t < 1 && (e.fx !== e.tx || e.fy !== e.ty);
-      if (e.moving && steps) SwarmSound.step(e.d.id, p.x, p.y, surfaceAt(Math.round(p.x), Math.round(p.y)), S.cam, Z.view);
+      if (e.moving && (steps || FX)) {
+        const surface = surfaceAt(Math.round(p.x), Math.round(p.y));
+        if (steps) SwarmSound.step(e.d.id, p.x, p.y, surface, S.cam, Z.view);
+        if (FX && Z.view >= 1.5) FX.walk(e.d.id, p.x, p.y, surface, now);
+      }
       list.push(e);
     }
     if (window.SwarmSound && S.tick % 100 === 0) SwarmSound.forgetWalkers(S.cres);
@@ -2039,6 +2084,8 @@
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(ox - 6, oy - 6, S.width * ts + 12, S.height * ts + 12);
     ctx.drawImage(S.terrain, ox, oy, S.width * ts, S.height * ts);
+    // the ASCII skin draws its terrain characters live, so they stay crisp at every zoom
+    if (SK.drawGround) SK.drawGround(ctx, S.tiles, S.objAt, x0, y0, x1, y1, ox, oy, ts, now);
 
     if (SK.drawsWater) {
       for (let y = y0; y <= y1; y++) {
@@ -2050,6 +2097,9 @@
         }
       }
     }
+
+    const V = { S, skin: SK, ox, oy, ts, x0, y0, x1, y1, vw, vh, dpr, now, dt, zoom: Z.view };
+    if (FX) FX.under(ctx, V);
 
     // Objects and creatures are drawn back to front so tall sprites (trees,
     // two-tile characters) overlap correctly. Sprites can reach a few tiles
@@ -2085,12 +2135,13 @@
       const low = isNum(c.health) && c.health < 30;
       SK.drawCreature(ctx, c, sx, sy, ts, {
         dim: low, asleep: !!c.asleep, flip: e.face ? e.face < 0 : undefined,
-        dir: e.dir || 'down', moving: e.moving && !c.asleep, t: now,
+        dir: e.dir || 'down', moving: e.moving && !c.asleep, t: now, hover: hoverCre === e,
       });
     }
 
+    if (FX) FX.over(ctx, V);
     drawNight(list, ox, oy, ts, now);
-    drawRain(ox, oy, ts, x0, y0, x1, y1, now, dt);
+    if (FX) FX.sky(ctx, V);
     for (const [hx, hy, o] of tamed) drawHeart(hx + ts / 2, hy + ts - (ANIMAL_TOP[o.kind] || 1) * ts - 2, ts);
     drawVoice(ox, oy, ts, now);
     drawLandmarks(ox, oy, ts);
@@ -2131,55 +2182,6 @@
       ctx.fillRect(0, 0, vw, vh);
       ctx.restore();
     }
-  }
-
-  /** Rain: a cool tint, a few hundred reused streaks and ripples on the water. Fades in and out. */
-  const rain = { level: 0, drops: [] };
-  for (let i = 0; i < 320; i++) rain.drops.push({ x: Math.random(), y: Math.random(), v: 0.55 + Math.random() * 0.45, l: 0.6 + Math.random() * 0.6 });
-  function drawRain(ox, oy, ts, x0, y0, x1, y1, now, dt) {
-    const want = S.clock && S.clock.weather === 'rain' ? 1 : 0;
-    rain.level += (want - rain.level) * (1 - Math.exp(-dt * 0.8));
-    if (rain.level < 0.01) return;
-    const L = rain.level;
-    ctx.save();
-    ctx.fillStyle = `rgba(28,44,72,${(0.2 * L).toFixed(3)})`;
-    ctx.fillRect(0, 0, vw, vh);
-    // ripples: a few tiles of water flicker with an expanding ring each moment
-    ctx.strokeStyle = `rgba(200,225,255,${(0.5 * L).toFixed(3)})`;
-    ctx.lineWidth = 1;
-    const beat = Math.floor(now / 350);
-    for (let y = y0; y <= y1; y++) {
-      const row = S.tiles[y];
-      if (!row) continue;
-      for (let x = x0; x <= x1; x++) {
-        if (row[x] !== 'w' && row[x] !== 'W') continue;
-        const hsh = T.hash2(x, y, beat);
-        if (hsh > 0.07 * L) continue;
-        const k = (now % 350) / 350;
-        const rx = ox + (x + 0.2 + T.hash2(x, y, beat + 1) * 0.6) * ts, ry = oy + (y + 0.2 + T.hash2(x, y, beat + 2) * 0.6) * ts;
-        ctx.globalAlpha = 1 - k;
-        ctx.beginPath(); ctx.ellipse(rx, ry, 1 + k * ts * 0.22, 0.5 + k * ts * 0.1, 0, 0, Math.PI * 2); ctx.stroke();
-      }
-    }
-    ctx.globalAlpha = 1;
-    // streaks, falling slightly to the left
-    const n = Math.round(rain.drops.length * L);
-    const len = 9;
-    ctx.strokeStyle = `rgba(196,218,255,${(0.42 * L).toFixed(3)})`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i < n; i++) {
-      const d = rain.drops[i];
-      d.y += d.v * dt * 1.1;
-      d.x -= d.v * dt * 0.18;
-      if (d.y > 1) { d.y -= 1; d.x = Math.random(); }
-      if (d.x < 0) d.x += 1;
-      const px = Math.round(d.x * vw), py = Math.round(d.y * vh);
-      ctx.moveTo(px, py);
-      ctx.lineTo(px - 2 * d.l, py + len * d.l);
-    }
-    ctx.stroke();
-    ctx.restore();
   }
 
   /** Named places as storybook labels: small caps with a faint ring, fading when zoomed in close. */
@@ -2264,6 +2266,7 @@
     const dark = (1 - light) * 0.84;
     const flick = (o) => 1 + Math.sin(now / 95 + o.x * 7) * 0.025 + Math.sin(now / 41 + o.y * 3) * 0.015;
     const onScreen = (cx, cy, r) => cx > -r && cy > -r && cx < vw + r && cy < vh + r;
+    const extra = FX ? FX.lights() : [];
 
     if (dark > 0.02) {
       nctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2279,6 +2282,29 @@
         const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
         g.addColorStop(0, 'rgba(0,0,0,1)');
         g.addColorStop(0.5, 'rgba(0,0,0,0.8)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        nctx.fillStyle = g;
+        nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
+      // fires that aren't campfires: trees struck by lightning (effects.js knows them)
+      for (const L of extra) {
+        const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts, r = L.r * ts * flick(L);
+        if (!onScreen(cx, cy, r)) continue;
+        const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, 'rgba(0,0,0,1)');
+        g.addColorStop(0.5, 'rgba(0,0,0,0.75)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        nctx.fillStyle = g;
+        nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
+      // soft lights from the data ("glow": fireflies), breathing
+      for (const o of S.glowing) {
+        const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts;
+        const r = (0.7 + Math.min(3, T.kindInfo(o.kind).glow) * 0.45) * ts;
+        if (!onScreen(cx, cy, r)) continue;
+        const k = 0.7 + 0.3 * Math.sin(now / 520 + o.x * 3 + o.y);
+        const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `rgba(0,0,0,${(0.55 * k).toFixed(3)})`);
         g.addColorStop(1, 'rgba(0,0,0,0)');
         nctx.fillStyle = g;
         nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
@@ -2326,6 +2352,29 @@
       g.addColorStop(1, 'rgba(255,90,30,0)');
       ctx.fillStyle = g;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    for (const L of extra) {
+      const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts, r = L.r * 0.9 * ts * flick(L);
+      if (!onScreen(cx, cy, r)) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(255,140,50,${(warm * 1.3).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    // fireflies: a green-gold glint of their own in the dark
+    if (light < 0.8) {
+      const fa = (0.8 - light) * 0.3;
+      for (const o of S.glowing) {
+        const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts, r = 1.1 * ts;
+        if (!onScreen(cx, cy, r)) continue;
+        const k = 0.6 + 0.4 * Math.sin(now / 380 + o.x * 5 + o.y * 2);
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `rgba(200,255,110,${(fa * k).toFixed(3)})`);
+        g.addColorStop(1, 'rgba(160,230,80,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
     }
     // and cool, moonlike light around wishing stones
     const cool = 0.04 + (1 - light) * 0.17;
@@ -2412,6 +2461,8 @@
     roundRect(x, y, w, h, 6);
     ctx.fill();
     ctx.restore();
+    // in the LimeZu skin, a parchment frame from the Modern User Interface pack
+    if (SK.ui && SK.drawPiece) SK.drawPiece(ctx, 'button', x - 2, y - 2, w + 4, h + 4, 2);
     const tx = clamp(cx, x + 10, x + w - 10);
     ctx.fillStyle = '#ece4d6';
     if (anchor - (y + h) > 9) {
@@ -2906,10 +2957,16 @@
       T.installIconStyles(document.documentElement, window.devicePixelRatio || 1);
       drawTitle();
     }
-    // World art: LimeZu when its (gitignored) assets are present, Kenney otherwise or with ?skin=kenney.
-    if (params.get('skin') !== 'kenney' && window.SwarmLimeZu && await window.SwarmLimeZu.load()) SK = window.SwarmLimeZu;
-    document.documentElement.dataset.skin = SK.name;
-    renderCredit();
+    // World art: ?skin=, else the last one chosen, else LimeZu when its (gitignored) assets are present,
+    // else Kenney. The switcher in the panel's footer changes it live and remembers it.
+    let want = params.get('skin');
+    if (!isSkin(want)) { try { want = localStorage.getItem(SKIN_KEY); } catch (e) { want = null; } }
+    if (!isSkin(want)) want = 'limezu';
+    if (!(await setSkin(want, false)) && want !== 'kenney') await setSkin('kenney', false);
+    $('panel-foot').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-skin]');
+      if (b && b.dataset.skin !== SK.name) setSkin(b.dataset.skin, true);
+    });
     if (DEMO) {
       try { await loadScript('demo.js'); } catch (err) {
         console.error(err);

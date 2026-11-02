@@ -1,13 +1,13 @@
 {
   "building_site": {"name": "building site", "aliases": ["site", "building site", "construction site", "construction",
                                                          "frame", "foundation", "building"],
-                    "look": "construction_site"},
-  "tent_wall": {"name": "tent wall", "aliases": ["tent wall", "tent"], "blocking": true, "look": "tent_wall"},
-  "tent_flap": {"name": "tent flap", "aliases": ["tent flap", "flap", "tent door", "tent"], "look": "tent_flap"},
-  "log_wall": {"name": "log wall", "aliases": ["log wall", "wall", "hut wall"], "blocking": true, "look": "log_wall"},
+                    "look": "construction_site", "glyph": {"char": "%", "color": "#c8a070"}},
+  "tent_wall": {"name": "tent wall", "aliases": ["tent wall", "tent"], "blocking": true, "look": "tent_wall", "glyph": {"char": "^", "color": "#d8c8a0"}},
+  "tent_flap": {"name": "tent flap", "aliases": ["tent flap", "flap", "tent door", "tent"], "look": "tent_flap", "glyph": {"char": "+", "color": "#b89870"}},
+  "log_wall": {"name": "log wall", "aliases": ["log wall", "wall", "hut wall"], "blocking": true, "look": "log_wall", "glyph": {"char": "#", "color": "#a8714a"}},
   "shelves": {"name": "storehouse shelf", "aliases": ["shelves", "shelf", "storehouse", "store house", "store",
                                                         "storage", "shared store"],
-              "blocking": true, "store": true, "look": "shelves"},
+              "blocking": true, "store": true, "look": "shelves", "glyph": {"char": "≡", "color": "#c8a070"}},
   "bridge": {"name": "wooden bridge", "aliases": ["bridge", "wooden bridge", "footbridge"], "over_water": true,
-             "look": "bridge"}
+             "look": "bridge", "glyph": {"char": "=", "color": "#a8714a"}}
 }
