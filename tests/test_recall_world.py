@@ -88,6 +88,46 @@ def test_recall_action_answers_and_remembers():
     note = st.memory(c.id).entries[-1].text
     assert note.startswith('You thought back about "which clay is near":') and len(note) <= 160 and "\n" not in note
     assert "place: clay" in note
+    assert "more" not in note  # the full answer is shown once instead; nothing hints at a hidden rest
+
+
+def section(text, header):
+    return text.split(header, 1)[1].split("\n\n", 1)[0].strip().splitlines()
+
+
+def test_asked_recall_is_shown_in_full_once():
+    st, node, c = setup(())
+    for i in range(6):
+        st._remember(c, f"You saw clay number {i} by the pond.", 1)
+    for i in range(30):
+        st._remember(c, f"You walked past boulder number {i}.", 1)
+    job = st.make_job(node, c)
+    st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "recall", "target": "clay by the pond"}})
+    found = c.last_recall[2].splitlines()[1:]
+    assert len(found) == 5
+    text = user_text(st, node, c)
+    assert section(text, "You thought back:") == [f"- {line}" for line in found]
+    assert "You thought back:" not in user_text(st, node, c)  # one-shot
+
+
+def test_asked_recall_after_restart_still_shows(tmp_path):
+    st, node, c = setup(())
+    st._remember(c, "You saw clay by the pond.", 1)
+    job = st.make_job(node, c)
+    st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "recall", "target": "clay"}})
+    save(st, tmp_path / "w.json")
+    st2 = ServerState(seed=7)
+    restore(st2, tmp_path / "w.json")
+    assert st2.memory(c.id).thought_back == st.memory(c.id).thought_back != []
+
+
+def test_asked_recall_has_at_most_one_lore_line():
+    st, _, c = setup(())
+    st._remember(c, "You fed sticks to the campfire by the oak and gave berries to a sheep.", 1)
+    st._remember(c, "You planted seeds in the soil and placed a sign.", 1)
+    res = apply_intention(st.world, c, Intention("recall", target="give feed sticks campfire animal plant seeds sign"))
+    kinds = [line.split(":", 1)[0] for line in res.message.splitlines()[1:]]
+    assert kinds.count("lore") == 1 and kinds.count("memory") == 2
 
 
 def test_repeated_recall_is_a_noop():

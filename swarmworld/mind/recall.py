@@ -101,9 +101,11 @@ class RecallIndex:
         extra: Iterable[tuple[str, str]] = (),
         semantic: str | None = None,
         lore: bool = True,
+        max_lore: int | None = None,
     ) -> list[Doc]:
         """`query` drives keywords; `semantic` (default: the same text) is what gets embedded, so a caller can
-        keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out."""
+        keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out;
+        `max_lore` caps how many of the results may be lore."""
         qtokens = tokenize(query)
         sem = query if semantic is None else semantic
         qnorm = " ".join(sem.lower().split())
@@ -143,12 +145,16 @@ class RecallIndex:
         order = np.argsort(-score, kind="stable")
         out: list[Doc] = []
         seen: set[str] = set()
+        lore_left = len(docs) if max_lore is None else max_lore
         for i in order:
             if score[i] <= 0 or len(out) >= k:
                 break
+            if docs[i].kind == "lore" and lore_left <= 0:
+                continue
             if docs[i].text not in seen:  # identical texts: keep the best-scoring one
                 seen.add(docs[i].text)
                 out.append(docs[i])
+                lore_left -= docs[i].kind == "lore"
         return out
 
     def _bm25(self, qtokens: list[str], docs: list[Doc]) -> np.ndarray:

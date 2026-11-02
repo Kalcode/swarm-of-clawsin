@@ -30,6 +30,7 @@ AUTO_RECALL = 3
 AUTO_LINE = 140
 HUNGRY = 40
 RECALL_ASKED = 5
+RECALL_LORE = 1  # of those, at most this many from shared lore, so places, recipes and memories get room
 RECALL_LINE = 160
 MIN_GAP_TICKS = 4
 CHRONICLE_EVERY = 600
@@ -368,19 +369,18 @@ class ServerState:
 
     def _recall_hook(self, c: Creature, query: str) -> list[tuple[str, str]]:
         """What the `recall` action finds: memories, places, recipes, texts read and shared lore."""
-        hits = self.recall.search(c.id, query, k=RECALL_ASKED, now=self.world.tick,
+        hits = self.recall.search(c.id, query, k=RECALL_ASKED, now=self.world.tick, max_lore=RECALL_LORE,
                                   extra=[*self._places(c), *self._recipes(c)])
         return [(d.kind, d.text[:RECALL_LINE]) for d in hits]
 
     @staticmethod
     def _recall_note(it, message: str) -> str:
-        """What a creature keeps of a recall: one short line, not the whole answer."""
+        """What a creature keeps of a recall: one short line. The whole answer is shown once, in the next act."""
         found = message.splitlines()[1:]
         query = (it.target or it.text)[:40]
         if not found:
             return f'You tried to think back about "{query}", but nothing came.'
-        more = f"; and {len(found) - 1} more" if len(found) > 1 else ""
-        return f'You thought back about "{query}": {found[0][:90]}{more}.'[:160]
+        return f'You thought back about "{query}": {found[0][:90]}.'[:160]
 
     def auto_recall(self, c: Creature, mem: Memory, recent: list[str]) -> list[tuple[str, str]]:
         """Up to 3 things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
@@ -417,8 +417,9 @@ class ServerState:
             if "disclose" in layers:
                 tips = set(relevant(self.world, c, tip_limit(layers)))
                 shown = [t.name for t in TECHNIQUES if t.line in tips]
+            thought_back, mem.thought_back = mem.thought_back, []
             kind, messages, schema, max_tokens = "act", build_act_messages(
-                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled]), \
+                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back), \
                 (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), 260
             shown_recalled = [f"{k}: {t[:60]}" for k, t in recalled]
         c.thinking = True
@@ -497,6 +498,8 @@ class ServerState:
             self.metrics.bump(c.model, "noops")
         if res.ok and res.instant and it.action == "recall":
             self._remember(c, self._recall_note(it, res.message), 1, index=False)
+            if not res.noop:  # a repeated question gets nothing new to show
+                mem.thought_back = res.message.splitlines()[1:]
         elif res.ok and res.instant:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1,
                            kind="read" if it.action == "read" else "memory")

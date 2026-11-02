@@ -182,3 +182,13 @@ def test_semantic_text_is_what_gets_queued():
     idx.search("a", "make a pot oak tree Mara", now=60, semantic="make a pot")
     assert [k for k, _ in idx.pending() if k.startswith("q:")] == ["q:make a pot"]
     assert idx.search("a", "clay", now=60, lore=False)
+
+
+def test_max_lore_caps_shared_lore():
+    idx = RecallIndex()
+    for name in ("fire", "flint", "kindling"):
+        idx.add_lore(name, f"{name}: fire needs dry wood")
+    idx.add("a", "memory", "dry wood by the fire pit", tick=1)
+    assert sum(d.kind == "lore" for d in idx.search("a", "fire dry wood", k=5, now=2)) == 3
+    hits = idx.search("a", "fire dry wood", k=5, now=2, max_lore=1)
+    assert [d.kind for d in hits].count("lore") == 1 and any(d.kind == "memory" for d in hits)

@@ -227,7 +227,7 @@ RECALL_HINT = "(You can think back with recall: target is what you want to remem
 
 
 def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None,
-                       layers: set[str] = frozenset(), recalled: list[str] = ()) -> list[dict]:
+                       layers: set[str] = frozenset(), recalled: list[str] = (), thought_back: list[str] = ()) -> list[dict]:
     p = c.persona or {}
     traits = " and ".join(p.get("traits", [])) or "ordinary"
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
@@ -252,6 +252,10 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
         lines.append("")
         lines.append("Recent memories (oldest first):")
         lines += [f"- {r}" for r in recent]
+    if thought_back:  # the full answer to the recall the creature just asked for, shown this once
+        lines.append("")
+        lines.append("You thought back:")
+        lines += [f"- {r}" for r in thought_back]
     if "recall" in layers and recalled:
         lines.append("")
         lines.append("You recall:")

@@ -33,6 +33,7 @@ class Memory:
     plan: list[str] = field(default_factory=list)
     plan_step: int = 0
     people: dict[str, str] = field(default_factory=dict)
+    thought_back: list[str] = field(default_factory=list)  # an asked-for recall's answer, shown once in the next act
     thinks_since_reflect: int = 0
     entries_since_reflect: int = 0
 
