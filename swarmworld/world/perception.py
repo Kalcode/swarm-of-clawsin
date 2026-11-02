@@ -46,6 +46,13 @@ def near_glow(world: World, x: int, y: int) -> bool:
     return False
 
 
+def roof_over(world: World, x: int, y: int) -> str | None:
+    """The id of the roofed building whose inside (x, y) is, or None. A roof keeps off rain and cold
+    (Simulation.exposure), and a bed or station under one serves only those under it (actions.station_near). Nothing
+    has a roof until a pack replaces this function (the building pack does)."""
+    return None
+
+
 def near_lit_fire(world: World, x: int, y: int, radius: int = FIRE_RADIUS) -> bool:
     for yy in range(y - radius, y + radius + 1):
         for xx in range(x - radius, x + radius + 1):
@@ -254,7 +261,9 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     under = TILE_NAMES[world.tile(c.x, c.y)]
     here_obj = world.object_at(c.x, c.y)
     here = f"You stand on {under}"
-    if here_obj:
+    if here_obj and KINDS.get(here_obj.kind, {}).get("over_water"):  # a bridge
+        here = f"You stand on {article(here_obj.name)} {here_obj.name} over {under}"
+    elif here_obj:
         here += f", by a {here_obj.name}"
     pile = world.ground.get((c.x, c.y))
     if pile:
@@ -354,8 +363,10 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     lines.append(f"You feel {_feeling(c)}.")
     phase = world.clock()["phase"]
     if (phase == "night" or getattr(world, "weather", "clear") in ("rain", "storm")) and not near_lit_fire(world, c.x, c.y, 3):
-        sheltered = any(o.kind in ("bed",) or (o.kind == "creation" and "shelter" in o.data.get("effects", ()))
-                        for o, d, _ in visible_objects(world, c, 2))
+        roof = roof_over(world, c.x, c.y)
+        sheltered = roof is not None or any(
+            (o.kind in ("bed",) or (o.kind == "creation" and "shelter" in o.data.get("effects", ())))
+            and roof_over(world, o.x, o.y) in (None, roof) for o, d, _ in visible_objects(world, c, 2))
         if not sheltered:
             lines.append("You are soaked and shivering; a fire or shelter would help." if getattr(world, "weather", "clear") in ("rain", "storm")
                          else "The night air is cold; you'd be better off by a fire or under shelter.")

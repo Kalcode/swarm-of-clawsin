@@ -815,6 +815,7 @@ class ServerState:
             "creatures": [w.cre_dict(c) for c in w.creatures.values()],
             "objects_upsert": upsert, "objects_removed": removed,
             "landmarks": getattr(w, "landmarks", []) if w.tick % 30 == 0 else None,
+            "buildings": w.take_building_changes(),  # all of them, when one went up or came down; else None
             "events": [e.to_dict() for e in new_events if e.kind != "fire_out" or True],
         }
         return json.dumps(msg)

@@ -8,6 +8,7 @@ import re
 from collections import Counter, deque
 from dataclasses import dataclass, field, replace
 
+from . import perception
 from .catalog import Recipe
 from .events import HEARING
 from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, World, WorldObject
@@ -373,12 +374,14 @@ def _gather_yields(world: World, c: Creature, obj: WorldObject, got: Counter) ->
 
 
 def station_near(world: World, c: Creature, kind: str, r: int = 2) -> bool:
+    """A station (or a bed) within r steps; one inside a building serves only those inside it, not through its walls."""
+    roof = perception.roof_over(world, c.x, c.y)
     for y in range(c.y - r, c.y + r + 1):
         for x in range(c.x - r, c.x + r + 1):
             o = world.object_at(x, y)
-            if o and o.kind == kind and (kind != "campfire" or o.data.get("lit")):
-                return True
-            if o and o.kind == "creation" and kind == "bed" and "shelter" in o.data.get("effects", ()):
+            fits = o and ((o.kind == kind and (kind != "campfire" or o.data.get("lit")))
+                          or (o.kind == "creation" and kind == "bed" and "shelter" in o.data.get("effects", ())))
+            if fits and perception.roof_over(world, x, y) in (None, roof):
                 return True
     return False
 
