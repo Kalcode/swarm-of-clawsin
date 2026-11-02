@@ -1,0 +1,5 @@
+[
+  {"output": "thatch", "inputs": {"reed": 4, "plant_fiber": 1}},
+  {"output": "flower_crown", "inputs": {"flower": 3, "plant_fiber": 1}},
+  {"output": "shell_necklace", "inputs": {"shell": 3, "rope": 1}}
+]

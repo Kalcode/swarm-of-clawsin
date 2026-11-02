@@ -9,7 +9,7 @@ The registry's docstring (`swarmworld/world/registry.py`) is the reference.
 | You add | How |
 |---|---|
 | items, recipes | `items.json`, `recipes.json` (merged after the base files) |
-| object kinds | `objects.json`: `name, aliases, blocking, animal, gatherable, carvable, store, gives, yields, look` |
+| object kinds | `objects.json`: `name, aliases, blocking, animal, gatherable, carvable, store, gives, yields, look`; `glow` (steps) makes a soft night light, like fireflies |
 | a verb | `register_verb(name, handler, aliases=(), *, replaces_alias=False)` |
 | its disclosure | `register_technique(Technique(name, line, trigger))`, shown to every creature when the trigger fits |
 | world behaviour | `register_system(name, every, fn(sim, tick))` |

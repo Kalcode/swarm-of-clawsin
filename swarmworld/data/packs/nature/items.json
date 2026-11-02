@@ -1,0 +1,16 @@
+{
+  "flower": {"name": "flower", "aliases": ["flowers", "wildflower", "wildflowers", "blossom", "blossoms", "petals"], "tags": ["plant"],
+             "desc": "A bright wildflower. Bees love them, and crushed petals could color things."},
+  "reed": {"name": "reed", "aliases": ["reeds", "rush", "rushes", "cattail", "cattails"], "tags": ["plant"],
+           "desc": "A long hollow stem from the water's edge; it bends without breaking. Bundled, it makes thatch."},
+  "mushroom": {"name": "mushroom", "aliases": ["mushrooms", "fungus", "toadstool", "toadstools"], "tags": ["food", "plant"], "food": 6,
+               "desc": "A pale, earthy mushroom from the forest floor. Edible raw, better cooked."},
+  "shell": {"name": "shell", "aliases": ["shells", "seashell", "seashells", "mussel shell"], "tags": ["material"],
+            "desc": "A smooth, pearly shell from the lake beach."},
+  "thatch": {"name": "thatch", "aliases": ["thatching", "reed bundle"], "tags": ["building"],
+             "desc": "Reeds bound in a thick bundle, for a roof that keeps the rain out."},
+  "flower_crown": {"name": "flower crown", "aliases": ["flower wreath", "garland", "wreath"], "tags": ["gift"],
+                   "desc": "Flowers woven into a ring to wear on your head. It makes everyone smile."},
+  "shell_necklace": {"name": "shell necklace", "aliases": ["necklace", "shell string"], "tags": ["gift"],
+                     "desc": "Shells strung on a cord. A fine gift for a friend."}
+}

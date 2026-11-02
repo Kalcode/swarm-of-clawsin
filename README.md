@@ -149,6 +149,10 @@ Following Project Sid's fast/slow split, some things happen without the model. A
 
 Curious, tinkerer and builder creatures sometimes get a vague **hunch** about something they carry ("you get a hunch that your stick and flint belong together somehow"). Hunches never spell out a recipe. Start the server with `--no-inspiration` to watch purely unassisted culture.
 
+## The land
+
+A fresh world is 128×128 tiles (older saves keep their size). The creatures start in a meadow at the center; around it lie open meadow with wildflowers, oak forest, pine forest climbing toward rocky hills (boulders, flint, streaked ore rock), and a lake with a sandy beach on one shore and a marsh of reeds, pools and clay where a stream comes in. Two streams run down from the hills to the lake and a river leaves it for the edge of the map. Rivers flow: anything dropped in one drifts downstream, and off the map at the edge. Flowers, reeds, mushrooms, shells, driftwood and flint are gathered like anything else; mushrooms come up again in the forests and shells and driftwood wash up on the beach. Bees and butterflies come out on fine days, fireflies at dusk; their glow lets a creature see a step farther in the dark. A creature is told the biome it is in when that changes (and when it wakes), and which way a river flows when it comes to one (`swarmworld/world/terrain.py`, pack `nature`).
+
 ## Places and society
 
 The world names the places that matter. A cluster of things creatures built becomes someone's camp ("Bo's camp", named after its founder). The ancient terminals, the lake and the meadow are landmarks too. Creatures sense nearby places and can walk to them by name, so "meet me at Bo's camp" works.
