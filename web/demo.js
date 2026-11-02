@@ -156,6 +156,12 @@
     if (!objAt.has(x + ',' + y)) animals.push(addObj(kind, x, y, { label: kind }));
   }
   if (animals[0]) animals[0].tamed_by = 'Tam';
+  // named places
+  const landmarks = [
+    { name: "Tam's camp", x: CX, y: CY + 1, kind: 'camp', size: 5 },
+    { name: 'Mirror Lake', x: LX, y: LY, kind: 'lake', size: 0 },
+    { name: 'the Long Meadow', x: CX + 9, y: CY - 7, kind: 'meadow', size: 0 },
+  ];
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -214,7 +220,14 @@
     }
     return null;
   }
+  // words carved into a couple of trees near the camp
+  {
+    const carved = [...objects.values()].filter((o) => (o.kind === 'tree' || o.kind === 'pine') && cheb(o.x, o.y, CX, CY) <= 10).slice(0, 2);
+    if (carved[0]) carved[0].text = 'TAM WAS HERE';
+    if (carved[1]) carved[1].text = 'berries east, flint in the hills';
+  }
   const terminals = [placeTerminal(), placeTerminal()].filter(Boolean);
+  terminals.forEach((t, i) => landmarks.push({ name: i ? 'the Quiet Machine' : 'the Humming Stone', x: t.x, y: t.y, kind: 'terminal', size: 0 }));
 
   /* ------------------------------------------------------------- catalog */
   const ITEMS = {
@@ -287,6 +300,36 @@
     });
   });
   const byId = new Map(cres.map((c) => [c.id, c]));
+
+  /* ---------------------------------------------------------------- society */
+  const ties = new Map();               // 'a|b' (sorted ids) -> {a, b, talk, gift, teach}
+  function tie(a, b) {
+    const [x, y] = a.id < b.id ? [a, b] : [b, a];
+    const k = x.id + '|' + y.id;
+    let t = ties.get(k);
+    if (!t) { t = { a: x.id, b: y.id, talk: 0, gift: 0, teach: 0 }; ties.set(k, t); }
+    return t;
+  }
+  // a little history so the graph has shape from the start
+  for (let i = 0; i < 26; i++) {
+    const a = cres[randint(0, 9)], b = cres[randint(0, 9)];
+    if (a === b) continue;
+    const t = tie(a, b);
+    t.talk += randint(1, 9);
+    if (chance(0.3)) t.gift += randint(1, 3);
+    if (chance(0.15)) t.teach += 1;
+  }
+  function societyMsg() {
+    const edges = [...ties.values()].map((t) => ({ ...t, weight: t.talk + 2 * t.gift + 3 * t.teach }));
+    const deg = new Map();
+    for (const e of edges) { deg.set(e.a, (deg.get(e.a) || 0) + e.weight); deg.set(e.b, (deg.get(e.b) || 0) + e.weight); }
+    const hubs = [...deg.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([id, w]) => ({ id, name: byId.get(id).name, weight: w }));
+    return {
+      nodes: cres.map((c) => ({ id: c.id, name: c.name, model: c.model, color: c.color, asleep: c.asleep, drive: c.persona.drive })),
+      edges, hubs, loners: cres.filter((c) => !deg.has(c.id)).map((c) => c.name),
+    };
+  }
+
 
   /* ----------------------------------------------------------------- clock */
   let tick = START_TICK;
@@ -393,6 +436,7 @@
     emitEvent('say', c, line);
     for (const o of cres) {
       if (o === c || cheb(o.x, o.y, c.x, c.y) > 5) continue;
+      tie(c, o).talk++;
       o.heard.push(`${c.name} said: “${line}”`);
       if (o.heard.length > 3) o.heard.shift();
       o.people[c.name] = o.people[c.name] || pick(['talks a lot', 'shared a tip about berries', 'seems friendly', 'knows the hills', 'works by the fire']);
@@ -658,6 +702,13 @@
     'saying only that the machine had answered him.',
     'Night settled over the camp. Most of them slept close to the fire; Rook kept watch and talked to himself about rope.',
   ];
+  function carvedEvent() {
+    const o = [...objects.values()].find((x) => x.text && (x.kind === 'tree' || x.kind === 'pine'));
+    if (!o) return false;
+    pendingEvents.push({ tick, kind: 'write', actor: 'c1', x: o.x, y: o.y, text: `Tam carved words into a ${o.kind === 'pine' ? 'pine' : 'oak tree'}: "${o.text}"` });
+    return true;
+  }
+
   function writeChapter() {
     const text = LATER[(chapters.length - 2) % LATER.length];
     const cl = clock();
@@ -745,6 +796,28 @@
       const c = a && cres.find((o) => !o.asleep && cheb(o.x, o.y, a.x, a.y) <= 3);
       if (c) { a.tamed_by = c.name; upserts.set(a.id, a); emitEvent('tame', c, `${c.name} tamed a ${a.kind}!`, a.x, a.y); }
     }
+    if (chance(0.03)) {
+      const a = pick(cres.filter((x) => !x.asleep));
+      const b = a && cres.find((x) => x !== a && !x.asleep && cheb(x.x, x.y, a.x, a.y) <= 4);
+      if (a && b) {
+        const t = tie(a, b);
+        if (chance(0.5)) {
+          t.teach++;
+          const what = pick(['stone knife', 'rope', 'campfire', 'stone axe']);
+          const how = pick(['watching', 'listening to', 'reading the sign by']);
+          emitEvent('learn', b, `${b.name} learned to make ${what} by ${how} ${a.name}.`);
+        } else {
+          t.gift++;
+          emitEvent('craft', a, `${a.name} gave ${b.name} some berries.`);
+        }
+      }
+    }
+    if (tick === START_TICK + 12) carvedEvent();
+    if (tick === START_TICK + 18) {
+      const [teacher, pupil] = [cres[2], cres[1]];
+      tie(teacher, pupil).teach++;
+      emitEvent('learn', pupil, `${pupil.name} learned to make stone knife by watching ${teacher.name}.`);
+    }
     if (tick % 40 === 0) {
       const o = field.length ? pick(field) : null;
       if (o && objects.has(o.id) && o.stage < 2) { o.stage++; upserts.set(o.id, o); }
@@ -776,6 +849,7 @@
       type: 'tick', tick, clock: clock(), creatures: cres.map(cre),
       objects_upsert: [...upserts.values()].filter((o) => objects.has(o.id)), objects_removed: removed.splice(0),
       events: pendingEvents,
+      landmarks: tick % 30 === 0 ? landmarks : null,
     };
     upserts.clear();
     pendingEvents = [];
@@ -785,7 +859,7 @@
   function initMsg() {
     return {
       type: 'init', width: W, height: H, tiles: grid.map((r) => r.join('')), objects: [...objects.values()], creatures: cres.map(cre),
-      tick, clock: clock(), items: ITEMS,
+      tick, clock: clock(), items: ITEMS, landmarks,
     };
   }
 
@@ -926,6 +1000,7 @@
         if (p === '/api/metrics') { const x = metricsMsg(); delete x.type; return resolve(x); }
         if (p === '/api/state') { const x = initMsg(); delete x.type; return resolve(x); }
         if (p === '/api/chronicle') return resolve(JSON.parse(JSON.stringify(chapters)));
+        if (p === '/api/society') return resolve(JSON.parse(JSON.stringify(societyMsg())));
         if (p === '/api/inventions') return resolve(JSON.parse(JSON.stringify(inventionList.filter((x) => x.tick <= tick))));
         reject(new Error('HTTP 404'));
       }, 40 + Math.random() * 80);

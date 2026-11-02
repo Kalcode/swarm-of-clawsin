@@ -16,12 +16,10 @@ TERMINAL_READY = (
 )
 
 TABLET_TEXT = (
-    "The stone is carved with careful letters: 'THE TERMINAL LISTENS TO LUA. "
-    "Stand beside it and PROGRAM it with Lua code. It runs your program again every ten heartbeats. "
-    "It knows: say(msg) speaks aloud; scan(r) returns the things within r steps, each with kind, name, dx, dy; "
-    "time() returns tick, day and phase; print(x) writes to its screen (READ the terminal to see it); "
-    "memory is a table it keeps between runs. "
-    "Example: say(\"hello\")  or  for _,t in ipairs(scan(5)) do print(t.name..\" at \"..t.dx..\",\"..t.dy) end'"
+    "Carved letters on the stone: 'THE TERMINAL BESIDE ME OBEYS LUA. "
+    "Stand next to it and use program, with Lua code as your text. It runs your code every 20 heartbeats. "
+    "It can say(\"words\") aloud, scan(5) to list what is near it, time() to tell the day, print(x) on its screen, "
+    "and keep things in memory. Try: say(\"hello\")'"
 )
 
 

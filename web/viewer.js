@@ -28,6 +28,7 @@
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
   const DETAIL_POLL_MS = 1000;
   const SANS = getComputedStyle(document.documentElement).getPropertyValue('--sans') || 'sans-serif';
+  const SERIF = getComputedStyle(document.documentElement).getPropertyValue('--serif') || 'serif';
 
   /* --------------------------------------------------------------- helpers */
   const $ = (id) => document.getElementById(id);
@@ -962,6 +963,7 @@
     }
     renderSocietyLists();
     renderPlaces();
+    if (S.tab === 'society') sizeSociety();
     kickSociety();
   }
 
@@ -982,6 +984,7 @@
 
   function sizeSociety() {
     const cv = $('soc-canvas');
+    if (!cv.parentElement.clientWidth) return;           // still hidden
     const w = Math.max(240, cv.parentElement.clientWidth);
     const h = Math.round(Math.min(360, Math.max(260, w * 0.9)));
     soc.dpr = window.devicePixelRatio || 1;
@@ -997,7 +1000,7 @@
     const { nodes, edges } = soc.data;
     const P = nodes.map((n) => soc.pos.get(n.id));
     const cx = soc.w / 2, cy = soc.h / 2;
-    const rep = 1500 * Math.min(1, 14 / Math.max(6, nodes.length));
+    const rep = 2600 * Math.min(1, 14 / Math.max(6, nodes.length));
     for (let i = 0; i < P.length; i++) {
       for (let j = i + 1; j < P.length; j++) {
         const a = P[i], b = P[j];
@@ -1543,7 +1546,7 @@
       ctx.beginPath(); ctx.arc(cx, cy, ring, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
       const px = kind === 'camp' ? 12 + Math.min(size, 8) : kind === 'terminal' ? 12 : 15;
-      ctx.font = `italic small-caps 600 ${px}px ${getComputedStyle(document.documentElement).getPropertyValue('--serif') || 'serif'}`;
+      ctx.font = `italic small-caps 600 ${px}px ${SERIF}`;
       const ly = kind === 'lake' || kind === 'meadow' ? cy : cy - ring - px * 0.2;
       const tw = ctx.measureText(L.name).width;
       ctx.globalAlpha = 0.92 * fade;
