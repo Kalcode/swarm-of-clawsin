@@ -2403,6 +2403,7 @@
     $('conn').addEventListener('click', retryNow);
     $('follow-stop').addEventListener('click', () => { S.following = false; renderFollow(); });
     $('cre-locate').addEventListener('click', () => { if (S.selected) { S.following = true; renderFollow(); } });
+    $('cre-back').addEventListener('click', deselect);
     for (const b of document.querySelectorAll('[data-zoom]')) {
       b.addEventListener('click', () => zoomStep(+b.dataset.zoom, null, null));
     }
