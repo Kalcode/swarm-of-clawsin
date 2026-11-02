@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 
 from .catalog import Recipe
 from .events import HEARING
-from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, Creature, World, WorldObject
+from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, World, WorldObject
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 
 VERBS = [
@@ -44,6 +44,12 @@ ITEM_SOURCES = {
     "stick": {"tree", "pine"}, "log": {"tree", "pine"}, "stone": {"rock"}, "flint": {"rock"},
     "berries": {"bush"}, "clay": {"clay"}, "copper_ore": {"copper_vein"}, "iron_ore": {"iron_vein"},
     "wheat": {"crop"}, "carrot": {"crop"}, "egg": {"chicken"}, "milk": {"cow"}, "wool": {"sheep"},
+}
+SOURCE_HINT = {
+    "plant_fiber": "pull it from grass", "stick": "break them off trees", "log": "chop trees while carrying an axe",
+    "stone": "knock it off boulders", "flint": "it turns up when you gather from boulders", "berries": "pick them from berry bushes",
+    "clay": "dig it from clay banks", "sand": "scoop it up on sandy ground", "fish": "catch them in water with a fishing rod",
+    "wheat": "grow it from wheat seeds", "egg": "a chicken that trusts you lays them",
 }
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
 EMPTY_KINDS = {"bush_empty", "stump"}
@@ -236,11 +242,17 @@ TILE_TARGETS = {
 
 # ------------------------------------------------------------------- movement
 def bfs_path(world: World, start: tuple[int, int], goals: set[tuple[int, int]], limit: int = 2500,
-             avoid: set[tuple[int, int]] | None = None) -> list[tuple[int, int]] | None:
+             avoid: set[tuple[int, int]] | None = None, closest: bool = False) -> list[tuple[int, int]] | None:
+    """Shortest walk to any goal; with closest, a walk to the reachable spot nearest the goals when none can be reached."""
     if start in goals:
         return []
     avoid = avoid or set()
     prev: dict[tuple[int, int], tuple[int, int] | None] = {start: None}
+
+    def gap(p: tuple[int, int]) -> int:
+        return min((dist(p[0], p[1], gx, gy) for gx, gy in goals), default=0)
+
+    best, best_gap = start, gap(start)
     q = deque([start])
     while q and len(prev) < limit:
         cur = q.popleft()
@@ -257,7 +269,14 @@ def bfs_path(world: World, start: tuple[int, int], goals: set[tuple[int, int]], 
                 while prev[path[-1]] != start:
                     path.append(prev[path[-1]])
                 return list(reversed(path))
+            if closest and gap(nxt) < best_gap:
+                best, best_gap = nxt, gap(nxt)
             q.append(nxt)
+    if closest and best != start:
+        path = [best]
+        while prev[path[-1]] != start:
+            path.append(prev[path[-1]])
+        return list(reversed(path))
     return None
 
 
@@ -281,7 +300,12 @@ def start_walk(world: World, c: Creature, goals: set[tuple[int, int]], label: st
     if path is None:
         path = bfs_path(world, (c.x, c.y), goals)  # crowded: head there anyway and stop when blocked
     if path is None:
-        return ActionResult(False, f"You can't find a way to get there ({label}).")
+        path = bfs_path(world, (c.x, c.y), goals, avoid=taken, closest=True)
+        if not path:
+            return ActionResult(False, f"You can't find a way to get there ({label}).")
+        c.activity = {"type": "walk", "path": path, "label": label, "result": f"You get as close as you can ({label})."}
+        return ActionResult(True, f"You set off, {label}. There's no way all the way there, so you'll get as close as you can.",
+                            instant=False)
     if not path:
         return ActionResult(True, arrive_msg)
     c.activity = {"type": "walk", "path": path, "label": label, "result": arrive_msg}
@@ -315,8 +339,24 @@ def invention_effects(text: str) -> list[str]:
     return [eff for eff, stems in EFFECT_STEMS.items() if any(re.search(rf"\b{re.escape(w)}", t) for w in stems)]
 
 
+SOURCE_PRODUCTS = {kind: sorted(i for i, kinds in ITEM_SOURCES.items() if kind in kinds)
+                   for kind in {k for kinds in ITEM_SOURCES.values() for k in kinds}}
+
+
+def _from_source(c: Creature, name: str) -> str | None:
+    """'berry bush' for the berries you carry, 'boulder' for stone: what a named source gives that you hold."""
+    phrase = " ".join(_words(name))
+    for kind, products in SOURCE_PRODUCTS.items():
+        names = [OBJECT_NAMES.get(kind, kind)] + OBJECT_ALIASES.get(kind, [])
+        if phrase and (phrase in names or any(n in phrase for n in names if len(n) > 3)):
+            held = [i for i in products if c.inventory.get(i, 0) > 0]
+            if held:
+                return held[0]
+    return None
+
+
 def _resolve_held(world: World, c: Creature, name: str) -> tuple[str | None, str]:
-    iid = world.catalog.resolve(name)
+    iid = world.catalog.resolve(name) or _from_source(c, name)
     if iid is None:
         return None, f"You don't know of anything called '{name}'."
     if c.inventory.get(iid, 0) <= 0:
@@ -340,9 +380,10 @@ def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> A
     for iid, n in r.inputs.items():
         have = c.inventory.get(iid, 0)
         if have < n:
+            where = f" {cat.name(iid).capitalize()}: {SOURCE_HINT[iid]}." if iid in SOURCE_HINT else ""
             if via == "combine":
-                return ActionResult(False, f"You sense these could become something, but you'd need {n} {cat.name(iid)} (you have {have}).")
-            return ActionResult(False, f"To make {cat.name(r.output)} you need {n} {cat.name(iid)}, but you have {have}.")
+                return ActionResult(False, f"You sense these could become something, but you'd need {n} {cat.name(iid)} (you have {have}).{where}")
+            return ActionResult(False, f"To make {cat.name(r.output)} you need {n} {cat.name(iid)}, but you have {have}.{where}")
         count = min(count, have // n)
     for t in r.tools:
         if c.inventory.get(t, 0) <= 0:
@@ -718,6 +759,11 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             return ActionResult(False, "The sapling is still growing; leave it be.")
         elif obj.kind in ("bush_empty", "stump"):
             return ActionResult(False, f"The {obj.name} has nothing left to take right now.")
+        elif obj.kind == "campfire":
+            return ActionResult(True, "There's nothing to take from the campfire, but its warmth reaches you here. To keep it burning, "
+                                      "give it sticks (give, target campfire, items [stick]).", noop=True)
+        elif obj.kind in STORES:  # "gather from the basket" means take from it
+            return _take(world, c, Intention("take", target=obj.name, items=it.items, count=it.count))
         else:
             return ActionResult(False, f"You can't gather anything from the {obj.name}.")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
@@ -986,6 +1032,9 @@ def _pick_up(world: World, c: Creature, it: Intention) -> ActionResult:
             if taken:
                 c.inventory.update(taken)
                 return ActionResult(True, f"You pick up {_items_text(world, taken)}.")
+    if name and (iid in ITEM_SOURCES or iid in ("plant_fiber", "sand") or {"grass", "fiber", "sand"} & set(_words(name))
+                 or find_object(world, c, name, max_dist=1, kinds=GATHERABLE)):
+        return _gather(world, c, Intention("gather", target=name, count=it.count))  # it grows or lies in the land
     return ActionResult(False, "There's nothing like that on the ground within reach.")
 
 
@@ -1002,8 +1051,19 @@ def _drop(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f"You put down {n} {world.catalog.name(iid)}.")
 
 
+def _placeable_held(world: World, c: Creature, name: str) -> str | None:
+    for cand in (name, " ".join(w for w in _words(name) if w not in DIRS)):
+        iid = world.catalog.resolve(cand)
+        if iid and c.inventory.get(iid, 0) > 0 and world.catalog.items[iid].placeable:
+            return iid
+    return None
+
+
 def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     name = it.target or (it.items[0] if it.items else "")
+    other = next((n for n in it.items if _placeable_held(world, c, n)), None)
+    if other and not _placeable_held(world, c, name):  # "place grass [campfire]": the structure is in items
+        name = other
     words = _words(name + " " + it.text)
     hint, _ = _dir_hint(words)
     iid = None

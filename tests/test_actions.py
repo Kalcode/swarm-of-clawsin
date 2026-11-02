@@ -176,6 +176,56 @@ def test_inventions_need_a_real_name(world):
     assert act(world, c, action="invent", target="berry whisk", items=["stick", "berries", "plant fiber"]).ok
 
 
+def test_gather_at_a_campfire_explains_tending(world):
+    c = creature(world)
+    world.add_object("campfire", 11, 10, lit=True)
+    res = act(world, c, action="gather", target="campfire")
+    assert res.ok and res.noop and "give it sticks" in res.message
+
+
+def test_gather_from_a_basket_takes_from_it(world):
+    c = creature(world)
+    world.add_object("basket", 11, 10, items={"stick": 3})
+    assert act(world, c, action="gather", target="basket", items=["stick"]).ok and c.inventory["stick"] > 0
+
+
+def test_place_uses_the_structure_named_in_items(world):
+    c = creature(world)
+    c.inventory.update({"campfire": 1, "plant_fiber": 3})
+    assert act(world, c, action="place", target="grass", items=["campfire"]).ok and not c.inventory.get("campfire")
+    assert any(o.kind == "campfire" for o in world.objects.values())
+
+
+def test_a_source_name_means_what_it_gives(world):
+    c = creature(world)
+    c.satiety = 30
+    c.inventory["berries"] = 2
+    assert act(world, c, action="eat", target="berry bush").ok and c.satiety > 30
+
+
+def test_pick_up_what_grows_here_gathers_it(world):
+    c = creature(world)  # standing in a meadow
+    assert act(world, c, action="pick_up", target="tall grass").ok and c.inventory.get("plant_fiber", 0) > 0
+    assert not act(world, c, action="pick_up", target="rope").ok  # nothing to gather: still a plain failure
+
+
+def test_walk_gets_as_close_as_it_can(world):
+    c = creature(world)
+    for y in range(40):
+        world.tiles[y][20] = "W"  # deep water nobody can cross
+    world.add_object("rock", 30, 10)
+    c.spots["rock"] = (30, 10, world.tick)
+    res = act(world, c, action="walk_to", target="boulder")
+    assert res.ok and c.x == 19 and "as close as you can" in res.message
+
+
+def test_shortfall_says_where_material_comes_from(world):
+    c = creature(world)
+    c.inventory.update({"plant_fiber": 1})
+    res = act(world, c, action="craft", target="rope")
+    assert not res.ok and "grass" in res.message
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
