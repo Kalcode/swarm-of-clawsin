@@ -27,7 +27,7 @@ def _creature_dict(c: Creature) -> dict:
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
         "spots": {k: list(v) for k, v in c.spots.items()},
         "minds": c.minds, "stats_base": dict(c.stats_base), "harness": dict(c.harness),
-        "landmarks_seen": sorted(c.landmarks_seen),
+        "landmarks_seen": sorted(c.landmarks_seen), "ext": c.ext,
     }
 
 
@@ -41,7 +41,7 @@ def snapshot(st: "ServerState") -> dict:
             "next_id": w._next_id, "discoveries": w.discoveries,
             "objects": [{"id": o.id, "kind": o.kind, "x": o.x, "y": o.y, "data": o.data} for o in w.objects.values()],
             "ground": [{"x": x, "y": y, "items": dict(p)} for (x, y), p in w.ground.items()],
-            "creatures": [_creature_dict(c) for c in w.creatures.values()],
+            "creatures": [_creature_dict(c) for c in w.creatures.values()], "ext": w.ext,
         },
         "memories": {
             cid: {"entries": [[e.tick, e.text, e.importance] for e in m.entries], "summary": m.summary, "goal": m.goal,
@@ -91,6 +91,7 @@ def restore(st: "ServerState", path: Path) -> None:
     w.weather_until = wd.get("weather_until", 0)
     w._next_id = wd["next_id"]
     w.discoveries = wd.get("discoveries", {})
+    w.ext = dict(wd.get("ext") or {})  # packs' world state (saves from before the packs: none)
     effects_by_item = {inv["id"]: inv.get("effects", []) for inv in data.get("inventions", [])}
     from ..world.terrain import TABLET_TEXT, TERMINAL_READY
     for o in wd["objects"]:
@@ -114,7 +115,7 @@ def restore(st: "ServerState", path: Path) -> None:
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
                      spots={k: tuple(v) for k, v in cd.get("spots", {}).items()},
                      minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})),
-                     landmarks_seen=set(cd.get("landmarks_seen", [])))
+                     landmarks_seen=set(cd.get("landmarks_seen", [])), ext=dict(cd.get("ext") or {}))
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r
@@ -125,6 +126,8 @@ def restore(st: "ServerState", path: Path) -> None:
     spawn_animals(w, w.rng)  # older saves predate animals
     if not any(o.kind == "wishing_stone" for o in w.objects.values()):  # nor did they have a wishing stone
         place_wishing_stone(w)
+    from ..world.registry import run_populate
+    run_populate(w, w.rng, fresh=False)  # packs add what a world from before them lacks (idempotent)
     w.changed_objects.clear()
     st.world = w
     st.sim.world = w

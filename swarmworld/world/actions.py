@@ -12,13 +12,12 @@ from .catalog import Recipe
 from .events import HEARING
 from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, World, WorldObject
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
+# Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
+# then every pack's. These are the registry's shared tables.
+from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, ITEM_SOURCES, SOURCE_PRODUCTS, STORES,
+                       VERB_ALIASES, VERBS, YIELDS, register_verb)
 
-VERBS = [
-    "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
-    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take", "teach", "wish",
-    "recall",
-]
-VERB_ALIASES = {
+_CORE_ALIASES = {  # other words minds use for the core verbs (registered with them below)
     "pray": "wish", "wish_for": "wish", "make_wish": "wish", "make_a_wish": "wish",
     "walk": "walk_to", "go": "walk_to", "go_to": "walk_to", "goto": "walk_to", "move": "walk_to",
     "move_to": "walk_to", "approach": "walk_to", "head_to": "walk_to", "walkto": "walk_to",
@@ -40,12 +39,6 @@ FILLER = {"the", "a", "an", "nearest", "closest", "nearby", "near", "some", "to"
 VECTORS = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
            "west": (-1, 0), "northwest": (-1, -1), "north": (0, -1), "northeast": (1, -1)}
 TOOLS_AXE = ("stone_axe",)
-GATHERABLE = {"tree", "pine", "bush", "rock", "copper_vein", "iron_vein", "clay", "crop", "chicken", "sheep", "cow"}
-ITEM_SOURCES = {
-    "stick": {"tree", "pine"}, "log": {"tree", "pine"}, "stone": {"rock"}, "flint": {"rock"},
-    "berries": {"bush"}, "clay": {"clay"}, "copper_ore": {"copper_vein"}, "iron_ore": {"iron_vein"},
-    "wheat": {"crop"}, "carrot": {"crop"}, "egg": {"chicken"}, "milk": {"cow"}, "wool": {"sheep"},
-}
 SOURCE_HINT = {
     "plant_fiber": "pull it from grass", "stick": "break them off trees", "log": "chop trees while carrying an axe",
     "stone": "knock it off boulders", "flint": "it turns up when you gather from boulders", "berries": "pick them from berry bushes",
@@ -56,7 +49,6 @@ WELL_FED = 40  # animal hunger below this: it gives eggs, milk, wool and may bre
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
 ANIMAL_LURE = ANIMAL_FOOD - {"plant_fiber"}  # what a tamed animal follows its owner for (fiber feeds it, but no lure)
 EMPTY_KINDS = {"bush_empty", "stump"}
-CARVABLE = {"tree", "pine", "rock", "stump"}
 TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
 
 
@@ -333,6 +325,41 @@ def _has_tool(c: Creature, tools: tuple[str, ...]) -> str | None:
     return next((t for t in tools if c.inventory.get(t, 0) > 0), None)
 
 
+def _spent(obj: WorldObject) -> bool:
+    """Used up for now: a picked-over bush, a stump, or a kind from data that has given all it has until it regrows."""
+    if obj.kind in EMPTY_KINDS or obj.kind in DEPLETED:
+        return True
+    return obj.kind in YIELDS and obj.data.get("uses", YIELDS[obj.kind]["uses"]) <= 0
+
+
+def _gather_yields(world: World, c: Creature, obj: WorldObject, got: Counter) -> ActionResult | bool:
+    """One use of a kind with generic yields (objects.json): its items, then what it turns into once used up.
+    Returns a refusal, True when the object is used up (stop), or False to keep going."""
+    y = YIELDS[obj.kind]
+    if y["tool"] and not _has_tool(c, (y["tool"],)):
+        if got:
+            return True
+        return ActionResult(False, f"You'd need a {world.catalog.name(y['tool'])} to gather from the {obj.name}.")
+    for item, (lo, hi) in y["items"].items():
+        n = world.rng.randint(lo, hi)
+        if n:
+            got[item] += n
+    obj.data["uses"] = obj.data.get("uses", y["uses"]) - 1
+    if obj.data["uses"] > 0:
+        return False
+    if y["regrow"]:
+        obj.data["regrow_at"] = world.tick + y["regrow"]
+        obj.data["regrows"] = obj.kind  # what it grows back into (Simulation._regrow)
+    if y["becomes"]:
+        obj.data.pop("uses", None)
+        world.change_kind(obj, y["becomes"])
+    elif y["regrow"]:
+        world.changed_objects.add(obj.id)
+    else:
+        world.remove_object(obj.id)
+    return True
+
+
 def station_near(world: World, c: Creature, kind: str, r: int = 2) -> bool:
     for y in range(c.y - r, c.y + r + 1):
         for x in range(c.x - r, c.x + r + 1):
@@ -353,10 +380,6 @@ EFFECT_STEMS = {  # matched at the start of a word, so "glow" catches "glowstick
 def invention_effects(text: str) -> list[str]:
     t = text.lower()
     return [eff for eff, stems in EFFECT_STEMS.items() if any(re.search(rf"\b{re.escape(w)}", t) for w in stems)]
-
-
-SOURCE_PRODUCTS = {kind: sorted(i for i, kinds in ITEM_SOURCES.items() if kind in kinds)
-                   for kind in {k for kinds in ITEM_SOURCES.values() for k in kinds}}
 
 
 def _from_source(c: Creature, name: str) -> str | None:
@@ -450,7 +473,7 @@ def _walk_then(world: World, c: Creature, obj: WorldObject, it: Intention) -> Ac
 
 
 def _next_hint(obj: WorldObject) -> str:
-    if obj.kind in ("tree", "pine", "bush", "rock", "clay", "copper_vein", "iron_vein"):
+    if obj.kind in ("tree", "pine", "bush", "rock", "clay", "copper_vein", "iron_vein") or (obj.kind in YIELDS and not _spent(obj)):
         return f"You can gather from it now."
     if obj.kind in ("sign", "tablet"):
         return "You can read it now."
@@ -458,7 +481,7 @@ def _next_hint(obj: WorldObject) -> str:
         return "You can read or program it now."
     if obj.kind == "wishing_stone":
         return "You can make a wish here (wish)."
-    if obj.kind in ("bush_empty", "stump"):
+    if _spent(obj):
         return "It has nothing to take right now."
     return ""
 
@@ -624,7 +647,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                     return _walk_then(world, c, far_src, Intention("gather", target=far_src.name, count=it.count))
             else:
                 obj = near
-        if obj is not None and obj.kind in EMPTY_KINDS:
+        if obj is not None and _spent(obj):
             # Prefer something that still has something to give, if one is in sight.
             fresh = find_object(world, c, target, kinds=GATHERABLE)
             if fresh is not None:
@@ -638,7 +661,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                 return _walk_then(world, c, far, it)
     else:
         for o, d, _ in visible_objects(world, c, 1):
-            if o.kind in ("tree", "pine", "bush", "rock", "copper_vein", "iron_vein", "clay"):
+            if o.kind in ("tree", "pine", "bush", "rock", "copper_vein", "iron_vein", "clay") or (o.kind in YIELDS and not _spent(o)):
                 obj = o
                 break
     want_item = cat.resolve(target) if target else None
@@ -775,13 +798,20 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             break
         elif obj.kind == "sapling":
             return ActionResult(False, "The sapling is still growing; leave it be.")
-        elif obj.kind in ("bush_empty", "stump"):
+        elif _spent(obj):
             return ActionResult(False, f"The {obj.name} has nothing left to take right now.")
         elif obj.kind == "campfire":
             return ActionResult(True, "There's nothing to take from the campfire, but its warmth reaches you here. To keep it burning, "
                                       "give it sticks (give, target campfire, items [stick]).", noop=True)
         elif obj.kind in STORES:  # "gather from the basket" means take from it
             return _take(world, c, Intention("take", target=obj.name, items=it.items, count=it.count))
+        elif obj.kind in YIELDS:  # a kind from data that gives items: no code of its own
+            label = f"gathering from the {obj.name}"
+            done = _gather_yields(world, c, obj, got)
+            if isinstance(done, ActionResult):
+                return done
+            if done:
+                break
         else:
             return ActionResult(False, f"You can't gather anything from the {obj.name}.")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
@@ -1368,9 +1398,6 @@ def _teach(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f"You show {other.name} how to make {world.catalog.name(iid)}: {recipe}.")
 
 
-STORES = {"basket", "chest"}
-
-
 def _store(world: World, c: Creature, it: Intention) -> ActionResult:
     box = find_object(world, c, it.target or "basket", kinds=STORES) or find_object(world, c, "", kinds=STORES)
     if not box:
@@ -1457,12 +1484,15 @@ def _recall_action(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, message)
 
 
-HANDLERS = {
+_CORE_HANDLERS = {  # the core verbs, in the order the intention schema lists them
     "walk_to": _walk_to, "explore": _explore, "gather": _gather, "combine": _combine, "craft": _craft,
-    "eat": _eat, "drink": _drink, "say": _say, "wish": _wish, "give": _give, "pick_up": _pick_up, "drop": _drop,
+    "eat": _eat, "drink": _drink, "say": _say, "give": _give, "pick_up": _pick_up, "drop": _drop,
     "place": _place, "write": _write, "read": _read, "program": _program, "rest": _rest, "wait": _wait,
-    "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach, "recall": _recall_action,
+    "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach, "wish": _wish,
+    "recall": _recall_action,
 }
+for _verb, _handler in _CORE_HANDLERS.items():  # registered like any pack's verbs, so a pack reusing a name fails loudly
+    register_verb(_verb, _handler, tuple(a for a, v in _CORE_ALIASES.items() if v == _verb))
 
 
 def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
@@ -1548,3 +1578,8 @@ def _step_activity(world: World, c: Creature) -> ActionResult | None:
         return None
     c.activity = None
     return None
+
+
+# Every content pack registers its verbs, techniques, systems and perception lines on import. It comes last, so a
+# pack can use anything defined above, and before anything else reads VERBS (the intention schema is built from it).
+from . import packs  # noqa: E402,F401

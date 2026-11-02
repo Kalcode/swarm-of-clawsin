@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 
 from .catalog import Catalog
 from .events import Event
+# Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
+from .registry import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES  # noqa: F401
 
 TICK_SECONDS = 0.5
 DAY_TICKS = 1200
@@ -18,51 +20,6 @@ START_TICK = int(DAY_TICKS * 0.12)
 TILE_NAMES = {
     "g": "grass", "d": "dirt", "s": "sand", "w": "shallow water",
     "W": "deep water", "r": "rocky ground", "f": "forest floor",
-}
-BLOCKING = {
-    "tree", "pine", "rock", "copper_vein", "iron_vein", "wall",
-    "workbench", "furnace", "chest", "basket", "terminal", "campfire", "millstone", "bed", "wishing_stone",
-}
-OBJECT_NAMES = {
-    "tree": "oak tree", "pine": "pine tree", "stump": "tree stump", "bush": "berry bush",
-    "bush_empty": "picked-over bush", "rock": "boulder", "copper_vein": "green-streaked rock",
-    "iron_vein": "rust-streaked rock", "clay": "clay bank", "campfire": "campfire",
-    "workbench": "workbench", "furnace": "furnace", "wall": "wooden wall", "sign": "sign",
-    "chest": "chest", "basket": "basket", "terminal": "strange terminal", "tablet": "stone tablet",
-    "crop": "wheat", "sapling": "berry sapling", "millstone": "millstone", "bed": "bed", "door": "door",
-    "chicken": "chicken", "sheep": "sheep", "cow": "cow", "creation": "creation", "wishing_stone": "wishing stone",
-}
-ANIMALS = {"chicken", "sheep", "cow"}
-# Words a creature might use for an object kind (besides its display name).
-OBJECT_ALIASES = {
-    "wishing_stone": ["wishing stone", "wish stone", "wishing rock", "altar", "shrine"],
-    "tree": ["tree", "oak", "oak tree", "trees"],
-    "pine": ["tree", "pine", "pine tree", "trees"],
-    "stump": ["stump", "tree stump"],
-    "bush": ["bush", "berry bush", "berries", "berry", "bushes"],
-    "bush_empty": ["bush", "empty bush"],
-    "rock": ["rock", "boulder", "stone", "rocks", "boulders"],
-    "copper_vein": ["copper", "copper vein", "green rock", "ore", "vein", "copper ore"],
-    "iron_vein": ["iron", "iron vein", "rust rock", "ore", "vein", "iron ore"],
-    "clay": ["clay", "clay bank", "mud"],
-    "campfire": ["campfire", "fire", "camp fire"],
-    "workbench": ["workbench", "bench", "work bench", "crafting table"],
-    "furnace": ["furnace", "forge", "smelter"],
-    "wall": ["wall", "wooden wall"],
-    "sign": ["sign", "signpost"],
-    "chest": ["chest", "box", "store", "storage"],
-    "basket": ["basket", "store", "storage", "shared store"],
-    "terminal": ["terminal", "computer", "machine", "strange terminal"],
-    "tablet": ["tablet", "stone tablet", "inscription"],
-    "crop": ["wheat", "crop", "crops", "field", "wheat field", "ripe wheat", "wheat sprouts", "growing wheat",
-             "carrot", "carrots", "ripe carrot", "carrot sprouts", "growing carrot", "carrot field"],
-    "sapling": ["sapling", "berry sapling", "seedling"],
-    "millstone": ["millstone", "mill", "quern"],
-    "bed": ["bed"],
-    "door": ["door", "gate"],
-    "chicken": ["chicken", "chickens", "hen", "bird", "animal"],
-    "sheep": ["sheep", "lamb", "animal"],
-    "cow": ["cow", "cows", "cattle", "animal"],
 }
 
 
@@ -112,6 +69,7 @@ class Creature:
     landmarks_seen: set = field(default_factory=set)  # names of landmarks it has been near
     last_recall: tuple[str, int, str] | None = None  # (query lowercased, tick, answer) of the last recall action
     harness: dict = field(default_factory=dict)  # layer -> decided on/off for this creature (the trial split)
+    ext: dict = field(default_factory=dict)  # packs' state, by pack name: ext["play"]["joy"] (JSON-able; saved)
 
     @property
     def collapsed(self) -> bool:
@@ -137,6 +95,7 @@ class World:
         self.changed_objects: set[str] = set()
         self.removed_objects: set[str] = set()
         self.recall_hook: Callable[[Creature, str], list[tuple[str, str]]] | None = None  # set by the server: (creature, query) -> [(kind, text)]
+        self.ext: dict = {}  # packs' world state, by pack name: ext["nature"]["rivers"] (JSON-able; saved)
 
     # --- ids / objects -------------------------------------------------
     def new_id(self, prefix: str) -> str:
@@ -331,3 +290,11 @@ class World:
         ev = Event(self.tick, kind, actor, x, y, text, data)
         self.events.append(ev)
         return ev
+
+    def sound(self, x: int, y: int, text: str, radius: int = 8, kind: str = "", loud: bool = False,
+              source: str | None = None) -> Event:
+        """Something makes a noise at (x, y), e.g. text "chopping". The simulation tells awake creatures within
+        radius, except the source (a creature id), "You hear chopping, about 6 steps north." Creatures asleep for
+        the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio (see
+        registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
+        return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source)

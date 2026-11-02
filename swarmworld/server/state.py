@@ -14,9 +14,9 @@ from aiohttp import web
 
 from ..mind.memory import Memory
 from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, build_act_messages,
-                            build_reflect_messages, curated_recent, make_persona, recent_limit, tip_limit)
+                            build_reflect_messages, curated_recent, make_persona, recent_limit, tips_for)
 from ..mind.recall import RecallIndex
-from ..mind.techniques import TECHNIQUES, lore, relevant
+from ..mind.techniques import TECHNIQUES, lore
 from ..world.actions import ActionResult, apply_intention, parse_intention
 from ..world.model import OBJECT_NAMES, Creature
 from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
@@ -433,9 +433,8 @@ class ServerState:
             recalled: list[tuple[str, str]] = []
             if "recall" in layers:
                 recalled = self.auto_recall(c, mem, curated_recent(mem, recent_limit(layers)))
-            if "disclose" in layers:
-                tips = set(relevant(self.world, c, tip_limit(layers)))
-                shown = [t.name for t in TECHNIQUES if t.line in tips]
+            tips = set(tips_for(self.world, c, layers))  # the same list build_act_messages shows
+            shown = [t.name for t in TECHNIQUES if t.line in tips]
             thought_back, mem.thought_back = mem.thought_back, []
             kind, messages, schema, max_tokens = "act", build_act_messages(
                 self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back,

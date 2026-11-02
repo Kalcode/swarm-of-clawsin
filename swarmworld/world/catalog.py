@@ -1,8 +1,10 @@
-"""Item and recipe catalog, loaded from swarmworld/data/*.json."""
+"""Item and recipe catalog, loaded from swarmworld/data/*.json and then each content pack's
+swarmworld/data/packs/<pack>/*.json."""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -10,6 +12,19 @@ from pathlib import Path
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 ARTICLES = ("a ", "an ", "the ", "some ", "my ", "one ")
+
+
+def data_files(name: str, data_dir: Path = DATA, packs: bool = True) -> list[tuple[str, Path]]:
+    """The base data file called name, then each pack's (packs/<pack>/<name>, packs sorted by name), as
+    (where it came from, path). A pack may leave out any of its files."""
+    found = [(name, data_dir / name)] if (data_dir / name).exists() else []
+    if packs:
+        found += [(p.relative_to(data_dir).as_posix(), p) for p in sorted((data_dir / "packs").glob(f"*/{name}"))]
+    return found
+
+
+def defined_twice(what: str, name: str, first: str, second: str) -> ValueError:
+    return ValueError(f"{what} '{name}' is defined twice: in {first} and in {second}")
 
 
 @dataclass(frozen=True)
@@ -57,32 +72,48 @@ class Catalog:
                 self._names.setdefault(_norm(n), item.id)
 
     @classmethod
-    @lru_cache(maxsize=1)
-    def load(cls) -> "Catalog":
-        raw_items = json.loads((DATA / "items.json").read_text())
-        items = {
-            iid: Item(
-                id=iid,
-                name=d["name"],
-                aliases=tuple(d.get("aliases", [])),
-                food=d.get("food", 0),
-                placeable=d.get("placeable", False),
-                tags=tuple(d.get("tags", [])),
-                desc=d.get("desc", ""),
-            )
-            for iid, d in raw_items.items()
-        }
-        recipes = [
-            Recipe(
-                output=r["output"],
-                inputs=dict(r["inputs"]),
-                tools=list(r.get("tools", [])),
-                station=r.get("station"),
-                count=r.get("count", 1),
-                known_at_start=r.get("known_at_start", False),
-            )
-            for r in json.loads((DATA / "recipes.json").read_text())
-        ]
+    @lru_cache(maxsize=8)
+    def load(cls, data_dir: Path = DATA) -> "Catalog":
+        """The base items and recipes, then every pack's after them. An item id, or a recipe's output, that two
+        files define raises ValueError naming both files."""
+        items: dict[str, Item] = {}
+        item_from: dict[str, str] = {}
+        for source, path in data_files("items.json", data_dir):
+            for iid, d in json.loads(path.read_text()).items():
+                if iid in item_from:
+                    raise defined_twice("item", iid, item_from[iid], source)
+                item_from[iid] = source
+                items[iid] = Item(
+                    id=iid,
+                    name=d["name"],
+                    aliases=tuple(d.get("aliases", [])),
+                    food=d.get("food", 0),
+                    placeable=d.get("placeable", False),
+                    tags=tuple(d.get("tags", [])),
+                    desc=d.get("desc", ""),
+                )
+        named: dict[str, str] = {}
+        for iid, item in items.items():  # a name that already means another item keeps meaning that one
+            for n in {_norm(n) for n in (iid, item.name, *item.aliases)}:
+                if named.setdefault(n, iid) != iid:
+                    logging.getLogger("swarmworld.packs").warning(
+                        "item '%s' (%s) is called '%s', which already names '%s' (%s); the name keeps meaning '%s'",
+                        iid, item_from[iid], n, named[n], item_from[named[n]], named[n])
+        recipes: list[Recipe] = []
+        recipe_from: dict[str, str] = {}
+        for source, path in data_files("recipes.json", data_dir):
+            for r in json.loads(path.read_text()):
+                if r["output"] in recipe_from:
+                    raise defined_twice("recipe", r["output"], recipe_from[r["output"]], source)
+                recipe_from[r["output"]] = source
+                recipes.append(Recipe(
+                    output=r["output"],
+                    inputs=dict(r["inputs"]),
+                    tools=list(r.get("tools", [])),
+                    station=r.get("station"),
+                    count=r.get("count", 1),
+                    known_at_start=r.get("known_at_start", False),
+                ))
         return cls(items, recipes)
 
     def copy(self) -> "Catalog":
