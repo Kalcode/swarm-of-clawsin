@@ -466,6 +466,12 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 }
 .trait.drive { border-color: transparent; background: var(--ink-3); color: var(--text); }
 .trait.drive span { color: var(--text-3); margin-right: 4px; }
+.trait.layer { border-color: rgba(120, 170, 230, 0.4); color: #b9d3f2; font-family: var(--mono); font-size: 11px; }
+.plan { margin: 0; padding-left: 22px; font-size: 13px; color: var(--text-2); }
+.plan li { padding: 2px 0; }
+.plan li.done { color: var(--text-3); text-decoration: line-through; }
+.plan li.now { color: var(--text); font-weight: 600; }
+.plan .now-tag { font: 700 10px/1 var(--mono); color: #f2dfae; background: rgba(244, 200, 74, 0.15); border-radius: 3px; padding: 2px 5px; margin-right: 6px; }
 .trait.temper { border-style: dashed; border-color: #4a3d52; color: var(--text-2); cursor: help; }
 .trait.temper[data-temper="role"] { border-style: solid; border-color: rgba(244, 200, 74, 0.35); color: #f2dfae; }
 .persona-text { margin: 0; font-size: 12.5px; color: var(--text-2); }

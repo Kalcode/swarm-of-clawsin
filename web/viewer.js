@@ -696,7 +696,16 @@
     } else if (per) {
       perHtml = `<p class="persona-text">${esc(per)}</p>`;
     }
+    const layers = Array.isArray(d.harness) ? d.harness : [];
+    perHtml += layers.map((l) => `<span class="trait layer" title="Harness layer: ${esc(l)}">${esc(l)}</span>`).join('');
     setHTML($('cre-persona'), perHtml);
+
+    const plan = Array.isArray(d.plan) ? d.plan : [];
+    $('cre-plan-block').hidden = !plan.length;
+    setHTML($('cre-plan'), plan.map((st, i) => {
+      const now = i === d.plan_step;
+      return `<li class="${now ? 'now' : i < d.plan_step ? 'done' : ''}">${now ? '<span class="now-tag">NOW</span>' : ''}${esc(typeof st === 'string' ? st : (st && (st.text || st.step)) || JSON.stringify(st))}</li>`;
+    }).join(''));
 
     for (const k of ['satiety', 'energy', 'health']) {
       const v = isNum(live[k]) ? live[k] : d[k];
