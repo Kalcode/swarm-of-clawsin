@@ -22,55 +22,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from swarmworld.node.__main__ import short_tag  # noqa: E402
 from swarmworld.node.brain import LLMBrain, MockBrain  # noqa: E402
-from swarmworld.server.state import Node, ServerState  # noqa: E402
-
-MILESTONES = ["rope", "stone_knife", "stone_axe", "campfire_placed", "invention", "hoe", "fishing_rod", "planks"]
-
-
-class _NullWS:
-    async def send_json(self, _):
-        pass
+from swarmworld.server.state import ServerState  # noqa: E402
+from swarmworld.server.turns import MILESTONES, join, outcome, play  # noqa: E402
 
 
 async def episode(model: str, brain, seed: int, creatures: int, ticks: int, slots: int) -> dict:
     st = ServerState(seed=seed, tick_seconds=0)
-    node, assigned = st.register_node(_NullWS(), {"node": "bench", "slots": slots,
-                                                  "models": [{"tag": short_tag(model), "creatures": creatures}]})
-    first: dict[str, int] = {}
-    learned = speech = 0
-    start = st.world.tick
+    tag = short_tag(model)
+    node = join(st, "bench", tag, creatures, slots)
     t0 = time.time()
-    for _ in range(ticks):
-        events = st.sim.tick()
-        st.tick_message(events)  # bookkeeping (relations, metrics), same as the live loop
-        for e in events:
-            if e.kind == "learn":
-                learned += 1
-            elif e.kind == "say" and e.actor:
-                speech += 1
-            elif e.kind == "place" and e.data.get("object_kind") == "campfire":
-                first.setdefault("campfire_placed", st.world.tick - start)
-            elif e.kind == "invent":
-                first.setdefault("invention", st.world.tick - start)
-        for c in st.world.creatures.values():
-            for item in ("rope", "stone_knife", "stone_axe", "hoe", "fishing_rod", "planks"):
-                if c.inventory.get(item):
-                    first.setdefault(item, st.world.tick - start)
-        jobs = [job for _, job in st.plan_dispatch()]
-        if jobs:  # turn-based: everyone who is thinking gets an answer before time moves on
-            results = await asyncio.gather(*(brain.think(j["messages"], j.get("schema"), j["max_tokens"]) for j in jobs))
-            for job, (ok, output, error, usage) in zip(jobs, results):
-                st.handle_result(node, {"job": job["job"], "ok": ok, "output": output, "error": error, "latency_ms": 0,
-                                        "tokens_in": usage.get("prompt_tokens", 0), "tokens_out": usage.get("completion_tokens", 0)})
-    m = st.metrics.models[short_tag(model)]
-    acts = m["act_ok"] + m["act_fail"]
-    return {"model": model, "seed": seed, "first": first, "thinks": m["thinks"], "success_rate": m["act_ok"] / acts if acts else 0,
-            "parse_failures": m["parse_failures"], "errors": m["errors"], "loops": m["loops"], "learned": learned,
-            "speech": speech, "crafted": sum(c.stats.get("crafted", 0) for c in st.world.creatures.values()),
-            "noop_rate": m["noops"] / acts if acts else 0,
-            "collapses": sum(c.stats.get("collapses", 0) for c in st.world.creatures.values()),
-            "inventions": sum(c.stats.get("inventions", 0) for c in st.world.creatures.values()),
-            "wall_s": round(time.time() - t0, 1)}
+    tally = await play(st, node, lambda j: brain.think(j["messages"], j.get("schema"), j["max_tokens"]), ticks)
+    return {"model": model, "seed": seed, **outcome(st, tag, tally), "wall_s": round(time.time() - t0, 1)}
 
 
 def summarize(results: list[dict], ticks: int) -> str:

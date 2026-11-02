@@ -246,9 +246,11 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 
 def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.5,
                run_dir: Path | None = None, start_loop: bool = True, world_path: Path | None = None,
-               resume: bool = True, harness: Harness | None = None, embedder=None) -> web.Application:
+               resume: bool = True, harness: Harness | None = None, embedder=None,
+               log_prompts: bool = False) -> web.Application:
     app = web.Application()
-    st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness)
+    st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness,
+                     log_prompts=log_prompts)
     st.world_path = world_path
     st.embedder = embedder
     if world_path and resume and world_path.exists():

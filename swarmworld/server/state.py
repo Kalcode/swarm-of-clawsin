@@ -88,11 +88,12 @@ class Job:
     wake_reason: str | None
     shown: list[str] = field(default_factory=list)  # techniques disclosed in this act's prompt
     recalled: list[str] = field(default_factory=list)  # "kind: first 60 chars" of the lines recalled for it
+    messages: list[dict] | None = None  # the act prompt, kept only when the think log records prompts
 
 
 class ServerState:
     def __init__(self, seed: int = 7, token: str | None = None, tick_seconds: float = 0.5, run_dir: Path | None = None,
-                 harness: Harness | None = None):
+                 harness: Harness | None = None, log_prompts: bool = False):
         self.world = generate_world(seed)
         self.harness = harness or Harness()
         self.memories: dict[str, Memory] = {}
@@ -120,6 +121,7 @@ class ServerState:
         self.started = time.time()
         self._job_seq = 0
         self.run_dir = run_dir
+        self.log_prompts = log_prompts  # act lines in thinks.jsonl carry the messages the model saw (for distillation)
         self.world_path: Path | None = None
         self.relations: dict[str, Counter] = {}
         self.history: list[dict] = []  # a snapshot every HISTORY_EVERY ticks, for charts  # "a|b" (sorted ids) -> counts of talk, gift, teach
@@ -135,6 +137,13 @@ class ServerState:
             run_dir.mkdir(parents=True, exist_ok=True)
             self._events_fh = open(run_dir / "events.jsonl", "a", buffering=1)
             self._thinks_fh = open(run_dir / "thinks.jsonl", "a", buffering=1)
+
+    def close(self) -> None:
+        """Close the run logs (a headless run's episode is over)."""
+        for fh in (self._events_fh, self._thinks_fh):
+            if fh:
+                fh.close()
+        self._events_fh = self._thinks_fh = None
 
     # ------------------------------------------------------------ memory
     def memory(self, cid: str) -> Memory:
@@ -446,7 +455,8 @@ class ServerState:
         c.thinking = True
         c.last_think_tick = self.world.tick
         c.wake_reason = None
-        self.jobs[jid] = Job(jid, c.id, node.id, kind, c.model, time.time(), reason, shown, shown_recalled)
+        self.jobs[jid] = Job(jid, c.id, node.id, kind, c.model, time.time(), reason, shown, shown_recalled,
+                             messages if self.log_prompts and kind == "act" else None)
         node.inflight[jid] = c.id
         return {"type": "think", "job": jid, "creature": c.id, "model": c.model, "kind": kind,
                 "messages": messages, "schema": schema, "max_tokens": max_tokens}
@@ -475,6 +485,8 @@ class ServerState:
                "tokens_out": msg.get("tokens_out"), "harness": sorted(self.harness.layers_for(c))}
         if job.kind == "act":
             log.update(shown=job.shown, recalled=job.recalled)
+            if job.messages is not None:
+                log["messages"] = job.messages
 
         def write_log(result: dict | None = None) -> None:
             if self._thinks_fh:
