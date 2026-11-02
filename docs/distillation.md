@@ -34,9 +34,12 @@ nohup caffeinate -i uv run python scripts/teacher_runs.py --base-url http://127.
   marker written last. A mock episode of 6 creatures and 2400 ticks makes about 2,100 thinks and 14 MB.
 - One line per finished episode: `seed 100: 64.2 min, 2104 thinks, ok 81%, milestones rope@40, stone_axe@310, ...`.
 - Stopping is safe (Ctrl-C, `kill`, a dropped connection, a reboot): start the same command again. Finished seeds are
-  skipped; an unfinished one is moved aside as `<folder>.partial` and redone. A failed think is retried after 5 s,
-  15 s, 60 s, then every 60 s; after 10 minutes of failures that creature idles the turn and the log says so.
-- Two runs may share `--out` as long as their (model, seed) pairs differ.
+  skipped; an unfinished one is moved aside as `<folder>.partial` and redone. A failed think (timeout, dropped
+  connection, HTTP 408, 429 or 5xx) is retried after 5 s, 15 s, 60 s, then every 60 s; after 10 minutes of failures
+  that creature idles the turn and the log says so. Any other HTTP 4xx isn't retried (waiting won't fix the request).
+- At the start the teacher must be in the server's model list (`GET /models`): a mistyped name stops the run at once.
+- Two runs may share `--out` as long as their models differ. A second copy of the same model into the same `--out`
+  refuses to start (it holds `<out>/.teacher-<model>.lock`), since it would move the first one's episode aside.
 
 ## 2. Export
 
@@ -44,13 +47,18 @@ nohup caffeinate -i uv run python scripts/teacher_runs.py --base-url http://127.
 uv run python scripts/export_training.py runs/teacher --out data/student/night1
 ```
 
-A folder of episodes stands for all its finished ones. The summary shows examples by source model and by run, the
-action mix, why decisions weigh what they do, average prompt and answer length, the longest example, and skipped
-lines by reason. `data/` is git-ignored. Weights, the split by episode and the rules are in the script's docstring.
+A folder of episodes stands for all its finished ones; a path that doesn't exist or holds no episodes is warned
+about. The summary shows examples by source model and by run, the action mix, why decisions weigh what they do,
+average prompt and answer length, the longest example, and skipped lines by reason. `data/` is git-ignored. Weights,
+the split (by world seed, so two teachers' episodes of one seed land on the same side) and the rules are in the
+script's docstring.
 
-Live runs can be exported too, but only lines that carry their prompt: the server writes them with `--log-prompts`
-(off by default; about 6 KB a line). Live `thinks.jsonl` lines otherwise carry the tick, creature, model tag, kind,
-the parsed intention (`output`), the result (ok, no-op, message), timing, tokens and harness layers, but no prompt.
+Only teacher episodes are exported. Live runs never are, and there is no switch for it: a live prompt quotes what other
+creatures said (Gemini's creatures too) and the sky's words verbatim in its memories, and the save carries memories
+across restarts, so even a live run without Gemini in it can hold Gemini's text. The server's `--log-prompts` flag
+(off by default; about 6 KB a line) stays for later provenance work. Live `thinks.jsonl` lines carry the tick,
+creature, model tag, kind, the parsed intention (`output`), the result (ok, no-op, message), timing, tokens and
+harness layers, but no prompt.
 
 ## 3. Train
 
@@ -61,7 +69,15 @@ scripts/train_student.sh data/student/night1
 mlx-lm LoRA on `mlx-community/Qwen3-1.7B-bf16` (masked prompts, 4096-token sequences, batch 1 with 8-step
 accumulation, 16 layers, rank 16), fused, quantized to 8 bits into `~/models/swarm-student-<date>`. Every setting is
 an environment variable listed at the top of the script. Expect about 8-10 GB of memory and roughly 1,000 examples an
-hour (estimates scaled from the 0.6B smoke test): pause or slow the live world's minds for it, or cap with `ITERS`.
+hour (estimates scaled from the 0.6B smoke test): pause or slow the live world's minds for it. By default it makes one
+pass over every weighted line, which a night's export can stretch to 10 hours; before training it prints its estimate
+(`SECS_PER_EXAMPLE`, assumed 3.5 s). A sensible cap for one training session is about 4 hours:
+
+```sh
+ITERS=4000 scripts/train_student.sh data/student/night1
+```
+
+If the fused student's own template fails the check, the script says the student is not ready and exits non-zero.
 
 Before training it checks, with the model's own tokenizer, that each example is exactly the serving prompt (the chat
 template with `enable_thinking=False`, as the live brain asks) followed by the answer, and fits the sequence length.

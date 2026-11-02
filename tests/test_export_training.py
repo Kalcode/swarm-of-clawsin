@@ -1,7 +1,10 @@
 import importlib.util
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
+
+import pytest
 
 from swarmworld.mind.prompts import INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN
 
@@ -12,6 +15,8 @@ sys.modules["export_training"] = ex  # its dataclass looks itself up there
 spec.loader.exec_module(ex)
 
 ALL = ["disclose", "plan", "recall"]
+TEACHER = {"model": "gpt-oss:20b"}  # a finished teacher episode's meta.json (no seed: split by folder)
+LIVE = None  # a live run folder: no meta.json
 
 
 def answer(action="gather", target="oak tree", **more):
@@ -34,7 +39,7 @@ def act(tick, creature="c1", model="gpt-oss:20b", output=None, ok=True, noop=Fal
     return line
 
 
-def run(root: Path, name: str, thinks: list[dict], events: list[dict] = (), meta: dict | None = None, done=True) -> Path:
+def run(root: Path, name: str, thinks: list[dict], events: list[dict] = (), meta: dict | None = TEACHER, done=True) -> Path:
     d = root / name
     d.mkdir(parents=True)
     (d / "thinks.jsonl").write_text("".join(json.dumps(t) + "\n" for t in thinks))
@@ -214,3 +219,45 @@ def test_lengths_are_per_example_in_chars_over_four(tmp_path):
     answer_chars = len(read(tmp_path / "out" / "train.jsonl")[0]["messages"][2]["content"])
     assert s["avg_prompt_tokens"] == 300 and s["avg_answer_tokens"] == answer_chars // 4
     assert s["max_example_tokens"] == (1200 + answer_chars) // 4
+
+
+
+# ------------------------------------------------------------------ fix round 1
+def test_live_runs_are_never_exported_their_prompts_hold_other_minds_words(tmp_path):
+    """A live prompt quotes other creatures (Gemini ones too) and the sky in its memories: only teacher episodes count."""
+    thinks = [act(1), act(5, output=answer("eat", "berries")), act(9, kind="reflect", output="I reflected.")]
+    live = run(tmp_path, "20261103-010000", thinks, meta=LIVE)
+    s = export([live], tmp_path / "out")
+    assert s["examples"] == 0
+    assert s["skipped"]["live run: prompts may hold other models' text"] == 2
+    teacher = run(tmp_path, "20261103-020000-gpt-oss-20b-s1", thinks)
+    assert export([live, teacher], tmp_path / "out2")["examples"] == 2
+
+
+def test_episodes_of_one_seed_stay_on_one_side_of_the_split(tmp_path):
+    """The same seed run by two teachers (or redone elsewhere) starts from the same world: near-twin prompts."""
+    runs = []
+    for seed in (1, 2, 3):
+        for model, tag in (("gpt-oss:20b", "gpt-oss-20b"), ("qwen3.5-9b", "qwen3.5-9b")):
+            runs.append(run(tmp_path, f"20261103-0{seed}0000-{tag}-s{seed}",
+                            [act(t, f"c{seed}", model=model, output=answer(target=f"tree {t}", thought=model)) for t in (10, 20)],
+                            meta={"model": model, "seed": seed}))
+    for split_seed in range(12):
+        s = export(runs, tmp_path / f"out{split_seed}", valid_fraction=0.34, seed=split_seed)
+        sides = defaultdict(set)
+        for name, r in s["runs"].items():
+            sides[name.rsplit("-s", 1)[1]].add(r["split"])
+        assert all(len(v) == 1 for v in sides.values()), (split_seed, s["runs"])
+        assert sum(r["split"] == "valid" for r in s["runs"].values()) == 2
+
+
+def test_a_missing_or_empty_run_folder_is_reported(tmp_path):
+    said = []
+    d = run(tmp_path, "r1", [act(1)])
+    (tmp_path / "empty").mkdir()
+    s = export([d, tmp_path / "nope", tmp_path / "empty"], tmp_path / "out", log=said.append)
+    assert s["examples"] == 1
+    assert any("nope" in x and "no such folder" in x for x in said)
+    assert any("empty" in x and "no episodes" in x for x in said)
+    with pytest.raises(SystemExit, match="none of the run folders exist"):
+        export([tmp_path / "nope", tmp_path / "gone"], tmp_path / "out2")

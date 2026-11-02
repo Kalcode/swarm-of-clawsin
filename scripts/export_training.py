@@ -1,19 +1,24 @@
 """Export a student's training data from run folders: the teacher decisions that worked, as mlx-lm chat examples.
 
     uv run python scripts/export_training.py runs/teacher --out data/student/night1          # every finished episode
-    uv run python scripts/export_training.py runs/teacher/2026* runs/20261103-* --out data/student/mix --valid-fraction 0.1
+    uv run python scripts/export_training.py runs/teacher/2026*-s1?? --out data/student/some --valid-fraction 0.1
 
 Writes train.jsonl and valid.jsonl ({"messages": [system, user, assistant]}, the format mlx_lm.lora reads; the
 assistant turn is the intention JSON with every field of the schema the creature was asked with, in the schema's
 order) and summary.json. A folder without thinks.jsonl stands for the episode folders inside it (not *.partial).
 
-What is kept: act decisions whose think and action succeeded and changed something (not a no-op), whose line carries
-the full prompt (teacher runs do; live runs only with the server's --log-prompts), from allowed teachers: model names
-matching gpt-oss or qwen (any case). Gemini and anything matching gemini or google is always left out (Google's terms
-forbid training other models on its outputs), whatever its line, its episode's meta.json or its server says. Mock
-decisions only with --allow-mock (tests and plumbing). A teacher episode with meta.json but no `done` is unfinished
-and left out (its seed gets redone). Exact (prompt, answer) duplicates are dropped before weighting. Every skip is
-counted by reason in the summary.
+Only finished teacher episodes (scripts/teacher_runs.py: a folder with meta.json and `done`) are exported. A live
+run's folder is always left out, with no way to include it: a live prompt quotes what other creatures said and the
+sky's words verbatim in its memories, and the save carries those memories across restarts, so even a run without a
+Gemini creature in it can hold Gemini's words. A teacher episode has one mind thinking for everyone. A teacher
+episode with meta.json but no `done` is unfinished and left out too (its seed gets redone).
+
+What is kept from them: act decisions whose think and action succeeded and changed something (not a no-op), whose
+line carries the full prompt, from allowed teachers: model names matching gpt-oss or qwen (any case). Gemini and
+anything matching gemini or google is always left out (Google's terms forbid training other models on its outputs),
+whatever its line, its episode's meta.json or its server says. Mock decisions only with --allow-mock (tests and
+plumbing). Exact (prompt, answer) duplicates are dropped before weighting. Every skip is counted by reason in the
+summary. A run folder that doesn't exist, or holds no episodes, is warned about; if none exists the export stops.
 
 Weights (the controller's ruling), from what followed each decision until the creature's next one:
     a discovery or invention (a discover or invent event by the creature)   4
@@ -28,9 +33,11 @@ ones too). mlx-lm has no per-example weights, so a weight w becomes int(w) copie
 w - int(w) (seeded): 3 is three copies, 0.25 is kept one time in four. Only train.jsonl is weighted; valid.jsonl
 holds each kept decision once, so validation loss measures plain imitation.
 
-The split is by episode (run folder), never by line: --valid-fraction of the episodes (at least one when there are
-two or more), chosen with --seed, go to valid.jsonl. With a single episode everything goes to train.jsonl and a
-warning says so (mlx_lm.lora needs a validation set: export two or more episodes)."""
+The split is by world seed, never by line: every episode of one seed (two teachers on the same seed, or a seed redone
+into another --out, start from the same world and say near-twin prompts) goes to the same side, and so does each
+episode without a seed in its meta.json on its own. --valid-fraction of those groups (at least one when there are
+two or more), chosen with --seed, go to valid.jsonl. With a single group everything goes to train.jsonl and a warning
+says so (mlx_lm.lora needs a validation set: export two or more seeds)."""
 
 from __future__ import annotations
 
@@ -55,6 +62,7 @@ HUNGRY = re.compile(r"^You feel (?:a bit hungry|very hungry|starving)\b", re.M)
 UP = {"discovery": 4, "craft": 3, "ate hungry": 2, "plan step": 2}
 OUTCOME_EVENTS = {"discover": "discovery", "invent": "discovery", "craft": "craft"}
 REPEAT = (1.0, 0.5, 0.25)  # first, second, third-or-later time in a row
+LIVE_RUN = "live run: prompts may hold other models' text"
 
 
 @dataclass
@@ -68,16 +76,27 @@ class Decision:
     answer: str
     weight: float = 1.0
     why: str = ""
+    group: str = ""  # the split's unit: the episode's world seed, or the run folder when it has none
 
 
 # ------------------------------------------------------------------ reading
-def episodes(paths: list[Path]) -> list[Path]:
+def episodes(paths: list[Path], log=print) -> list[Path]:
+    """The episode folders the given paths stand for. Warns about a path that doesn't exist or holds no episodes;
+    stops if none of them exists (a mistyped path would otherwise export nothing, quietly)."""
+    if paths and not any(p.exists() for p in paths):
+        raise SystemExit("none of the run folders exist: " + ", ".join(str(p) for p in paths))
     out: list[Path] = []
     for p in paths:
         if (p / "thinks.jsonl").exists():
             out.append(p)
-        elif p.is_dir():
-            out += sorted(c for c in p.iterdir() if c.is_dir() and ".partial" not in c.name and (c / "thinks.jsonl").exists())
+            continue
+        if not p.exists():
+            log(f"Warning: no such folder: {p}")
+            continue
+        inside = sorted(c for c in p.iterdir() if c.is_dir() and ".partial" not in c.name and (c / "thinks.jsonl").exists())
+        if not inside:
+            log(f"Warning: no episodes in {p} (no thinks.jsonl in it or in the folders inside it)")
+        out += inside
     return list(dict.fromkeys(out))
 
 
@@ -204,10 +223,15 @@ def _prompt(t: dict) -> list[dict] | None:
 def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Counter) -> list[Decision]:
     thinks = jsonl(run_dir / "thinks.jsonl")
     meta_path = run_dir / "meta.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    if meta_path.exists() and not (run_dir / "done").exists():
-        skipped["unfinished episode"] += sum(1 for t in thinks if t.get("kind") == "act")
+    acts_here = sum(1 for t in thinks if t.get("kind") == "act")
+    if not meta_path.exists():
+        skipped[LIVE_RUN] += acts_here
         return []
+    meta = json.loads(meta_path.read_text())
+    if not (run_dir / "done").exists():
+        skipped["unfinished episode"] += acts_here
+        return []
+    group = f"seed {meta['seed']}" if meta.get("seed") is not None else f"run {run_dir}"
     skipped["not an act decision"] += sum(1 for t in thinks if t.get("kind") != "act")
     acts = [t for t in thinks if t.get("kind") == "act"]
     kept = []
@@ -233,7 +257,7 @@ def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Coun
         if reason:
             skipped[reason] += 1
             continue
-        d.run, d.messages = run_dir.name, prompt
+        d.run, d.messages, d.group = run_dir.name, prompt, group
         kept.append(d)
     return kept
 
@@ -251,7 +275,7 @@ def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: i
            log=print) -> dict:
     skipped: Counter = Counter()
     completed: Counter = Counter()
-    found = episodes(run_dirs)
+    found = episodes(run_dirs, log)
     names = Counter(p.name for p in found)
     unique: list[Decision] = []
     seen: set[bytes] = set()  # digests of (prompt, answer): a night's prompts would double the memory as keys
@@ -266,25 +290,26 @@ def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: i
             seen.add(key)
             unique.append(d)
     runs = sorted({d.run for d in unique})
-    rng = random.Random(seed)
-    shuffled = runs[:]
-    rng.shuffle(shuffled)
+    groups = sorted({d.group for d in unique})
+    shuffled = groups[:]
+    random.Random(seed).shuffle(shuffled)
     warnings = []
-    if len(runs) == 1:
+    if len(groups) == 1:
         n_valid = 0
-        warnings.append("only one episode: it all goes to train.jsonl and valid.jsonl is empty "
-                        "(mlx_lm.lora needs a validation set: export two or more episodes)")
-    elif len(runs) >= 2 and valid_fraction > 0:
-        n_valid = min(len(runs) - 1, max(1, round(len(runs) * valid_fraction)))
+        warnings.append("only one episode (or one seed's episodes): it all goes to train.jsonl and valid.jsonl is empty "
+                        "(mlx_lm.lora needs a validation set: export two or more seeds)")
+    elif len(groups) >= 2 and valid_fraction > 0:
+        n_valid = min(len(groups) - 1, max(1, round(len(groups) * valid_fraction)))
     else:
         n_valid = 0
-    valid_runs = set(shuffled[:n_valid])
+    valid_groups = set(shuffled[:n_valid])
+    valid_runs = {d.run for d in unique if d.group in valid_groups}
     train, valid = [], []
     lines_of: Counter = Counter()
     pick = random.Random(seed + 1)
     for d in unique:
-        n = 1 if d.run in valid_runs else copies(d.weight, pick)
-        (valid if d.run in valid_runs else train).extend([d] * n)
+        n = 1 if d.group in valid_groups else copies(d.weight, pick)
+        (valid if d.group in valid_groups else train).extend([d] * n)
         lines_of[d.run] += n
     random.Random(seed + 2).shuffle(train)
     random.Random(seed + 3).shuffle(valid)
