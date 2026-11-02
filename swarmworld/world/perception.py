@@ -217,6 +217,8 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     weather = ""
     if getattr(world, "weather", "clear") == "rain":
         weather = "Rain is falling."
+    if c.satiety < 15:  # the body's alarm comes before everything else
+        lines.append("You are starving: eat now or you will collapse.")
     lines.append(f"{world.time_text()}. {weather} {light}".replace("  ", " ").strip())
 
     under = TILE_NAMES[world.tile(c.x, c.y)]

@@ -181,3 +181,32 @@ def test_sleepers_seek_the_fire(world):
         sim.tick()
     assert (c.activity or {}).get("sleep") and max(abs(c.x - 15), abs(c.y - 10)) <= 2
     assert "out in the cold" not in c.activity["label"]
+
+
+def test_a_starving_creature_beside_a_berry_bush_eats_by_reflex():
+    from swarmworld.world.catalog import Catalog
+    from swarmworld.world.model import START_TICK, Creature, World
+    from swarmworld.world.simulation import Simulation
+    w = World(20, 20, [["g"] * 20 for _ in range(20)], Catalog.load())
+    w.tick = START_TICK + 100
+    c = Creature("c1", "Mika", 5, 5, asleep=False)
+    from collections import Counter
+    c.satiety, c.inventory = 5.0, Counter({"rope": 3})  # food in reach, none carried
+    w.creatures[c.id] = c
+    bush = w.add_object("bush", 6, 5, berries=6)
+    Simulation(w).tick()
+    assert c.satiety > 30 and bush.data["berries"] < 6
+
+
+def test_starving_is_the_first_thing_a_creature_senses():
+    from swarmworld.world.catalog import Catalog
+    from swarmworld.world.model import START_TICK, Creature, World
+    from swarmworld.world.perception import perceive
+    w = World(20, 20, [["g"] * 20 for _ in range(20)], Catalog.load())
+    w.tick = START_TICK + 100
+    c = Creature("c1", "Mika", 5, 5, asleep=False)
+    c.satiety = 8.0
+    w.creatures[c.id] = c
+    assert perceive(w, c).splitlines()[0].startswith("You are starving")
+    c.satiety = 80.0
+    assert not perceive(w, c).splitlines()[0].startswith("You are starving")

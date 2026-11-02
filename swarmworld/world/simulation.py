@@ -224,7 +224,7 @@ class Simulation:
                 self.wake(c, "woke")
 
     def _reflex_eat(self, c: Creature) -> None:
-        """A survival reflex that needs no thought: a starving body eats whatever food it carries."""
+        """A survival reflex that needs no thought: a starving body eats what it carries, or berries within reach."""
         w = self.world
         foods = sorted((i for i, n in c.inventory.items() if n > 0 and w.catalog.items[i].food > 0),
                        key=lambda i: -w.catalog.items[i].food)
@@ -236,6 +236,19 @@ class Simulation:
                 eaten[i] += 1
             if c.inventory.get(i, 0) <= 0:
                 c.inventory.pop(i, None)
+        if c.satiety < 60:  # nothing carried: strip berries from a bush within arm's reach
+            from .perception import dist
+            for o in list(w.objects.values()):
+                if o.kind == "bush" and dist(c.x, c.y, o.x, o.y) <= 1:
+                    while o.data.get("berries", 0) > 0 and c.satiety < 60:
+                        o.data["berries"] -= 1
+                        c.satiety = min(100.0, c.satiety + w.catalog.items["berries"].food)
+                        eaten["berries"] += 1
+                    if o.data.get("berries", 0) <= 0:
+                        w.change_kind(o, "bush_empty")
+                        o.data["regrow_at"] = w.tick + 400
+                    if c.satiety >= 60:
+                        break
         if eaten:
             what = ", ".join(f"{n} {w.catalog.name(i)}" for i, n in eaten.items())
             w.emit("eat", c.id, c.x, c.y, f"{c.name}, starving, wolfed down {what}.")
