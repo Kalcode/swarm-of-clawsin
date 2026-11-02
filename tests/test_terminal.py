@@ -55,3 +55,14 @@ def test_terminal_survives_bad_code():
     for _ in range(25):
         sim.tick()
     assert any("error" in line for line in term.data["screen"][-2:])
+
+
+def test_terminal_find_oracle():
+    w, sim, term, coder, listener, notes = _setup()
+    w.add_object("copper_vein", 25, 12, ore=8)
+    code = 'local c = find("copper") if c then say("copper " .. c.steps .. " steps " .. c.direction) end'
+    from swarmworld.world.actions import Intention, apply_intention
+    apply_intention(w, coder, Intention("program", target="terminal", text=code))
+    for _ in range(3):
+        sim.tick()
+    assert any("copper 15 steps east" in n for n in notes.get("Mara", []) + notes.get("Tam", []))

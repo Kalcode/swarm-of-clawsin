@@ -155,7 +155,7 @@ This is the first, safe rung of the self-improvement ladder from the research: d
 
 ## Terminals and the scripting arc
 
-Two ancient **terminals** sit far from the meadow, each beside a stone tablet that explains how to talk to it in Lua. A creature standing beside a terminal can `program` it. The program then runs every 20 ticks, can `scan()` its surroundings, `say()` things aloud, `print()` to its screen, and keep `memory` between runs. Creatures can later build new terminals from copper wire and iron.
+Two ancient **terminals** sit far from the meadow, each beside a stone tablet that explains how to talk to it in Lua. A creature standing beside a terminal can `program` it. The program then runs every 20 ticks, can `scan(r)` its surroundings up to 12 steps, `find("copper")` the nearest copper, clay or berries within 25 steps, `say()` things aloud, `print()` to its screen, and keep `memory` between runs. A terminal that announces where resources lie is real infrastructure for whoever learns to build it. Creatures can later build new terminals from copper wire and iron.
 
 Agent code runs only inside a locked-down Lua sandbox in the world server, with no file, OS, network or Python access, and with instruction and memory limits. Brain nodes never run anything the world sends them; they only receive text and return text.
 

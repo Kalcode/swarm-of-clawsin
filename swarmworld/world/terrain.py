@@ -18,8 +18,9 @@ TERMINAL_READY = (
 TABLET_TEXT = (
     "Carved letters on the stone: 'THE TERMINAL BESIDE ME OBEYS LUA. "
     "Stand next to it and use program, with Lua code as your text. It runs your code every 20 heartbeats. "
-    "It can say(\"words\") aloud, scan(5) to list what is near it, time() to tell the day, print(x) on its screen, "
-    "and keep things in memory. Try: say(\"hello\")'"
+    "It can say(\"words\") aloud, scan(10) to list what is near it, find(\"copper\") to learn where the nearest copper "
+    "(or clay, or berries...) lies, time() to tell the day, print(x) on its screen, and keep things in memory. "
+    "Try: say(\"hello\")'"
 )
 
 

@@ -84,7 +84,7 @@ def restore(st: "ServerState", path: Path) -> None:
     effects_by_item = {inv["id"]: inv.get("effects", []) for inv in data.get("inventions", [])}
     from ..world.terrain import TABLET_TEXT, TERMINAL_READY
     for o in wd["objects"]:
-        if o["kind"] == "tablet" and "THE TERMINAL LISTENS TO LUA" in o["data"].get("text", ""):
+        if o["kind"] == "tablet" and o["data"].get("text") != TABLET_TEXT and "TERMINAL" in o["data"].get("text", ""):
             o["data"]["text"] = TABLET_TEXT  # older, wordier tablets
         if o["kind"] == "terminal" and o["data"].get("screen") == ["The terminal hums. Its screen is blank."]:
             o["data"]["screen"] = list(TERMINAL_READY)  # older saves had a blank, unhelpful screen
