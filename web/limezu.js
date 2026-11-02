@@ -199,9 +199,58 @@
     ctx.drawImage(sheet, (d * n + f) * fw, row * fh, fw, fh, Math.round(dx + (ts - w) / 2), Math.round(dy + ts - h + p), w, h);
   }
 
+  // own keys only: a kind like "constructor" must not find Object.prototype
+  const own_ = (o, k) => (o && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null);
+
+  /** A wishing stone: its own manifest sprite when there is one, otherwise the biggest rock cooled
+   *  towards moonlight with a small glowing rune, on a pale halo with motes rising off it. */
+  const cooledRocks = new Map();
+  function cooledRock(sheet, r) {
+    const key = r.join();
+    let cv = cooledRocks.get(key);
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.width = r[2]; cv.height = r[3];
+      const g = cv.getContext('2d');
+      g.drawImage(sheet, r[0], r[1], r[2], r[3], 0, 0, r[2], r[3]);
+      g.globalCompositeOperation = 'source-atop';
+      g.fillStyle = 'rgba(120,150,235,0.34)';
+      g.fillRect(0, 0, r[2], r[3]);
+      cooledRocks.set(key, cv);
+    }
+    return cv;
+  }
+
+  function drawWishingStone(ctx, obj, dx, dy, ts, t) {
+    const own = own_(M.objects, 'wishing_stone');
+    const spec = own || own_(M.objects, 'rock');
+    const sheet = spec && img[spec.sheet];
+    if (!sheet || !Array.isArray(spec.variants) || !spec.variants.length) return K.drawObject(ctx, obj, dx, dy, ts, t);
+    const seed = hash(obj.id);
+    K.drawWishAura(ctx, dx + ts / 2, dy + ts, ts, t, seed);
+    let b;
+    if (own) {
+      b = drawRect(ctx, sheet, pickVariant(own, obj.id).rect, dx, dy, ts, own.dy || 0);
+    } else {
+      const r = spec.variants.reduce((a, v) => (v.rect[2] * v.rect[3] > a.rect[2] * a.rect[3] ? v : a)).rect;
+      b = drawRect(ctx, cooledRock(sheet, r), [0, 0, r[2], r[3]], dx, dy, ts, 0);
+      // a little rune worn into the face of the stone, glowing and fading
+      const p = b.p;
+      const a = 0.55 + 0.35 * Math.sin(t / 1100 + (seed % 628) / 100);
+      const rx = b.x + (Math.floor(r[2] / 2) - 1) * p, ry = b.y + (Math.floor(r[3] / 2) - 2) * p;
+      ctx.fillStyle = `rgba(232,242,255,${a.toFixed(3)})`;
+      ctx.fillRect(rx + p, ry, p, 3 * p);
+      ctx.fillRect(rx, ry + p, 3 * p, p);
+    }
+    K.drawWishMotes(ctx, b.x + b.w / 2, b.y, ts, t, seed);
+    return b;
+  }
+
   function drawObject(ctx, obj, dx, dy, ts, t, anim) {
-    if (M.animals && M.animals[obj.kind]) return drawAnimal(ctx, obj, dx, dy, ts, t, anim);
-    const spec = M.objects[obj.kind];
+    const animal = own_(M.animals, obj.kind);
+    if (animal && Array.isArray(animal.sheets)) return drawAnimal(ctx, obj, dx, dy, ts, t, anim);
+    if (obj.kind === 'wishing_stone') return drawWishingStone(ctx, obj, dx, dy, ts, t);
+    const spec = own_(M.objects, obj.kind);
     if (!spec) return K.drawObject(ctx, obj, dx, dy, ts, t);
     if (obj.kind === 'campfire') {
       if (obj.lit === false) return drawRect(ctx, img.objects, pickVariant(spec.unlit, obj.id).rect, dx, dy, ts, 1);
@@ -231,6 +280,8 @@
         return;
       }
     }
+    // an entry this code can't draw (no sheet or no variants) falls back to the Kenney art
+    if (!img[spec.sheet] || !Array.isArray(spec.variants) || !spec.variants.length) return K.drawObject(ctx, obj, dx, dy, ts, t);
     // a store with something in it (obj.text lists the contents) shows its full sprite
     const full = spec.full && obj.text && !/^\s*(empty|nothing)/i.test(String(obj.text));
     const r = full ? spec.full[hash(obj.id) % spec.full.length].rect : pickVariant(spec, obj.id).rect;
@@ -518,6 +569,6 @@
     renderTerrain, drawObject, drawCreature, creatureBadge, iconStyle, setInventions,
     inventionId: (name) => invByName.get(String(name || '').toLowerCase()) || null,
     objectName: K.objectName, terrainName: K.terrainName,
-    hasObject: (kind) => !!(M && (M.objects[kind] || (M.animals && M.animals[kind]))),
+    hasObject: (kind) => !!(M && (own_(M.objects, kind) || own_(M.animals, kind))),
   };
 })();

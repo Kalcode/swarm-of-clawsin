@@ -97,6 +97,7 @@
         <button type="button" role="tab" class="tab" id="tabbtn-swarm" data-tab="swarm" aria-selected="false" aria-controls="tab-swarm">Swarm</button>
         <button type="button" role="tab" class="tab" id="tabbtn-chronicle" data-tab="chronicle" aria-selected="false" aria-controls="tab-chronicle">Chronicle <span class="tab-dot" id="chron-dot" hidden></span></button>
         <button type="button" role="tab" class="tab" id="tabbtn-society" data-tab="society" aria-selected="false" aria-controls="tab-society">Society</button>
+        <button type="button" role="tab" class="tab" id="tabbtn-wishes" data-tab="wishes" aria-selected="false" aria-controls="tab-wishes">Wishes <span class="tab-dot wish-dot" id="wish-dot" hidden></span></button>
         <button type="button" role="tab" class="tab" id="tabbtn-history" data-tab="history" aria-selected="false" aria-controls="tab-history">History</button>
       </nav>
 
@@ -241,6 +242,15 @@
           <h3>Places</h3>
           <ol class="places" id="soc-places"></ol>
         </div>
+      </section>
+
+      <!-- Wishes -->
+      <section class="tabpane wishes" id="tab-wishes" role="tabpanel" aria-labelledby="tabbtn-wishes" hidden>
+        <p class="hsub wish-intro">What the creatures wish their world had, most wanted first.</p>
+        <p class="wish-note" id="wish-note" hidden><span class="ico" data-ico="voice"></span><span>Answering only works on the world’s own machine.</span></p>
+        <ol class="wish-list" id="wish-list" aria-label="Wishes, most wanted first"></ol>
+        <div class="empty small" id="wish-empty"><p class="empty-sub" id="wish-empty-text">Loading wishes…</p></div>
+        <datalist id="wish-items"></datalist>
       </section>
 
       <!-- History -->

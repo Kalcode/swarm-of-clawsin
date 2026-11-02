@@ -13,18 +13,18 @@
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
-  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
+  const EVENT_KINDS = ['say', 'voice', 'wish', 'grant', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
     say: 'Speech', craft: 'Craft', discover: 'Discovery', gather: 'Gather', fail: 'Fail', place: 'Place',
     write: 'Write', program: 'Program', collapse: 'Collapse', join: 'Join', sleep: 'Sleep', eat: 'Eat',
     plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn', weather: 'Weather',
-    store: 'Store', take: 'Take', tend: 'Tend fire',
+    store: 'Store', take: 'Take', tend: 'Tend fire', wish: 'Wish', grant: 'Grant',
   };
   const KIND_ICON = {
     say: 'say', craft: 'craft', discover: 'discover', gather: 'gather', fail: 'fail', place: 'place',
     write: 'write', program: 'program', collapse: 'collapse', join: 'join', sleep: 'sleep', eat: 'eat',
     plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people', weather: 'rain',
-    store: 'store', take: 'take', tend: 'tend',
+    store: 'store', take: 'take', tend: 'tend', wish: 'wish', grant: 'grant',
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
@@ -87,7 +87,7 @@
   const S = {
     loaded: false,
     width: 64, height: 64, tiles: [], terrain: null,
-    objects: new Map(), lit: [], objAt: new Map(), objAnim: new Map(),
+    objects: new Map(), lit: [], wishStones: [], objAt: new Map(), objAnim: new Map(),
     inventions: new Map(), invByName: new Map(), landmarks: [],
     voice: { open: false, target: null, radius: 6, disabled: false, busy: false, pulse: 0 },
     cres: new Map(),               // id -> { d: Cre, fx, fy, tx, ty, rx, ry, face }
@@ -215,7 +215,12 @@
   async function apiPost(path, body) {
     if (DEMO) return window.SwarmDemo.post(path, body);
     const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) { const err = new Error(`HTTP ${r.status}`); err.status = r.status; throw err; }
+    if (!r.ok) {
+      const err = new Error(`HTTP ${r.status}`);
+      err.status = r.status;
+      try { err.detail = (await r.text()).trim().slice(0, 160); } catch (e) { /* no body */ }
+      throw err;
+    }
     return r.json();
   }
 
@@ -256,6 +261,7 @@
     }
     indexNames();
     S.items = m.items || {};
+    fillWishItems();
     S.landmarks = Array.isArray(m.landmarks) ? m.landmarks : [];
     S.tick = m.tick | 0;
     if (m.clock) S.clock = m.clock;
@@ -353,9 +359,11 @@
 
   function indexObjects() {
     S.lit = [];
+    S.wishStones = [];
     S.objAt = new Map();
     for (const o of S.objects.values()) {
       if (o.lit) S.lit.push(o);
+      if (o.kind === 'wishing_stone') S.wishStones.push(o);
       const k = o.x + ',' + o.y;
       const arr = S.objAt.get(k);
       if (arr) arr.push(o); else S.objAt.set(k, [o]);
@@ -445,11 +453,14 @@
     } else if (kind === 'say') {
       body = `<span class="line">${whoHtml}<span class="q">“${esc(speechOf(text, who && who.name))}”</span></span>`;
     } else {
-      const startsWithName = who && text.toLowerCase().startsWith(who.name.toLowerCase());
+      // a grant names the wisher in its own words ("The sky granted Inka's wish: …")
+      const startsWithName = who && (kind === 'grant' || text.toLowerCase().startsWith(who.name.toLowerCase()));
       const tag = kind === 'discover' ? '<span class="tag">Discovery</span>' : kind === 'invent' ? '<span class="tag">Invention</span>' : '';
       let safe = esc(text || KIND_LABEL[kind] || kind);
       // set the creature's own description ("…") apart in an invention announcement
       if (kind === 'invent') safe = safe.replace(/(“[^”]*”|&quot;.*?&quot;)/, '<span class="inv-desc">$1</span>');
+      // the words of a wish, set apart like speech
+      if (kind === 'wish') safe = safe.replace(/“([^”]*)”|&quot;(.*?)&quot;/, (m, a, b) => `<span class="q">“${a != null ? a : b}”</span>`);
       body = `${tag}${startsWithName ? '' : whoHtml}${safe}`;
     }
     let lead = ico(KIND_ICON[kind] || 'dot');
@@ -496,6 +507,11 @@
     if (evs.some((ev) => ev && ev.kind === 'chronicle')) {
       fetchChronicle();
       if (S.tab !== 'chronicle') $('chron-dot').hidden = false;
+    }
+    if (evs.some((ev) => ev && (ev.kind === 'wish' || ev.kind === 'grant'))) {
+      // the list is fetched again whenever the tab opens, so only refresh it now if it's showing
+      if (S.tab === 'wishes') fetchWishes();
+      else if (evs.some((ev) => ev && ev.kind === 'wish')) $('wish-dot').hidden = false;
     }
     if (S.tab !== 'events') {
       S.unread += evs.length;
@@ -920,6 +936,11 @@
       $('chron-dot').hidden = true;
       if (!chron.loaded) fetchChronicle();
       renderChronicle(true);
+    }
+    if (name === 'wishes') {
+      $('wish-dot').hidden = true;
+      fetchWishes();
+      renderWishes();
     }
   }
 
@@ -1608,6 +1629,235 @@
     for (const el of document.querySelectorAll('#chron .ago')) setText(el, agoText(+el.dataset.tick));
   }
 
+  /* ================================================================ wishes */
+  // What the creatures want that their world doesn't have, ranked by the server.
+  // On the world's own machine each wish can be answered with the voice from the
+  // sky, granted with an item, or noted as something we'll build.
+  const wish = {
+    list: [], canAnswer: false, blocked: false, loaded: false, err: null, busy: false, again: false, at: 0,
+    pending: new Set(), drafts: new Map(), deferred: false,
+  };
+  const WISH_SOURCES = {
+    said: 'Said out loud (“I wish…”, “we need…”)',
+    failed: 'Tried to make or use it, but the world doesn’t know it',
+    wished: 'Made a wish',
+    reflected: 'Came up while reflecting',
+  };
+  const WISH_STATUS = {
+    answered: ['Answered', 'The sky has answered'], granted: ['Granted', 'Something was given'],
+    noted: ['Noted', 'Noted: we’ll build it'], closed: ['Closed', 'Closed'],
+  };
+
+  async function fetchWishes() {
+    if (wish.busy) { wish.again = true; return; }
+    wish.busy = true;
+    try {
+      const d = await api('/api/wishes');
+      wish.list = (Array.isArray(d && d.wishes) ? d.wishes : []).filter((w) => w && w.id != null);
+      wish.canAnswer = !!(d && d.can_answer);
+      wish.err = null;
+    } catch (err) {
+      wish.err = (err && err.message) || String(err);
+    } finally {
+      wish.busy = false;
+      wish.loaded = true;
+      wish.at = performance.now();
+    }
+    renderWishes();
+    if (wish.again) { wish.again = false; fetchWishes(); }
+  }
+
+  /** Item names for the Grant field's suggestions. */
+  function fillWishItems() {
+    const names = [...new Set(Object.values(S.items || {}).map(String))].sort((a, b) => a.localeCompare(b));
+    setHTML($('wish-items'), names.map((n) => `<option value="${esc(n)}"></option>`).join(''));
+  }
+
+  function wishCard(w, i, can) {
+    const id = String(w.id);
+    const key = (role) => esc(`${id}:${role}`);          // data-key: lets focus and drafts survive a re-render
+    const thing = String(w.thing || 'something');
+    const status = Object.prototype.hasOwnProperty.call(WISH_STATUS, w.status) ? w.status : 'open';
+    const kinds = w.kinds && typeof w.kinds === 'object' ? w.kinds : {};
+    const by = Array.isArray(w.by) ? w.by.filter((b) => b && b.name) : [];
+    const n = isNum(w.creatures) ? w.creatures : by.length;
+    const total = isNum(w.total) ? w.total : 0;
+
+    const meta = [];
+    // answered and granted wishes say so in their own line below, when there is one
+    const said = (status === 'answered' && w.answer) || (status === 'granted' && w.granted);
+    if (WISH_STATUS[status] && !said) meta.push(`<span class="wstat" data-status="${status}" title="${esc(WISH_STATUS[status][1])}">${WISH_STATUS[status][0]}</span>`);
+    for (const k of Object.keys(WISH_SOURCES)) {
+      if (+kinds[k] > 0) meta.push(`<span class="wsrc" title="${esc(WISH_SOURCES[k])}">${k} <b class="num">${esc(+kinds[k])}</b></span>`);
+    }
+    if (w.exists) meta.push('<span class="wexists" title="The world already has this: it’s a need, or a recipe they haven’t found yet">exists in the world</span>');
+
+    const names = by.slice(0, 6).map((b) => {
+      const who = actorInfo(b.name);
+      const style = who.color ? ` style="color:${who.color}"` : '';
+      const times = +b.n > 1 ? `<span class="n num">×${esc(+b.n)}</span>` : '';
+      return who.id
+        ? `<button type="button" class="wwho" data-cre="${esc(who.id)}" data-key="${key('who:' + who.id)}"${style} title="Follow ${esc(who.name)} on the map">${esc(who.name)}${times}</button>`
+        : `<span class="wwho"${style}>${esc(who.name)}${times}</span>`;
+    });
+    if (by.length > 6) names.push(`<span class="wmore">+${by.length - 6} more</span>`);
+
+    const qs = Array.isArray(w.quotes) ? w.quotes.filter((q) => q && q.text) : [];
+    const q = qs[qs.length - 1];
+    let quote = '';
+    if (q) {
+      const failed = q.kind === 'failed';
+      const words = failed ? esc(q.text) : `“${esc(String(q.text).trim().replace(/^["“]([\s\S]*)["”]$/, '$1'))}”`;
+      const who = actorInfo(q.name);
+      const foot = [who ? `<span${who.color ? ` style="color:${who.color}"` : ''}>${esc(who.name)}</span>` : '', esc(q.kind || ''),
+        isNum(+q.tick) && q.tick !== '' && q.tick != null ? `<span class="ago" data-tick="${esc(+q.tick)}"></span>` : ''].filter(Boolean);
+      quote = `<blockquote class="wq${failed ? ' is-fail' : ''}"><p>${words}</p>${foot.length ? `<footer>${foot.join(' · ')}</footer>` : ''}</blockquote>`;
+    }
+
+    let replies = '';
+    if (w.answer) replies += `<p class="wr is-answer"><span class="wr-k">The sky</span><span class="wr-v">“${esc(w.answer)}”</span></p>`;
+    if (w.granted) replies += `<p class="wr is-grant"><span class="wr-k">Granted</span><span class="wr-v">${esc(w.granted)}</span></p>`;
+
+    let form = '';
+    if (can) {
+      const busy = wish.pending.has(id) ? ' disabled' : '';
+      const noted = status === 'noted';
+      form = `<form class="wf" data-act="reply" autocomplete="off">` +
+          `<input class="wf-say" data-key="${key('reply')}" maxlength="300" value="${esc(wish.drafts.get(`${id}:reply`) || '')}" placeholder="Answer from the sky…" aria-label="${esc(`Answer the wish for ${thing}, as the voice from the sky`)}">` +
+          `<button type="submit" class="wbtn sky" data-key="${key('answer')}"${busy}>Answer</button></form>` +
+        `<form class="wf" data-act="grant" autocomplete="off">` +
+          `<input class="wf-item" data-key="${key('item')}" list="wish-items" maxlength="60" value="${esc(wish.drafts.get(`${id}:item`) || '')}" placeholder="Item" aria-label="${esc(`Item to grant for the wish for ${thing}`)}">` +
+          `<button type="submit" class="wbtn" data-key="${key('grant')}" title="Give one to a creature who wished for it"${busy}>Grant</button>` +
+          `<button type="button" class="wbtn note" data-act="note" data-key="${key('note')}" aria-pressed="${noted}" ` +
+          `title="${noted ? 'Noted: we’ll build it. Press again to reopen.' : 'Mark it as something we’ll build'}"${busy}>Note it</button></form>`;
+    }
+
+    return `<li class="wish" data-wid="${esc(id)}" data-status="${status}"${wish.pending.has(id) ? ' aria-busy="true"' : ''}>` +
+      `<div class="wish-head"><span class="wrank num" aria-hidden="true">${i + 1}</span><h3 class="wthing">${esc(thing)}</h3>` +
+      `<span class="wcount" title="${esc(`Wanted by ${plural(n, 'creature', 'creatures')}, ${plural(total, 'mention', 'mentions')}`)}"><b class="num">${esc(n)}</b> ${n === 1 ? 'creature' : 'creatures'}</span></div>` +
+      (meta.length ? `<div class="wmeta">${meta.join('')}</div>` : '') +
+      (names.length ? `<div class="wby">${names.join('')}</div>` : '') +
+      quote + replies + form + '</li>';
+  }
+
+  /** Re-renders the list, but never under someone typing; keeps focus on the same control. */
+  function renderWishes(force, focusKey) {
+    const box = $('wish-list');
+    const can = wish.canAnswer && !wish.blocked;
+    $('wish-note').hidden = !wish.loaded || !!wish.err || can;
+    $('wish-empty').hidden = wish.list.length > 0;
+    setText($('wish-empty-text'), wish.err
+      ? `Wishes aren’t available (${wish.err}). They appear once the server starts collecting them.`
+      : wish.loaded ? 'No wishes yet. They appear when creatures say “I wish…” or “we need…”, fail to make something the world doesn’t know, or whisper a wish to the sky.'
+        : 'Loading wishes…');
+    const html = wish.list.map((w, i) => wishCard(w, i, can)).join('');
+    const a = document.activeElement;
+    const inside = !!a && a !== box && box.contains(a);
+    if (!force && inside && a.tagName === 'INPUT' && box._html !== html) { wish.deferred = true; return; }
+    wish.deferred = false;
+    const k = focusKey || (inside ? a.dataset.key : null);
+    const sel = inside && a.tagName === 'INPUT' ? [a.selectionStart, a.selectionEnd, a.dataset.key] : null;
+    setHTML(box, html);
+    const now = document.activeElement;
+    if (k && (!now || now === document.body || (box.contains(now) && now.dataset.key !== k))) {
+      const el = box.querySelector(`[data-key="${CSS.escape(k)}"]`);
+      if (el && !el.disabled) {
+        el.focus({ preventScroll: true });
+        if (sel && sel[2] === k && el.tagName === 'INPUT') { try { el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* not a text field */ } }
+      }
+    }
+    updateWishAges();
+  }
+
+  function updateWishAges() {
+    for (const el of document.querySelectorAll('#wish-list .ago')) setText(el, agoText(+el.dataset.tick));
+  }
+
+  /** Disables a card's buttons while its request runs (the next render rebuilds them). */
+  function setWishBusy(id, on) {
+    const box = $('wish-list');
+    const li = box.querySelector(`.wish[data-wid="${CSS.escape(id)}"]`);
+    if (!li) return;
+    box._html = null;
+    if (on) li.setAttribute('aria-busy', 'true'); else li.removeAttribute('aria-busy');
+    for (const b of li.querySelectorAll('.wbtn')) b.disabled = on;
+  }
+
+  /** POST /api/wishes/{id}; `done(res)` runs on success. Local-only, like the voice from the sky. */
+  async function answerWish(id, body, done, focusKey) {
+    if (wish.pending.has(id) || wish.blocked) return;
+    wish.pending.add(id);
+    setWishBusy(id, true);
+    try {
+      const res = (await apiPost('/api/wishes/' + encodeURIComponent(id), body)) || {};
+      const i = wish.list.findIndex((w) => String(w.id) === id);
+      if (i >= 0 && res.wish && typeof res.wish === 'object') wish.list[i] = res.wish;
+      $('toast').title = '';
+      done(res);
+    } catch (err) {
+      $('toast').title = '';
+      if (err && err.status === 403) {
+        wish.blocked = true;
+        toast('Answering wishes only works on the machine running the world server', 'warn');
+      } else {
+        const what = body.reply ? 'answer it' : body.grant ? 'grant it' : 'change it';
+        toast(`Couldn’t ${what} (${(err && (err.detail || err.message)) || 'error'})`, 'warn');
+      }
+    } finally {
+      wish.pending.delete(id);
+      renderWishes(true, focusKey);
+      if (!wish.blocked) fetchWishes();       // the ranking may have changed
+    }
+  }
+
+  function bindWishes() {
+    const box = $('wish-list');
+    const keyOf = (el) => (el && box.contains(el) ? el.dataset.key || null : null);
+    box.addEventListener('input', (e) => {
+      if (e.target.dataset.key) wish.drafts.set(e.target.dataset.key, e.target.value);
+    });
+    box.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const form = e.target.closest('form');
+      const li = form && form.closest('.wish');
+      const input = form && form.querySelector('input');
+      if (!li || !input) return;
+      const id = li.dataset.wid;
+      const draft = input.dataset.key;
+      const value = input.value.trim();
+      if (!value) { input.focus(); return; }
+      const clear = () => { if ((wish.drafts.get(draft) || '').trim() === value) wish.drafts.delete(draft); };
+      if (form.dataset.act === 'reply') {
+        answerWish(id, { reply: value }, (res) => {
+          clear();
+          const heard = Array.isArray(res.heard_by) ? res.heard_by : [];
+          toast(heard.length ? `Answered. Heard by ${plural(heard.length, 'creature', 'creatures')}` : 'Answered, but no wisher was awake to hear it', heard.length ? 'ok' : 'warn');
+          $('toast').title = heard.join(', ');
+        }, keyOf(document.activeElement));
+      } else if (form.dataset.act === 'grant') {
+        answerWish(id, { grant: value, count: 1 }, (res) => {
+          clear();
+          if (res.granted_to) toast(`Granted 1 ${value} to ${res.granted_to}`, 'ok');
+          else toast('Granted, but no wisher was there to receive it', 'warn');
+        }, keyOf(document.activeElement));
+      }
+    });
+    box.addEventListener('click', (e) => {
+      const who = e.target.closest('[data-cre]');
+      if (who) { if (S.cres.has(who.dataset.cre)) select(who.dataset.cre, true); return; }
+      const note = e.target.closest('[data-act="note"]');
+      const li = note && note.closest('.wish');
+      if (!li) return;
+      const reopen = note.getAttribute('aria-pressed') === 'true';
+      answerWish(li.dataset.wid, { status: reopen ? 'open' : 'noted' }, () => {
+        toast(reopen ? 'Wish reopened' : 'Noted. We’ll build it.', 'ok');
+      }, note.dataset.key);
+    });
+    box.addEventListener('focusout', (e) => {
+      if (wish.deferred && !(e.relatedTarget && box.contains(e.relatedTarget))) setTimeout(() => renderWishes(), 0);
+    });
+  }
+
   function renderCredit() {
     const foot = $('panel-foot');
     const q = new URLSearchParams(location.search);
@@ -1994,6 +2244,17 @@
         nctx.fillStyle = g;
         nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
+      // wishing stones keep a faint light of their own
+      for (const o of S.wishStones) {
+        const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.6) * ts;
+        const r = 1.8 * ts;
+        if (!onScreen(cx, cy, r)) continue;
+        const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, 'rgba(0,0,0,0.6)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        nctx.fillStyle = g;
+        nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
       // each awake creature carries a little circle of night sight
       for (const e of list) {
         if (e.d.asleep) continue;
@@ -2024,6 +2285,18 @@
       g.addColorStop(0, `rgba(255,150,60,${warm.toFixed(3)})`);
       g.addColorStop(0.45, `rgba(255,105,40,${(warm * 0.4).toFixed(3)})`);
       g.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    // and cool, moonlike light around wishing stones
+    const cool = 0.04 + (1 - light) * 0.17;
+    for (const o of S.wishStones) {
+      const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.6) * ts;
+      const r = 1.7 * ts * (1 + Math.sin(now / 1100 + o.x) * 0.04);
+      if (!onScreen(cx, cy, r)) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(150,185,255,${cool.toFixed(3)})`);
+      g.addColorStop(1, 'rgba(120,150,255,0)');
       ctx.fillStyle = g;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
@@ -2291,6 +2564,7 @@
       if (o.kind === 'creation') s = `“${o.label || 'an invention'}” (invention)${o.text ? ` · ${String(o.text).slice(0, 80)}` : ''}`;
       else if (o.text && CARVABLE.has(o.kind)) s += ` · carved: “${String(o.text).slice(0, 90)}”`;
       else if (o.kind === 'basket' || o.kind === 'chest') s += ` · ${String(o.text || 'empty').slice(0, 90)}`;
+      else if (o.kind === 'wishing_stone' && o.text) s += ` · ${String(o.text).slice(0, 90)}`;
       parts.push(`<span class="hv-v">${esc(s)}</span>`);
     }
     if (hoverCre) {
@@ -2473,7 +2747,9 @@
       if (S.loaded && performance.now() - invAt > 120000) fetchInventions();
       if (S.loaded && S.tab === 'society' && !document.hidden && performance.now() - soc.at > 10000) fetchSociety();
       if (S.loaded && S.tab === 'history' && !document.hidden && performance.now() - hist.at > 30000) fetchHistory();
+      if (S.loaded && S.tab === 'wishes' && !document.hidden && performance.now() - wish.at > 30000) fetchWishes();
       if (S.tab === 'chronicle') updateChronicleAges();
+      if (S.tab === 'wishes') updateWishAges();
       renderConn();
       if (S.selected) renderDetailFoot();
     }, 1000);
@@ -2573,6 +2849,7 @@
     buildFilters();
     bindUI();
     bindSociety();
+    bindWishes();
     if (window.innerWidth <= 900) setPanel(false);  // the panel would cover the map
     bindMap();
     resize();

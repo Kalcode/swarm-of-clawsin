@@ -39,6 +39,7 @@
     bush: { name: 'berry bush', s: [1, 2], berries: true },
     bush_empty: { name: 'bush (picked)', s: [1, 2], tint: '#3f7a52' },
     rock: { name: 'rock', s: [5, 2] },
+    wishing_stone: { name: 'wishing stone', s: [5, 2], tint: '#b9c9f2', wish: true },
     copper_vein: { name: 'copper vein', s: [5, 2], tint: '#d0874e', fleck: '#f4b41b' },
     iron_vein: { name: 'iron vein', s: [5, 2], tint: '#8f9fba', fleck: '#e8eef7' },
     clay: { name: 'clay', s: [11, 15], tint: '#c27a5c' },
@@ -75,6 +76,7 @@
     night: [29, 12], plus: [36, 20], minus: [37, 20], right: [24, 20], left: [26, 20],
     book: [45, 5], bag: [46, 4], trophy: [40, 16], gear: [45, 16], heart: [39, 10],
     target: [22, 14], dot: [21, 14], plant: [16, 6], chronicle: [45, 5], tame: [39, 10], invent: [29, 12], voice: [21, 6], rain: [22, 6], store: [46, 4], take: [45, 4], tend: [14, 10],
+    wish: [36, 11], grant: [33, 10],
   };
 
   // Pixel font glyphs from the sheet (title text).
@@ -264,9 +266,55 @@
   }
 
   /* ---------------------------------------------------------------- objects */
-  function objectSpec(kind) { return OBJECTS[kind] || UNKNOWN_OBJECT; }
-  function objectName(kind) { return (OBJECTS[kind] || { name: String(kind || 'thing').replace(/_/g, ' ') }).name; }
+  // own keys only, so a kind like "constructor" is just an unknown thing
+  const knownObject = (kind) => Object.prototype.hasOwnProperty.call(OBJECTS, kind);
+  function objectSpec(kind) { return knownObject(kind) ? OBJECTS[kind] : UNKNOWN_OBJECT; }
+  function objectName(kind) { return knownObject(kind) ? OBJECTS[kind].name : String(kind || 'thing').replace(/_/g, ' '); }
   function terrainName(code) { return (TERRAIN[code] || { name: 'unknown ground' }).name; }
+
+  /** A wishing stone's quiet light, shared by both skins: a pale halo on the ground under the
+   *  stone (cx = tile centre, by = tile bottom), breathing slowly. Draw it before the sprite. */
+  function drawWishAura(ctx, cx, by, size, t, seed) {
+    const p = size / TILE;
+    const k = 0.7 + 0.3 * Math.sin(t / 1100 + (seed % 628) / 100);
+    const cy = by - 3 * p, r = 10 * p;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.translate(cx, cy);
+    ctx.scale(1, 0.5);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, `rgba(150,185,255,${(0.34 * k).toFixed(3)})`);
+    g.addColorStop(0.55, `rgba(120,150,240,${(0.14 * k).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(120,150,240,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  /** Motes of pale light drifting up off a wishing stone, and now and then a twinkle above it.
+   *  cx = centre of the sprite, top = its top edge. Draw it after the sprite. */
+  function drawWishMotes(ctx, cx, top, size, t, seed) {
+    const p = size / TILE;
+    const q = Math.max(1, Math.round(p));
+    for (let i = 0; i < 3; i++) {
+      const cyc = t / 2300 + i / 3 + (seed % 97) / 97;
+      const life = cyc % 1;
+      const a = Math.sin(life * Math.PI) * 0.85;
+      const x = cx + ((hash2(seed & 0xffff, i, Math.floor(cyc)) - 0.5) * 10 + Math.sin(life * 5 + i) * 1.2) * p;
+      ctx.fillStyle = `rgba(224,236,255,${a.toFixed(3)})`;
+      ctx.fillRect(Math.round(x), Math.round(top + (3 - life * 9) * p), q, q);
+    }
+    const tw = (t / 3100 + (seed % 53) / 53) % 1;
+    if (tw < 0.22) {
+      const a = Math.sin(tw / 0.22 * Math.PI);
+      const x = Math.round(cx + ((seed % 7) - 3) * p), y = Math.round(top - 4 * p);
+      ctx.fillStyle = `rgba(240,246,255,${(0.9 * a).toFixed(3)})`;
+      ctx.fillRect(x, y, q, q);
+      ctx.fillStyle = `rgba(190,215,255,${(0.6 * a).toFixed(3)})`;
+      ctx.fillRect(x - q, y, q, q); ctx.fillRect(x + q, y, q, q);
+      ctx.fillRect(x, y - q, q, q); ctx.fillRect(x, y + q, q, q);
+    }
+  }
 
   function drawObject(ctx, obj, dx, dy, size, t) {
     const spec = objectSpec(obj.kind);
@@ -284,7 +332,9 @@
       if (obj.lit === false) tint = spec.unlitTint;
       else flip = Math.floor(t / 170 + hashStr(obj.id)) % 3 === 0;
     }
+    if (spec.wish) drawWishAura(ctx, dx + size / 2, dy + size, size, t, hashStr(obj.id));
     blit(ctx, cell[0], cell[1], tint, dx, dy, size, flip);
+    if (spec.wish) drawWishMotes(ctx, dx + size / 2, dy + 5 * p, size, t, hashStr(obj.id));
 
     if (spec.berries) {
       ctx.fillStyle = PAL.red;
@@ -331,6 +381,14 @@
         circle(8, 10, 5, spec.tint || PAL.bone);
         if (spec.fleck) { R(6, 9, 1, 1, spec.fleck); R(10, 11, 1, 1, spec.fleck); }
         break;
+      case 'wishing_stone': {
+        const seed = hashStr(obj.id);
+        drawWishAura(ctx, dx + size / 2, dy + size, size, t, seed);
+        circle(8, 10, 5, spec.tint);
+        R(7, 8, 2, 2, '#eef4ff');
+        drawWishMotes(ctx, dx + size / 2, dy + 5 * p, size, t, seed);
+        break;
+      }
       case 'clay': R(3, 9, 10, 5, '#c27a5c'); break;
       case 'campfire': {
         R(3, 12, 10, 2, PAL.brown);
@@ -435,12 +493,12 @@
   window.SwarmTiles = {
     glyphCanvas,
     name: 'kenney', credit: 'Art: Kenney 1-Bit Pack (CC0)',
-    spriteTopTiles: 1, drawsWater: true, iconStyle: () => null, hasObject: (kind) => kind in OBJECTS,
+    spriteTopTiles: 1, drawsWater: true, iconStyle: () => null, hasObject: knownObject,
     TILE, SHEET_SRC, PAL, TERRAIN, OBJECTS, CREATURES, ICONS,
     load, get ready() { return ready; },
     hash2, hashStr, rgb, mix, rgba, readable,
     renderTerrain, drawWater, isWater,
-    drawObject, objectName, terrainName,
+    drawObject, objectName, terrainName, drawWishAura, drawWishMotes,
     drawCreature, creatureBadge,
     drawGlyphText, measureGlyphText, installIconStyles,
   };
