@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import secrets
 import socket
 import time
 from pathlib import Path
+
+from ..mind.recall import VoyageEmbedder
 
 from aiohttp import web
 
@@ -25,6 +28,26 @@ def lan_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+
+def voyage_key(env_file: str = ".env") -> str | None:
+    """VOYAGE_API_KEY from the environment, else from a .env file in the current directory. Never printed."""
+    key = os.environ.get("VOYAGE_API_KEY", "").strip()
+    path = Path(env_file)
+    if not key and path.is_file():
+        for line in path.read_text().splitlines():
+            name, sep, value = line.strip().partition("=")
+            if sep and name.strip() == "VOYAGE_API_KEY":
+                key = value.strip().strip("\"'")
+    return key or None
+
+
+def make_embedder(choice: str | None):
+    """--embed voyage needs a key; the default is voyage when a key is present, otherwise keyword recall only."""
+    key = voyage_key() if choice != "none" else None
+    if choice == "voyage" and not key:
+        raise SystemExit("--embed voyage needs VOYAGE_API_KEY in the environment or in a .env file")
+    return VoyageEmbedder(key) if key else None
 
 
 def layers(arg: str) -> set[str]:
@@ -47,6 +70,8 @@ def main() -> None:
     ap.add_argument("--no-inspiration", action="store_true", help="no vague hunches for curious creatures (purely unassisted discovery)")
     ap.add_argument("--harness", default="", help="harness layers in this world, comma separated (plan,disclose,recall)")
     ap.add_argument("--harness-all", default="", help="layers every creature gets; the rest go to half of each model")
+    ap.add_argument("--embed", choices=["voyage", "none"], default=None,
+                    help="semantic recall: voyage embeddings (default when VOYAGE_API_KEY is set) or none (keywords only)")
     args = ap.parse_args()
 
     everyone = layers(args.harness_all)
@@ -60,7 +85,8 @@ def main() -> None:
     if world_path.exists():
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
-                     harness=Harness(layers(args.harness) | everyone, everyone))
+                     harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed))
+    print(f"  Recall search: {'keywords + voyage embeddings' if app[STATE].embedder else 'keywords only'}")
     app[STATE].sim.inspiration = not args.no_inspiration
 
     advert = None

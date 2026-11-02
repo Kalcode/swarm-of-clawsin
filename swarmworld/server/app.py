@@ -10,6 +10,7 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
+from ..mind.recall import embed_pending
 from .harness import Harness
 from .persistence import restore, save
 from .state import ServerState
@@ -55,6 +56,17 @@ async def tick_loop(app: web.Application) -> None:
         except Exception:
             log.exception("tick failed")
         await asyncio.sleep(max(0.0, st.tick_seconds - (loop.time() - started)))
+
+
+EMBED_EVERY_S = 3.0
+
+
+async def embed_loop(app: web.Application, every: float = EMBED_EVERY_S) -> None:
+    """Embed what recall is waiting on, one batch at a time, off the tick loop. Failures just mean keyword search."""
+    st = app[STATE]
+    while True:
+        await embed_pending(st.recall, st.embedder)
+        await asyncio.sleep(every)
 
 
 async def node_ws(request: web.Request) -> web.WebSocketResponse:
@@ -203,10 +215,11 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 
 def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.5,
                run_dir: Path | None = None, start_loop: bool = True, world_path: Path | None = None,
-               resume: bool = True, harness: Harness | None = None) -> web.Application:
+               resume: bool = True, harness: Harness | None = None, embedder=None) -> web.Application:
     app = web.Application()
     st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness)
     st.world_path = world_path
+    st.embedder = embedder
     if world_path and resume and world_path.exists():
         restore(st, world_path)
         log.info("resumed world from %s at tick %d with %d creatures", world_path, st.world.tick, len(st.world.creatures))
@@ -240,12 +253,15 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     if start_loop:
         async def _start(app: web.Application):
             task = asyncio.create_task(tick_loop(app))
+            embed_task = asyncio.create_task(embed_loop(app)) if app[STATE].embedder else None
             yield
             if app[STATE].world_path:  # save first, synchronously, so a second signal can't cut it short
                 save(app[STATE], app[STATE].world_path)
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            for t in (task, embed_task):
+                if t:
+                    t.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await t
 
         app.cleanup_ctx.append(_start)
     return app

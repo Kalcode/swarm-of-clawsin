@@ -16,6 +16,7 @@ from .perception import DIRS, dist, direction, sight_range, spot_name, visible_c
 VERBS = [
     "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
     "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take", "teach", "wish",
+    "recall",
 ]
 VERB_ALIASES = {
     "pray": "wish", "wish_for": "wish", "make_wish": "wish", "make_a_wish": "wish",
@@ -1432,11 +1433,30 @@ def _wait(world: World, c: Creature, it: Intention) -> ActionResult:
     return _busy(c, 6 * it.count, "waiting and watching", "You wait and watch for a while.")
 
 
+RECALL_REPEAT_TICKS = 60
+
+
+def _recall_action(world: World, c: Creature, it: Intention) -> ActionResult:
+    query = " ".join((it.target or it.text).split())
+    if not query:
+        return ActionResult(False, "Recall what? Put what you want to remember in target.")
+    key = query.lower()
+    if c.last_recall and c.last_recall[0] == key and world.tick - c.last_recall[1] < RECALL_REPEAT_TICKS:
+        return ActionResult(True, c.last_recall[2], noop=True)
+    found = world.recall_hook(c, query) if world.recall_hook else []
+    if found:
+        message = f'You think back on "{query[:60]}":\n' + "\n".join(f"{kind}: {text}" for kind, text in found)
+    else:
+        message = f'You search your memory for "{query[:60]}", but nothing comes back.'
+    c.last_recall = (key, world.tick, message)
+    return ActionResult(True, message)
+
+
 HANDLERS = {
     "walk_to": _walk_to, "explore": _explore, "gather": _gather, "combine": _combine, "craft": _craft,
     "eat": _eat, "drink": _drink, "say": _say, "wish": _wish, "give": _give, "pick_up": _pick_up, "drop": _drop,
     "place": _place, "write": _write, "read": _read, "program": _program, "rest": _rest, "wait": _wait,
-    "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach,
+    "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach, "recall": _recall_action,
 }
 
 

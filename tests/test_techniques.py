@@ -27,7 +27,7 @@ def make_world():
 
 def test_every_verb_is_core_or_a_technique():
     technique_verbs = {v for t in TECHNIQUES for v in t.verbs}
-    assert set(VERBS) <= set(CORE_VERBS) | technique_verbs | {"recall"}
+    assert set(VERBS) == set(CORE_VERBS) | technique_verbs | {"recall"}
     assert set(CORE_VERBS) | technique_verbs <= set(VERBS)
 
 

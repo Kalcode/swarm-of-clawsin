@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..mind.memory import Entry, Memory
+from ..mind.recall import RecallIndex
 from ..world.catalog import Catalog
 from ..world.model import Creature, World, WorldObject
 from .wishes import Wishes
@@ -26,6 +27,7 @@ def _creature_dict(c: Creature) -> dict:
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
         "spots": {k: list(v) for k, v in c.spots.items()},
         "minds": c.minds, "stats_base": dict(c.stats_base), "harness": dict(c.harness),
+        "landmarks_seen": sorted(c.landmarks_seen),
     }
 
 
@@ -48,6 +50,7 @@ def snapshot(st: "ServerState") -> dict:
                   "entries_since_reflect": m.entries_since_reflect}
             for cid, m in st.memories.items()
         },
+        "recall": st.recall.to_dict(),
         "owner": st.owner,
         "model_colors": st.model_colors,
         "chronicle": st.chronicle,
@@ -109,7 +112,8 @@ def restore(st: "ServerState", path: Path) -> None:
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
                      spots={k: tuple(v) for k, v in cd.get("spots", {}).items()},
-                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})))
+                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})),
+                     landmarks_seen=set(cd.get("landmarks_seen", [])))
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r
@@ -132,6 +136,17 @@ def restore(st: "ServerState", path: Path) -> None:
                    entries_since_reflect=md["entries_since_reflect"],
                    plan=list(md.get("plan", [])), plan_step=md.get("plan_step", 0))
         st.memories[cid] = m
+    st.world.recall_hook = st._recall_hook
+    if "recall" in data:
+        st.recall.load(data["recall"])
+    else:  # a save from before recall: what the creatures remember becomes searchable
+        st.recall = RecallIndex()
+        for cid, m in st.memories.items():
+            for e in m.entries:
+                st.recall.add(cid, "memory", e.text, e.tick, e.importance)
+            if m.summary:
+                st.recall.add(cid, "memory", f"You reflected: {m.summary}", w.tick, 3)
+    st.load_lore()  # the current lore wins over whatever the save held
     st.owner = data.get("owner", {})
     st.model_colors = data.get("model_colors", {})
     st.chronicle = data.get("chronicle", [])
