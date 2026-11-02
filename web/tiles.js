@@ -602,6 +602,45 @@
     return cv;
   }
 
+  /* ---------------------------------------------------------------- roofs (see roofs.js)
+   * A drawn roof for a building's rectangle: shingle rows, a lit and a shaded slope split by a ridge along the longer
+   * side, a dark rim and eave. Painted once per design and size at 1 px per art pixel, then scaled by drawImage. */
+  const ROOF_COLORS = { tent: '#cdb586', hut: '#b5543a', storehouse: '#8a6240', workshop: '#566f8c' };
+  const roofColor = (design) => ROOF_COLORS[design] || '#8a6a58';
+  const roofCache = new Map();
+
+  function paintRoof(g, W, H, color) {
+    const rim = '#2b2230', dark = mix(color, '#120e18', 0.38), mid = mix(color, '#120e18', 0.16), light = mix(color, '#ffffff', 0.24);
+    const horiz = W >= H, L = horiz ? W : H, S = horiz ? H : W;
+    const r = (a, b, c, d) => (horiz ? g.fillRect(a, b, c, d) : g.fillRect(b, a, d, c));   // (along, across, length, thickness)
+    g.fillStyle = rim; g.fillRect(0, 0, W, H);
+    const ridge = Math.floor(S / 2);
+    g.fillStyle = light; r(1, 1, L - 2, ridge - 1);               // the sunny slope
+    g.fillStyle = mid; r(1, ridge + 1, L - 2, S - ridge - 2);     // the shaded slope
+    for (let c = 1; c < S - 1; c += 4) {                           // shingle rows
+      g.fillStyle = dark;
+      r(1, c, L - 2, 1);
+      for (let a = 1 + ((c >> 2) % 2) * 4; a < L - 1; a += 8) r(a, c + 1, 1, 3);
+    }
+    g.fillStyle = light; r(1, ridge - 1, L - 2, 2);               // the ridge
+    g.fillStyle = dark; r(1, ridge + 1, L - 2, 1);
+    g.fillStyle = dark; g.fillRect(1, H - 3, W - 2, 2);          // the south eave
+  }
+
+  /** Draws the roof of building b into the pixel rectangle (x, y, w, h); ts = pixels per tile. */
+  function drawRoof(ctx, b, x, y, w, h, ts) {
+    const W = (b.x1 - b.x0 + 1) * TILE, H = (b.y1 - b.y0 + 1) * TILE, key = b.design + '|' + W + '|' + H;
+    let cv = roofCache.get(key);
+    if (!cv) {
+      if (roofCache.size > 48) roofCache.clear();
+      cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      paintRoof(cv.getContext('2d'), W, H, roofColor(b.design));
+      roofCache.set(key, cv);
+    }
+    ctx.drawImage(cv, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
+
   window.SwarmTiles = {
     glyphCanvas,
     name: 'kenney', credit: 'Art: Kenney 1-Bit Pack (CC0)',
@@ -612,7 +651,7 @@
     hash2, hashStr, rgb, mix, rgba, readable,
     renderTerrain, drawWater, isWater,
     drawObject, objectName, terrainName, drawWishAura, drawWishMotes,
-    drawCreature, creatureBadge,
+    drawCreature, creatureBadge, drawRoof, roofColor,
     drawGlyphText, measureGlyphText, installIconStyles,
   };
 })();
