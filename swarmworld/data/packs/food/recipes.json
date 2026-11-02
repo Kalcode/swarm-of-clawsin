@@ -1,0 +1,27 @@
+[
+  {"output": "cooked_perch", "inputs": {"perch": 1}, "station": "campfire"},
+  {"output": "cooked_trout", "inputs": {"trout": 1}, "station": "campfire"},
+  {"output": "cooked_eel", "inputs": {"eel": 1}, "station": "campfire"},
+  {"output": "cooked_meat", "inputs": {"meat": 1}, "station": "campfire"},
+  {"output": "roasted_mushrooms", "inputs": {"mushroom": 2}, "station": "campfire"},
+  {"output": "flatbread", "inputs": {"flour": 1, "herbs": 1}, "station": "campfire"},
+  {"output": "fish_stew", "inputs": {"fish": 1, "herbs": 1}, "tools": ["water_pot"], "station": "campfire"},
+  {"output": "meat_stew", "inputs": {"meat": 1, "mushroom": 1}, "tools": ["water_pot"], "station": "campfire"},
+  {"output": "bone_broth", "inputs": {"bone": 1}, "tools": ["water_pot"], "station": "campfire"},
+  {"output": "clay_pot", "inputs": {"clay": 2, "sand": 1}, "station": "campfire"},
+
+  {"output": "smoked_fish", "inputs": {"fish": 1}, "station": "smoker"},
+  {"output": "smoked_meat", "inputs": {"meat": 1}, "station": "smoker"},
+
+  {"output": "berry_pie", "inputs": {"flour": 1, "berries": 3}, "station": "oven"},
+  {"output": "meat_pie", "inputs": {"flour": 1, "meat": 1}, "station": "oven"},
+
+  {"output": "leather", "inputs": {"hide": 1}, "tools": ["stone_knife"]},
+  {"output": "spear", "inputs": {"stick": 2, "stone_knife": 1}},
+  {"output": "sling", "inputs": {"leather": 1, "rope": 1}},
+
+  {"output": "oven", "inputs": {"brick": 3, "clay": 2}},
+  {"output": "smoker", "inputs": {"planks": 3, "stone": 3}},
+  {"output": "drying_rack", "inputs": {"stick": 4, "rope": 2, "log": 1}},
+  {"output": "well", "inputs": {"stone": 6, "rope": 2, "planks": 2}}
+]

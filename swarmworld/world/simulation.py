@@ -10,7 +10,7 @@ from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
 from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
-from .registry import SYSTEMS, call_safely
+from .registry import KINDS, SYSTEMS, call_safely
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -25,6 +25,8 @@ ANIMAL_BREED_CHANCE = 0.08
 ANIMAL_CAP = 12  # per kind, world-wide
 GRAZING = "gf"  # grass and forest floor: where animals can feed
 HOME_RANGE = 3  # a tamed animal grazes within this many tiles of its home
+WARY_RANGE = 3  # an untamed animal edges away from a stranger closer than this (a kind's "wary" in its data)
+FLEE_STEPS = 1  # steps it takes away each time, one more if they're right beside it (a kind's "flee")
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -498,14 +500,16 @@ class Simulation:
             d.setdefault("hunger", 20)
             owner = next((c for c in w.creatures.values() if c.name == d.get("tamed_by")), None) if d.get("tamed_by") else None
             home = d.get("home")
+            spec = KINDS.get(o.kind, {})  # shy kinds (wild game) say so in their data: they flee sooner and farther
+            wary, flee = spec.get("wary", WARY_RANGE), spec.get("flee", FLEE_STEPS)
             near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
-                    and max(abs(c.x - o.x), abs(c.y - o.y)) < 3] if not owner and not d.get("tamed_by") else []
+                    and max(abs(c.x - o.x), abs(c.y - o.y)) < wary] if not owner and not d.get("tamed_by") else []
             following = bool(owner and max(abs(owner.x - o.x), abs(owner.y - o.y)) <= 6
                              and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_LURE))
             if near:
                 d["state"] = "wary"
                 c = min(near, key=lambda c: max(abs(c.x - o.x), abs(c.y - o.y)))
-                steps = 2 if max(abs(c.x - o.x), abs(c.y - o.y)) <= 1 else 1
+                steps = flee + 1 if max(abs(c.x - o.x), abs(c.y - o.y)) <= 1 else flee
                 for _ in range(steps):
                     self._animal_step(o, c.x, c.y, away=True)
             elif following:

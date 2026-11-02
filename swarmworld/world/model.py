@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from .catalog import Catalog
 from .events import Event
 # Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
-from .registry import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES  # noqa: F401
+from .registry import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
 
 TICK_SECONDS = 0.5
 DAY_TICKS = 1200
@@ -225,7 +225,7 @@ class World:
             d["crop"] = o.data["crop"]
         if o.data.get("tamed_by"):
             d["tamed_by"] = o.data["tamed_by"]
-        if o.kind in ("basket", "chest"):
+        if o.kind in STORES:
             d["text"] = ", ".join(f"{n} {self.catalog.name(i)}" for i, n in (o.data.get("items") or {}).items()) or "empty"
         if o.data.get("text"):
             d["text"] = o.data["text"][:200]

@@ -6,7 +6,7 @@ import math
 from collections import defaultdict
 
 from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
-from .registry import YIELDS, extra_perception
+from .registry import STORES, YIELDS, extra_perception
 
 DAY_SIGHT = 6
 NIGHT_SIGHT = 2
@@ -254,7 +254,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             label = "sign with writing"
         elif o.data.get("text") and o.kind in ("tree", "pine", "rock", "stump"):
             label = f"{o.name} with words carved into it"
-        elif o.kind in ("basket", "chest"):
+        elif o.kind in STORES:  # a basket, a chest, a drying rack...
             held = o.data.get("items") or {}
             label = f"{o.name} (holding " + ", ".join(f"{n} {world.catalog.name(i)}" for i, n in held.items()) + ")" if held else f"empty {o.name}"
         if o.kind in ANIMALS and o.data.get("state"):

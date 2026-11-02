@@ -1,0 +1,29 @@
+{
+  "deer": {"name": "deer", "aliases": ["deer", "doe", "stag", "wild deer", "game", "wild game", "animal"],
+           "animal": true, "wild": true, "wary": 5, "flee": 2, "look": "deer",
+           "game": {"gives": {"meat": [2, 3], "hide": [1, 1], "bone": [1, 2]}, "hit": {"spear": 0.5, "sling": 0.4}},
+           "habitat": {"tiles": "fg", "per_4096": 5, "away": 10, "top_up": 1}},
+  "rabbit": {"name": "rabbit", "aliases": ["rabbit", "rabbits", "hare", "bunny", "game", "wild game", "animal"],
+             "animal": true, "wild": true, "wary": 4, "flee": 3, "look": "rabbit",
+             "game": {"gives": {"meat": [1, 1], "hide": [1, 1], "bone": [0, 1]}, "hit": {"spear": 0.3, "sling": 0.55}},
+             "habitat": {"tiles": "g", "per_4096": 6, "away": 8, "top_up": 2}},
+  "boar": {"name": "wild boar", "aliases": ["boar", "wild boar", "pig", "hog", "game", "wild game", "animal"],
+           "animal": true, "wild": true, "wary": 4, "flee": 2, "look": "boar",
+           "game": {"gives": {"meat": [3, 4], "hide": [1, 1], "bone": [1, 2]}, "hit": {"spear": 0.45, "sling": 0.3}},
+           "habitat": {"tiles": "f", "per_4096": 3, "away": 10, "top_up": 1}},
+
+  "mushroom_patch": {"name": "mushrooms", "aliases": ["mushrooms", "mushroom", "mushroom patch", "fungi", "toadstools"],
+                     "look": "mushrooms",
+                     "yields": {"items": {"mushroom": [1, 2]}, "uses": 2, "becomes": null, "regrow": null},
+                     "habitat": {"tiles": "f", "per_4096": 12, "away": 4, "top_up": 2, "after_rain": 2}},
+  "herb_patch": {"name": "wild herbs", "aliases": ["herbs", "herb", "wild herbs", "herb patch"], "look": "herbs",
+                 "yields": {"items": {"herbs": [1, 2]}, "uses": 3, "becomes": "herb_patch_cut", "regrow": 900},
+                 "habitat": {"tiles": "g", "per_4096": 10, "away": 4}},
+  "herb_patch_cut": {"name": "cut herbs", "aliases": ["herbs", "cut herbs", "herb patch"], "look": "herbs_cut"},
+
+  "oven": {"name": "oven", "aliases": ["oven", "clay oven", "bread oven"], "blocking": true, "look": "oven"},
+  "smoker": {"name": "smoker", "aliases": ["smoker", "smokehouse"], "blocking": true, "look": "smoker"},
+  "drying_rack": {"name": "drying rack", "aliases": ["drying rack", "rack", "dryer"], "blocking": true, "store": true,
+                  "look": "drying_rack"},
+  "well": {"name": "well", "aliases": ["well", "water well", "stone well"], "blocking": true, "water": true, "look": "well"}
+}
