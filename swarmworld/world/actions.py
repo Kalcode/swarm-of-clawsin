@@ -59,6 +59,7 @@ class Intention:
     count: int = 1
     goal: str = ""
     thought: str = ""
+    speech: str = ""
 
     def summary(self) -> str:
         bits = [self.action]
@@ -70,6 +71,8 @@ class Intention:
             bits.append(f"x{self.count}")
         if self.text:
             bits.append(f'"{self.text[:80]}"')
+        if self.speech:
+            bits.append(f'(saying "{self.speech[:60]}")')
         return " ".join(bits)
 
 
@@ -140,6 +143,7 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
         count=max(1, min(5, count)),
         goal=str(raw.get("goal") or "").strip()[:160],
         thought=str(raw.get("thought") or "").strip()[:300],
+        speech=str(raw.get("speech") or "").strip().strip('"')[:200],
     )
 
 
@@ -1268,6 +1272,10 @@ def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
         res = HANDLERS[it.action](world, c, it)
     except Exception as exc:  # never let one bad intention break the world
         res = ActionResult(False, f"Something went wrong as you tried that ({type(exc).__name__}).")
+    if it.speech and it.action not in ("say", "teach"):  # talking while working
+        addressed = next((o for o, d, _ in visible_creatures(world, c) if o.name.lower() in it.speech.lower()), None)
+        _say(world, c, Intention("say", target=addressed.name if addressed else "", text=it.speech))
+        res = ActionResult(res.ok, f'{res.message} (While doing it you say: "{it.speech[:160]}")', res.instant)
     if not res.ok:
         world.emit("fail", c.id, c.x, c.y, f"{c.name} tried to {it.summary()}: {res.message}")
     return res

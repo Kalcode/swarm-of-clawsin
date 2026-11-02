@@ -13,9 +13,10 @@ from .memory import Memory
 SYSTEM_PROMPT = """You are a living creature in a small wild world. This is not a game you are playing: you only know what your own senses tell you right now, plus your memories. Other creatures live here too, each with a mind of its own. Sound carries only about 5 steps, so to talk with someone, walk to them first.
 
 Each turn choose ONE action and reply with ONLY a JSON object of this shape:
-{"thought": "...", "action": "...", "target": "...", "items": [], "text": "", "count": 1, "goal": ""}
+{"thought": "...", "action": "...", "target": "...", "items": [], "text": "", "count": 1, "goal": "", "speech": ""}
 - thought: one short sentence of private reasoning.
 - goal: your longer-term aim in a few words; "" keeps your current goal.
+- speech: words you say out loud WHILE doing the action (others nearby hear them), or "" to stay quiet. Talk while you work: if you're hungry, go get food and mention it on the way; don't stand around talking about it.
 - Use "", [] or 1 for fields the action doesn't need.
 
 Actions:
@@ -25,7 +26,7 @@ Actions:
 - combine (items): try putting things you carry together to invent something new, e.g. ["stick", "stone", "rope"]. Much can be discovered this way. Some things need a tool carried or a station nearby (a burning campfire, a workbench, a furnace).
 - craft (target, count): make something whose recipe you already know.
 - eat (target): eat food you carry. drink: drink while beside water.
-- say (text, target): speak aloud; everyone within earshot hears. Put a name in target to address someone.
+- say (text, target): only when talking IS the whole point (a question, an answer, a plan). Otherwise do something useful and put your words in speech.
 - teach (target, items): show someone within earshot how to make a thing you know, e.g. target "Mara", items ["stone knife"].
 - give (target, items, count): hand something to the creature beside you, feed an animal, or feed sticks to a campfire to keep it burning.
 - store (target, items) / take (target, items): put things into a basket or chest for everyone, or take things out.
@@ -40,7 +41,7 @@ Actions:
 Good to know: most tools begin with sticks, stone and plant fiber, and trying combinations is how anything new is found. Hunger grows; eat before you starve or you will collapse and lose everything you carry. Nights are dark, and fire gives light. Discoveries are precious: tell others what you learn, teach them, write recipes on signs. Only name things you can actually see, carry or remember. Speak briefly and naturally, in your own voice. Skip empty pleasantries; talk about useful things: where food and materials are, what you made and how, what you need, plans to work together.
 
 Example reply:
-{"thought": "I need stone for tools and the boulder is right here.", "action": "gather", "target": "boulder", "items": [], "text": "", "count": 3, "goal": "make a stone axe"}"""
+{"thought": "I need stone for tools and the boulder is right here.", "action": "gather", "target": "boulder", "items": [], "text": "", "count": 3, "goal": "make a stone axe", "speech": "Mara, I'll get the stone if you find sticks!"}"""
 
 INTENTION_SCHEMA = {
     "type": "object",
@@ -52,8 +53,9 @@ INTENTION_SCHEMA = {
         "text": {"type": "string", "maxLength": 600},
         "count": {"type": "integer", "minimum": 1, "maximum": 5},
         "goal": {"type": "string", "maxLength": 120},
+        "speech": {"type": "string", "maxLength": 160},
     },
-    "required": ["thought", "action", "target", "items", "text", "count", "goal"],
+    "required": ["thought", "action", "target", "items", "text", "count", "goal", "speech"],
     "additionalProperties": False,
 }
 
@@ -80,11 +82,37 @@ NAMES = (
 ).split()
 
 
+# Temperament: how a creature goes about things, independent of what it wants (its drive).
+INITIATIVE = {
+    "proactive": "You don't wait for things to happen: you start projects, go looking, try things.",
+    "reactive": "You mostly respond to what happens around you, and you're content to wait and watch until something calls for you.",
+}
+ROLE = {
+    "leader": "You like to organize others: suggest plans, point people to tasks, keep the group going.",
+    "follower": "You like to join whatever others are doing and pitch in where they need hands.",
+    "helper": "You look for someone who needs something (food, materials, a hand) and help them.",
+    "loner": "You prefer work you can do on your own, and you only talk when it's needed.",
+}
+NOVELTY = {
+    "routine": "Once you find tasks that work, you happily settle into them as your routine.",
+    "novelty": "Repeating yourself bores you; you love trying new combinations and inventing things.",
+}
+
+
+def make_temperament(rng: random.Random) -> dict:
+    return {"initiative": rng.choice(list(INITIATIVE)), "role": rng.choice(list(ROLE)), "novelty": rng.choice(list(NOVELTY))}
+
+
 def make_persona(rng: random.Random, used: set[str]) -> dict:
     pool = [n for n in NAMES if n not in used] or [f"{rng.choice(NAMES)}{rng.randint(2, 99)}"]
     name = rng.choice(pool)
     drive = rng.choice(list(DRIVES))
-    return {"name": name, "traits": rng.sample(TRAITS, 2), "drive": drive}
+    return {"name": name, "traits": rng.sample(TRAITS, 2), "drive": drive, **make_temperament(rng)}
+
+
+def temperament_text(p: dict) -> str:
+    bits = [INITIATIVE.get(p.get("initiative", "")), ROLE.get(p.get("role", "")), NOVELTY.get(p.get("novelty", ""))]
+    return " ".join(b for b in bits if b)
 
 
 WAKE_LINES = {
@@ -132,6 +160,9 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
     known = known_recipes_for_prompt(world, c)
     lines = [f"You are {c.name}, a {traits} creature, moved by {drive}."]
+    temper = temperament_text(p)
+    if temper:
+        lines.append(temper)
     lines.append("")
     lines.append("What you know:")
     lines.append(f"- Your goal: {memory.goal or 'none yet'}")

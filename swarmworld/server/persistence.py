@@ -103,6 +103,10 @@ def restore(st: "ServerState", path: Path) -> None:
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]))
         c.asleep = True
+        if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
+            import random as _r
+            from ..mind.prompts import make_temperament
+            c.persona.update(make_temperament(_r.Random(c.id + c.name)))
         w.creatures[c.id] = c
     from ..world.terrain import spawn_animals
     spawn_animals(w, w.rng)  # older saves predate animals

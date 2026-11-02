@@ -80,3 +80,15 @@ def test_recipe_list_in_prompt_is_capped_and_relevant():
     c.inventory["fish"] = 1
     known = known_recipes_for_prompt(w, c)
     assert len(known) == MAX_RECIPES_IN_PROMPT and "cooked fish" in known[0]
+
+
+def test_temperament_shapes_the_prompt():
+    from swarmworld.mind.prompts import make_persona
+    rng = random.Random(5)
+    p = make_persona(rng, set())
+    assert {"initiative", "role", "novelty"} <= set(p)
+    w = _world()
+    c = Creature("c1", p["name"], 1, 1, persona=p)
+    user = build_act_messages(w, c, Memory(), "PERCEPTION")[1]["content"]
+    assert any(k in user for k in ("organize others", "join whatever", "someone who needs", "on your own"))
+    assert "speech" in INTENTION_SCHEMA["required"]

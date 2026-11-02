@@ -436,3 +436,17 @@ def test_teach_passes_on_a_recipe(world):
     sim.tick()
     assert "stone_knife" in b.known_recipes
     assert any(e.kind == "learn" and e.data.get("how") == "listening" for e in world.events)
+
+
+def test_talking_while_working(world):
+    from swarmworld.world.simulation import Simulation
+    sim = Simulation(world)
+    a = creature(world, "Tam", 10, 10)
+    b = creature(world, "Mara", 12, 10)
+    world.add_object("bush", 11, 11, berries=6)
+    it = parse_intention({"action": "gather", "target": "berry bush", "speech": "Mara, berries over here!"})
+    res = apply_intention(world, a, it)
+    assert res.ok and "you say" in res.message
+    sim.tick()
+    assert a.inventory["berries"] >= 1
+    assert any(e.kind == "say" and e.data.get("to_name") == "Mara" for e in world.events)

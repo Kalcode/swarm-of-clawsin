@@ -85,12 +85,12 @@ The world server keeps every creature's memory. A machine that leaves just puts 
 Each creature wakes when something happens to it: it finished walking, someone spoke nearby, it got hungry, someone new came into view, or it has stood idle for 30 ticks. The world server then builds its prompt:
 
 1. **The shared rules** (identical for every creature, so oMLX caches them),
-2. **Who it is**: name, two personality traits and a drive (curious, builder, social, explorer, gatherer, tinkerer, teacher),
+2. **Who it is**: name, two personality traits, a drive (curious, builder, social, explorer, gatherer, tinkerer, teacher), and a temperament: proactive or reactive; leader, follower, helper or loner; routine-loving or novelty-seeking. Temperament also changes mechanics: reactive creatures think on their own less often and mostly respond to events, and novelty-seekers get more hunches,
 3. **What it knows**: its goal, its own reflections, the recipes it has learned, the people it knows,
 4. **Recent memories**,
 5. **Right now**: the first-person description of what it senses.
 
-The model replies with one JSON intention, constrained by a JSON schema so small models always produce something parseable. Walking, gathering in bulk and resting run as plain code over several ticks without calling the model. Every 12 thoughts, a creature reflects and rewrites its own summary.
+The model replies with one JSON intention. Talking is woven into doing: every intention has an optional `speech` line said aloud while acting ("Mara, I'll get the stone if you find sticks!"), so creatures talk while they work instead of standing around talking about work. The constrained by a JSON schema so small models always produce something parseable. Walking, gathering in bulk and resting run as plain code over several ticks without calling the model. Every 12 thoughts, a creature reflects and rewrites its own summary.
 
 ## Knowledge, culture and the tech tree
 

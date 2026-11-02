@@ -80,7 +80,8 @@ class Simulation:
                     self.remember(c, res.message, 1)
                 self.wake(c, "result")
             self._notice_others(c, t)
-            if c.activity is None and not c.thinking and c.wake_reason is None and t - c.last_think_tick >= IDLE_TICKS:
+            idle_after = IDLE_TICKS * (2 if (c.persona or {}).get("initiative") == "reactive" else 1)
+            if c.activity is None and not c.thinking and c.wake_reason is None and t - c.last_think_tick >= idle_after:
                 self.wake(c, "idle")
         self._process_events()
         if t % 10 == 0:
@@ -131,7 +132,10 @@ class Simulation:
             self._collapse(c, t)
 
     def maybe_inspire(self, c: Creature) -> None:
-        if self.inspiration and self.world.rng.random() < INSPIRATION_CHANCE.get((c.persona or {}).get("drive"), 0.02):
+        p = c.persona or {}
+        chance = INSPIRATION_CHANCE.get(p.get("drive"), 0.02)
+        chance *= {"novelty": 1.6, "routine": 0.6}.get(p.get("novelty"), 1.0)
+        if self.inspiration and self.world.rng.random() < chance:
             self._inspire(c)
 
     def _inspire(self, c: Creature) -> None:
