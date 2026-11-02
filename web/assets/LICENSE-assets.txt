@@ -1,0 +1,26 @@
+Third-party art used by the Swarm World viewer
+===============================================
+
+1) assets/kenney-1bit/colored_transparent_packed.png   (committed)
+   From "1-Bit Pack" (version 1.1) by Kenney (www.kenney.nl)
+   Source: https://kenney.nl/assets/1-bit-pack
+   License: Creative Commons Zero (CC0 1.0), public domain dedication
+            http://creativecommons.org/publicdomain/zero/1.0/
+   The original license file ships next to the image as
+   assets/kenney-1bit/License.txt.
+   The sheet is 768 x 352 px: 48 columns x 22 rows of 16 x 16 px tiles with
+   no spacing ("packed" variant, transparent background). Coordinates used by
+   the viewer are in web/tiles.js. This is the fallback skin (?skin=kenney)
+   and the source of the UI glyphs.
+
+2) assets/limezu/   (NOT committed: listed in .gitignore)
+   Art by LimeZu (https://limezu.itch.io): Modern Exteriors, Modern
+   Interiors, Modern Farm and Serene Village (16x16 versions), licensed to
+   the project owner. Use and editing in this project are allowed;
+   redistribution is not; credit is required ("Art: LimeZu
+   (limezu.itch.io)" is shown in the viewer's side panel). Do not copy these
+   files elsewhere, publish or upload them. See assets/limezu/CATALOG.md and
+   assets/limezu/manifest.json. When the folder is missing the viewer falls
+   back to the Kenney art automatically.
+
+Crediting Kenney is appreciated but not required.

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Swarm World</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 class="sr-only">Swarm World</h1>
+      <canvas id="title-art" aria-hidden="true"></canvas>
+      <span class="brand-fallback" aria-hidden="true">Swarm World</span>
+    </div>
+
+    <div class="hstats">
+      <div class="hstat" title="World clock">
+        <span class="ico" id="h-phase-ico" data-ico="sun"></span>
+        <span class="hstat-main"><b id="h-day">Day –</b> <span id="h-phase" class="phase">–</span></span>
+        <span class="hstat-sub num" id="h-tick">tick –</span>
+      </div>
+      <div class="hstat" title="Creatures in the world">
+        <span class="ico" data-ico="people"></span>
+        <span class="hstat-main"><b class="num" id="h-pop">0</b> creatures</span>
+        <span class="hstat-sub"><span class="num" id="h-awake">0</span> awake · <span class="num" id="h-asleep">0</span> asleep</span>
+      </div>
+    </div>
+
+    <div class="topbar-end">
+      <div class="voice">
+        <button class="voice-btn" id="voice-btn" type="button" aria-expanded="false" aria-controls="voice-pop" title="Speak to the world as a voice from the sky (V)">
+          <span class="ico" data-ico="voice"></span><span>Speak</span>
+        </button>
+        <div class="voice-pop" id="voice-pop" hidden>
+          <form class="voice-form" id="voice-form" autocomplete="off">
+            <input id="voice-input" maxlength="300" placeholder="Speak to the world…" aria-label="What the voice from the sky says">
+            <button type="submit" id="voice-send">Send</button>
+          </form>
+          <p class="voice-scope" id="voice-scope"></p>
+        </div>
+      </div>
+      <div class="conn" id="conn" data-state="connecting" role="status" aria-live="polite">
+        <span class="conn-dot"></span>
+        <span class="conn-label" id="conn-label">Connecting…</span>
+      </div>
+      <button class="icon-btn" id="panel-toggle" type="button" aria-controls="panel" aria-expanded="true" title="Hide side panel (\)">
+        <span class="ico" data-ico="right"></span>
+        <span class="sr-only">Toggle side panel</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <section class="map-wrap" id="map-wrap" aria-label="World map">
+      <canvas id="map" tabindex="0" aria-label="World map. Drag to pan, scroll to zoom, click a creature to follow it."></canvas>
+
+      <div class="hud hud-top" id="follow-pill" hidden>
+        <span class="follow-swatch" id="follow-swatch"></span>
+        <span>Following <b id="follow-name"></b></span>
+        <button type="button" class="pill-btn" id="follow-stop">Stop <kbd>Esc</kbd></button>
+      </div>
+
+      <div class="hud hud-bl" id="hover-info" aria-hidden="true"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+      <div class="hud hud-br zoom" role="group" aria-label="Zoom">
+        <button type="button" class="icon-btn small" data-zoom="-1" title="Zoom out">
+          <span class="ico" data-ico="minus"></span><span class="sr-only">Zoom out</span>
+        </button>
+        <span class="zoom-label num" id="zoom-label">2×</span>
+        <button type="button" class="icon-btn small" data-zoom="1" title="Zoom in">
+          <span class="ico" data-ico="plus"></span><span class="sr-only">Zoom in</span>
+        </button>
+      </div>
+
+      <div class="veil" id="veil">
+        <div class="veil-card">
+          <div class="veil-spinner" aria-hidden="true"></div>
+          <p class="veil-title" id="veil-title">Connecting to the world…</p>
+          <p class="veil-sub" id="veil-sub">Waiting for the world server at <span class="mono" id="veil-host"></span></p>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" id="panel" aria-label="Details">
+      <nav class="tabs" role="tablist">
+        <button type="button" role="tab" class="tab" id="tabbtn-creature" data-tab="creature" aria-selected="true" aria-controls="tab-creature">Creature</button>
+        <button type="button" role="tab" class="tab" id="tabbtn-events" data-tab="events" aria-selected="false" aria-controls="tab-events">Events <span class="tab-count num" id="ev-unread" hidden></span></button>
+        <button type="button" role="tab" class="tab" id="tabbtn-swarm" data-tab="swarm" aria-selected="false" aria-controls="tab-swarm">Swarm</button>
+        <button type="button" role="tab" class="tab" id="tabbtn-chronicle" data-tab="chronicle" aria-selected="false" aria-controls="tab-chronicle">Chronicle <span class="tab-dot" id="chron-dot" hidden></span></button>
+      </nav>
+
+      <!-- Creature -->
+      <section class="tabpane" id="tab-creature" role="tabpanel" aria-labelledby="tabbtn-creature">
+        <div class="empty" id="cre-empty">
+          <p class="empty-title">Pick a creature</p>
+          <p class="empty-sub">Click one on the map, or choose from everyone alive below. You'll see what it senses, thinks and does.</p>
+          <ul class="roster" id="roster"></ul>
+        </div>
+
+        <div class="cre" id="cre" hidden>
+          <div class="cre-head">
+            <div class="cre-portrait" id="cre-portrait"></div>
+            <div class="cre-id">
+              <h2 class="cre-name" id="cre-name"></h2>
+              <div class="cre-sub">
+                <span class="badge" id="cre-model"></span>
+                <span class="cre-state" id="cre-state"></span>
+              </div>
+            </div>
+            <button type="button" class="icon-btn small" id="cre-locate" title="Follow on map">
+              <span class="ico" data-ico="target"></span><span class="sr-only">Follow on map</span>
+            </button>
+          </div>
+          <div class="cre-persona" id="cre-persona"></div>
+
+          <div class="needs" id="cre-needs">
+            <div class="need" data-need="satiety"><span class="need-label">Satiety</span><span class="bar"><span class="bar-fill"></span></span><span class="need-val num"></span></div>
+            <div class="need" data-need="energy"><span class="need-label">Energy</span><span class="bar"><span class="bar-fill"></span></span><span class="need-val num"></span></div>
+            <div class="need" data-need="health"><span class="need-label">Health</span><span class="bar"><span class="bar-fill"></span></span><span class="need-val num"></span></div>
+          </div>
+
+          <div class="block">
+            <h3>Goal</h3>
+            <p class="goal" id="cre-goal"></p>
+          </div>
+
+          <div class="block mind">
+            <h3>Mind</h3>
+            <p class="thought" id="cre-thought"></p>
+            <div class="intent" id="cre-intent"></div>
+            <p class="result" id="cre-result"></p>
+          </div>
+
+          <div class="block">
+            <h3>What it senses</h3>
+            <pre class="senses" id="cre-senses"></pre>
+          </div>
+
+          <div class="block">
+            <h3>Carrying</h3>
+            <div class="chips" id="cre-inv"></div>
+          </div>
+
+          <div class="block">
+            <h3>Knows how to make</h3>
+            <div class="chips" id="cre-recipes"></div>
+          </div>
+
+          <div class="block">
+            <h3>People</h3>
+            <ul class="people" id="cre-people"></ul>
+          </div>
+
+          <div class="block">
+            <h3>Self-summary</h3>
+            <p class="summary" id="cre-summary"></p>
+          </div>
+
+          <div class="block">
+            <h3>Recent memory</h3>
+            <ol class="memory" id="cre-recent"></ol>
+          </div>
+
+          <div class="block" id="cre-stats-block">
+            <h3>Stats</h3>
+            <dl class="kv" id="cre-stats"></dl>
+          </div>
+
+          <p class="cre-foot" id="cre-foot"></p>
+        </div>
+      </section>
+
+      <!-- Events -->
+      <section class="tabpane" id="tab-events" role="tabpanel" aria-labelledby="tabbtn-events" hidden>
+        <div class="filters" id="ev-filters" role="group" aria-label="Filter events by kind"></div>
+        <ol class="feed" id="feed"></ol>
+        <div class="empty small" id="feed-empty">
+          <p class="empty-sub">Nothing has happened yet. Events appear here as creatures talk, gather and make things.</p>
+        </div>
+      </section>
+
+      <!-- Swarm -->
+      <section class="tabpane" id="tab-swarm" role="tabpanel" aria-labelledby="tabbtn-swarm" hidden>
+        <div class="block">
+          <div class="block-head">
+            <h3>Models</h3>
+            <span class="rate"><b class="num" id="sw-tpm">–</b> thinks/min</span>
+          </div>
+          <div class="table-wrap" id="sw-table-wrap">
+            <table class="mtable" id="sw-table"></table>
+          </div>
+          <p class="table-note" id="sw-note" hidden>Scroll the table sideways to see every column.</p>
+          <p class="empty-sub" id="sw-empty">No metrics yet. They arrive every few seconds once brains are thinking.</p>
+        </div>
+        <div class="block">
+          <h3>Discoveries</h3>
+          <ol class="discoveries" id="sw-disc"></ol>
+          <p class="empty-sub" id="sw-disc-empty">No one has discovered a recipe yet.</p>
+        </div>
+        <p class="cre-foot" id="sw-foot"></p>
+      </section>
+
+      <!-- Chronicle -->
+      <section class="tabpane chronicle" id="tab-chronicle" role="tabpanel" aria-labelledby="tabbtn-chronicle" hidden>
+        <div class="chron" id="chron"></div>
+        <div class="empty small" id="chron-empty"><p class="empty-sub" id="chron-empty-text">Loading the chronicle…</p></div>
+        <button type="button" class="chron-jump" id="chron-jump" hidden>New chapter below</button>
+      </section>
+
+      <footer class="panel-foot" id="panel-foot"></footer>
+    </aside>
+  </main>
+
+  <script src="tiles.js"></script>
+  <script src="limezu.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>

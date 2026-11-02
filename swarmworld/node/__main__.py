@@ -1,0 +1,127 @@
+"""Join the world as a brain node:
+
+    uv run python -m swarmworld.node --model Qwen3.5-9B-MLX-4bit:10
+    uv run python -m swarmworld.node --discover --token T          # from another machine on the LAN
+    uv run python -m swarmworld.node --mock 8                       # no model server needed
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import platform
+import re
+import socket
+import sys
+import urllib.request
+
+from .brain import LLMBrain, MockBrain
+from .client import FatalNodeError, ModelSpec, run_node
+
+CANDIDATE_SERVERS = ["http://127.0.0.1:8000/v1", "http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1", "http://127.0.0.1:8080/v1"]
+
+
+def short_tag(model: str) -> str:
+    tag = model.split("/")[-1].lower()
+    tag = re.sub(r"[-_](mlx|gguf|instruct|it|chat|q\d\w*|\d+bit)(?=$|[-_])", "", tag)
+    tag = re.sub(r"[-_](mlx|gguf|instruct|it|chat|q\d\w*|\d+bit)(?=$|[-_])", "", tag)
+    return tag.replace(":latest", "")
+
+
+def list_models(base_url: str, api_key: str | None = None) -> list[str] | None:
+    try:
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/models",
+                                     headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
+        with urllib.request.urlopen(req, timeout=2) as r:
+            data = json.loads(r.read())
+        return [m["id"] for m in data.get("data", [])]
+    except Exception:
+        return None
+
+
+def hardware() -> dict:
+    mem = None
+    try:
+        mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        pass
+    return {"host": socket.gethostname(), "os": platform.platform(), "machine": platform.machine(),
+            "cpus": os.cpu_count(), "ram_gb": round(mem / 2**30, 1) if mem else None}
+
+
+def suggest_creatures(ram_gb: float | None) -> int:
+    if not ram_gb:
+        return 6
+    return 4 if ram_gb < 12 else 8 if ram_gb < 24 else 12 if ram_gb < 48 else 20
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Join Swarm World as a brain node")
+    ap.add_argument("--server", default=None, help="world address, e.g. ws://192.168.1.20:7777 (default: local, or --discover)")
+    ap.add_argument("--discover", action="store_true", help="find the world on the home network")
+    ap.add_argument("--token", default=None, help="join token printed by the world server")
+    ap.add_argument("--model-server", default=None, help="OpenAI-compatible base URL (default: auto-detect oMLX/Ollama/LM Studio)")
+    ap.add_argument("--api-key", default=None)
+    ap.add_argument("--model", action="append", default=[], help="MODEL[:CREATURES], repeatable for a mixed population")
+    ap.add_argument("--mock", type=int, default=0, metavar="N", help="add N rule-based creatures (no LLM)")
+    ap.add_argument("--slots", type=int, default=8, help="concurrent model requests")
+    ap.add_argument("--name", default=None, help="node name (default: hostname)")
+    ap.add_argument("--temperature", type=float, default=0.8)
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
+    hw = hardware()
+    specs: list[ModelSpec] = []
+    if args.model:
+        base = args.model_server
+        if not base:
+            base = next((u for u in CANDIDATE_SERVERS if list_models(u, args.api_key) is not None), None)
+            if not base:
+                sys.exit("No model server found. Start oMLX (omlx serve --model-dir ~/models) or Ollama, or pass --model-server.")
+        available = list_models(base, args.api_key) or []
+        for m in args.model:
+            name, _, n = m.rpartition(":") if re.search(r":\d+$", m) else (m, "", "")
+            n = int(n) if n else suggest_creatures(hw.get("ram_gb"))
+            if available and name not in available:
+                alt = next((a for a in available if a in (f"{name}:latest", f"mlx-community/{name}")), None)
+                if not alt:
+                    sys.exit(f"Model '{name}' isn't on {base}. Available: {', '.join(available)}")
+                name = alt
+            specs.append(ModelSpec(short_tag(name), LLMBrain(base, name, args.api_key, temperature=args.temperature), n))
+        print(f"  Model server: {base}")
+    if args.mock:
+        specs.append(ModelSpec("mock", MockBrain(), args.mock))
+    if not specs:
+        base = args.model_server or next((u for u in CANDIDATE_SERVERS if list_models(u, args.api_key)), None)
+        models = [m for m in (list_models(base, args.api_key) or []) if "embed" not in m.lower()] if base else []
+        if not models:
+            sys.exit("No --model given and no model server with models found. Try --mock 8 to test without a model.")
+        name = models[0]
+        n = suggest_creatures(hw.get("ram_gb"))
+        print(f"  Using {name} on {base} for {n} creatures (pass --model to choose).")
+        specs.append(ModelSpec(short_tag(name), LLMBrain(base, name, args.api_key, temperature=args.temperature), n))
+
+    server = args.server
+    if not server and args.discover:
+        from ..net.discovery import discover
+        print("  Looking for Swarm World on your network...")
+        server = asyncio.run(discover(8.0))
+        if not server:
+            sys.exit("No world found. Ask for the address and pass --server ws://IP:7777")
+        print(f"  Found {server}")
+    server = server or "ws://127.0.0.1:7777"
+    name = args.name or socket.gethostname().split(".")[0]
+    print(f"  Joining {server} as '{name}' with " + ", ".join(f"{s.creatures}x {s.tag}" for s in specs))
+    try:
+        asyncio.run(run_node(server, name, specs, args.slots, args.token, hw))
+    except FatalNodeError as exc:
+        sys.exit(f"World refused to let us join: {exc}")
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,580 @@
+{
+ "stick": {
+  "name": "stick",
+  "aliases": [
+   "sticks",
+   "twig",
+   "branch"
+  ],
+  "tags": [
+   "wood"
+  ],
+  "desc": "Light and useful; the start of many tools."
+ },
+ "log": {
+  "name": "log",
+  "aliases": [
+   "wood",
+   "timber",
+   "logs"
+  ],
+  "tags": [
+   "wood"
+  ]
+ },
+ "stone": {
+  "name": "stone",
+  "aliases": [
+   "rock",
+   "rocks",
+   "pebble",
+   "stones"
+  ],
+  "tags": [
+   "stone"
+  ],
+  "desc": "Hard and heavy; good for tools, fire rings and building."
+ },
+ "flint": {
+  "name": "flint",
+  "aliases": [
+   "sharp stone",
+   "flint stone"
+  ],
+  "tags": [
+   "stone"
+  ],
+  "desc": "A stone that breaks into sharp edges."
+ },
+ "plant_fiber": {
+  "name": "plant fiber",
+  "aliases": [
+   "fiber",
+   "fibre",
+   "plant fibre",
+   "grass",
+   "fibers"
+  ],
+  "tags": [
+   "plant"
+  ],
+  "desc": "Tough grass strands that can be twisted together."
+ },
+ "berries": {
+  "name": "berries",
+  "aliases": [
+   "berry",
+   "wild berries"
+  ],
+  "food": 15,
+  "tags": [
+   "food"
+  ]
+ },
+ "sand": {
+  "name": "sand",
+  "aliases": [],
+  "tags": [
+   "earth"
+  ]
+ },
+ "clay": {
+  "name": "clay",
+  "aliases": [
+   "clay lump",
+   "mud"
+  ],
+  "tags": [
+   "earth"
+  ]
+ },
+ "copper_ore": {
+  "name": "copper ore",
+  "aliases": [
+   "copper",
+   "green ore"
+  ],
+  "tags": [
+   "ore"
+  ]
+ },
+ "iron_ore": {
+  "name": "iron ore",
+  "aliases": [
+   "iron",
+   "red ore"
+  ],
+  "tags": [
+   "ore"
+  ]
+ },
+ "rope": {
+  "name": "rope",
+  "aliases": [
+   "cord",
+   "cordage",
+   "string",
+   "twine"
+  ],
+  "tags": [
+   "tool_part"
+  ],
+  "desc": "Ties things together; many tools need it."
+ },
+ "campfire": {
+  "name": "campfire",
+  "aliases": [
+   "fire",
+   "camp fire",
+   "bonfire"
+  ],
+  "placeable": true,
+  "tags": [
+   "station"
+  ],
+  "desc": "Place it to make light and warmth, and to cook on."
+ },
+ "stone_knife": {
+  "name": "stone knife",
+  "aliases": [
+   "knife",
+   "flint knife",
+   "blade"
+  ],
+  "tags": [
+   "tool"
+  ],
+  "desc": "Sharp. Cuts grass into twice as much fiber, and sometimes finds seeds while doing it."
+ },
+ "stone_axe": {
+  "name": "stone axe",
+  "aliases": [
+   "axe",
+   "hatchet"
+  ],
+  "tags": [
+   "tool",
+   "axe"
+  ],
+  "desc": "Chops trees for whole logs, not just sticks."
+ },
+ "stone_pickaxe": {
+  "name": "stone pickaxe",
+  "aliases": [
+   "pickaxe",
+   "pick",
+   "stone pick"
+  ],
+  "tags": [
+   "tool",
+   "pickaxe"
+  ],
+  "desc": "Breaks streaked rocks to get ore."
+ },
+ "planks": {
+  "name": "planks",
+  "aliases": [
+   "plank",
+   "boards",
+   "board",
+   "wooden planks"
+  ],
+  "tags": [
+   "wood"
+  ],
+  "desc": "Flat boards for building."
+ },
+ "workbench": {
+  "name": "workbench",
+  "aliases": [
+   "work bench",
+   "crafting table",
+   "bench",
+   "table"
+  ],
+  "placeable": true,
+  "tags": [
+   "station"
+  ],
+  "desc": "Place it; many finer things can only be made near one."
+ },
+ "sign": {
+  "name": "sign",
+  "aliases": [
+   "signpost",
+   "sign post",
+   "board sign"
+  ],
+  "placeable": true,
+  "tags": [
+   "writable"
+  ],
+  "desc": "Place it, then write on it so others can read your words."
+ },
+ "wooden_wall": {
+  "name": "wooden wall",
+  "aliases": [
+   "wall",
+   "fence",
+   "wood wall"
+  ],
+  "placeable": true,
+  "tags": [
+   "building"
+  ],
+  "desc": "Place walls to shape rooms and homes."
+ },
+ "chest": {
+  "name": "chest",
+  "aliases": [
+   "box",
+   "crate",
+   "storage"
+  ],
+  "placeable": true,
+  "tags": [
+   "building"
+  ],
+  "desc": "A box to keep things in."
+ },
+ "roasted_berries": {
+  "name": "roasted berries",
+  "aliases": [
+   "cooked berries",
+   "roasted berry",
+   "baked berries"
+  ],
+  "food": 30,
+  "tags": [
+   "food"
+  ],
+  "desc": "Filling, warm food."
+ },
+ "charcoal": {
+  "name": "charcoal",
+  "aliases": [
+   "coal"
+  ],
+  "tags": [
+   "fuel"
+  ],
+  "desc": "Burns very hot; a furnace wants it."
+ },
+ "brick": {
+  "name": "brick",
+  "aliases": [
+   "bricks",
+   "fired clay"
+  ],
+  "tags": [
+   "building"
+  ],
+  "desc": "Fired clay; strong for building ovens and furnaces."
+ },
+ "furnace": {
+  "name": "furnace",
+  "aliases": [
+   "smelter",
+   "forge",
+   "kiln"
+  ],
+  "placeable": true,
+  "tags": [
+   "station"
+  ],
+  "desc": "Place it near a workbench; it can melt ore into metal."
+ },
+ "copper_ingot": {
+  "name": "copper ingot",
+  "aliases": [
+   "copper bar",
+   "copper metal"
+  ],
+  "tags": [
+   "metal"
+  ],
+  "desc": "Soft, shiny metal."
+ },
+ "iron_ingot": {
+  "name": "iron ingot",
+  "aliases": [
+   "iron bar",
+   "iron metal"
+  ],
+  "tags": [
+   "metal"
+  ],
+  "desc": "Strong grey metal."
+ },
+ "copper_wire": {
+  "name": "copper wire",
+  "aliases": [
+   "wire",
+   "wires"
+  ],
+  "tags": [
+   "metal"
+  ],
+  "desc": "Thin metal thread; strange machines are made of it."
+ },
+ "paper": {
+  "name": "paper",
+  "aliases": [
+   "papers",
+   "sheet",
+   "parchment"
+  ],
+  "tags": [
+   "writable"
+  ],
+  "desc": "Thin sheets for writing."
+ },
+ "book": {
+  "name": "book",
+  "aliases": [
+   "notebook",
+   "journal",
+   "tome"
+  ],
+  "tags": [
+   "writable"
+  ],
+  "desc": "Bound pages to keep knowledge in."
+ },
+ "copper_pickaxe": {
+  "name": "copper pickaxe",
+  "aliases": [
+   "copper pick"
+  ],
+  "tags": [
+   "tool",
+   "pickaxe"
+  ],
+  "desc": "A better pickaxe."
+ },
+ "terminal": {
+  "name": "terminal",
+  "aliases": [
+   "computer",
+   "thinking stone",
+   "machine"
+  ],
+  "placeable": true,
+  "tags": [
+   "station",
+   "programmable"
+  ],
+  "desc": "A thinking machine. Program it with Lua."
+ },
+ "wheat_seeds": {
+  "name": "wheat seeds",
+  "aliases": [
+   "wheat seed",
+   "grain seeds"
+  ],
+  "tags": [
+   "seed"
+  ],
+  "desc": "Plant them in soil and they grow into wheat."
+ },
+ "wheat": {
+  "name": "wheat",
+  "aliases": [
+   "grain",
+   "wheat stalks"
+  ],
+  "tags": [
+   "crop"
+  ],
+  "desc": "Golden stalks. Ground up, they become flour."
+ },
+ "flour": {
+  "name": "flour",
+  "aliases": [
+   "wheat flour",
+   "meal"
+  ],
+  "tags": [
+   "food_part"
+  ],
+  "desc": "Baked by a fire, it becomes bread."
+ },
+ "bread": {
+  "name": "bread",
+  "aliases": [
+   "loaf",
+   "bread loaf"
+  ],
+  "food": 50,
+  "tags": [
+   "food"
+  ],
+  "desc": "Very filling food."
+ },
+ "hoe": {
+  "name": "hoe",
+  "aliases": [
+   "stone hoe",
+   "farming tool"
+  ],
+  "tags": [
+   "tool"
+  ],
+  "desc": "Lets you plant seeds and berries in the ground."
+ },
+ "millstone": {
+  "name": "millstone",
+  "aliases": [
+   "mill",
+   "grinding stone",
+   "quern"
+  ],
+  "placeable": true,
+  "tags": [
+   "station"
+  ],
+  "desc": "Place it; it grinds grain."
+ },
+ "bed": {
+  "name": "bed",
+  "aliases": [
+   "sleeping mat",
+   "bedroll",
+   "cot"
+  ],
+  "placeable": true,
+  "tags": [
+   "building"
+  ],
+  "desc": "Place it; resting beside a bed restores energy much faster."
+ },
+ "door": {
+  "name": "door",
+  "aliases": [
+   "wooden door",
+   "gate"
+  ],
+  "placeable": true,
+  "tags": [
+   "building"
+  ],
+  "desc": "Place it in a wall so you can walk through."
+ },
+ "fishing_rod": {
+  "name": "fishing rod",
+  "aliases": [
+   "rod",
+   "fishing pole",
+   "pole"
+  ],
+  "tags": [
+   "tool"
+  ],
+  "desc": "Lets you catch fish when you gather beside water."
+ },
+ "fish": {
+  "name": "fish",
+  "aliases": [
+   "raw fish",
+   "fishes"
+  ],
+  "food": 10,
+  "tags": [
+   "food"
+  ],
+  "desc": "Edible raw, much better cooked over a fire."
+ },
+ "cooked_fish": {
+  "name": "cooked fish",
+  "aliases": [
+   "grilled fish",
+   "roasted fish",
+   "baked fish"
+  ],
+  "food": 40,
+  "tags": [
+   "food"
+  ],
+  "desc": "Hot, filling food."
+ },
+ "egg": {
+  "name": "egg",
+  "aliases": [
+   "eggs",
+   "chicken egg"
+  ],
+  "food": 8,
+  "tags": [
+   "food"
+  ],
+  "desc": "Better cooked over a fire."
+ },
+ "cooked_egg": {
+  "name": "cooked egg",
+  "aliases": [
+   "fried egg",
+   "boiled egg",
+   "cooked eggs"
+  ],
+  "food": 28,
+  "tags": [
+   "food"
+  ],
+  "desc": "Warm and filling."
+ },
+ "milk": {
+  "name": "milk",
+  "aliases": [
+   "cow milk"
+  ],
+  "food": 18,
+  "tags": [
+   "food"
+  ],
+  "desc": "Creamy and nourishing."
+ },
+ "wool": {
+  "name": "wool",
+  "aliases": [
+   "fleece",
+   "sheep wool"
+  ],
+  "tags": [
+   "material"
+  ],
+  "desc": "Soft fibers; can be woven into cloth."
+ },
+ "cloth": {
+  "name": "cloth",
+  "aliases": [
+   "fabric",
+   "woven cloth"
+  ],
+  "tags": [
+   "material"
+  ],
+  "desc": "Woven fabric for beds and clothes."
+ },
+ "carrot_seeds": {
+  "name": "carrot seeds",
+  "aliases": [
+   "carrot seed"
+  ],
+  "tags": [
+   "seed"
+  ],
+  "desc": "Plant them in soil and they grow into carrots."
+ },
+ "carrot": {
+  "name": "carrot",
+  "aliases": [
+   "carrots"
+  ],
+  "food": 16,
+  "tags": [
+   "food",
+   "crop"
+  ],
+  "desc": "Crunchy and sweet."
+ }
+}

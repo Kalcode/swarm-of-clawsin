@@ -1,0 +1,233 @@
+[
+ {
+  "output": "rope",
+  "inputs": {
+   "plant_fiber": 3
+  },
+  "known_at_start": true
+ },
+ {
+  "output": "campfire",
+  "inputs": {
+   "stick": 3,
+   "stone": 2
+  },
+  "known_at_start": true
+ },
+ {
+  "output": "stone_knife",
+  "inputs": {
+   "flint": 1,
+   "stick": 1
+  }
+ },
+ {
+  "output": "stone_axe",
+  "inputs": {
+   "stick": 1,
+   "stone": 1,
+   "rope": 1
+  }
+ },
+ {
+  "output": "stone_pickaxe",
+  "inputs": {
+   "stick": 2,
+   "stone": 2,
+   "rope": 1
+  }
+ },
+ {
+  "output": "planks",
+  "inputs": {
+   "log": 1
+  },
+  "tools": [
+   "stone_axe"
+  ],
+  "count": 2
+ },
+ {
+  "output": "workbench",
+  "inputs": {
+   "planks": 4
+  }
+ },
+ {
+  "output": "sign",
+  "inputs": {
+   "planks": 1,
+   "stick": 1
+  }
+ },
+ {
+  "output": "wooden_wall",
+  "inputs": {
+   "planks": 2
+  }
+ },
+ {
+  "output": "chest",
+  "inputs": {
+   "planks": 6
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "roasted_berries",
+  "inputs": {
+   "berries": 1
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "charcoal",
+  "inputs": {
+   "log": 1
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "brick",
+  "inputs": {
+   "clay": 1
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "furnace",
+  "inputs": {
+   "stone": 8,
+   "brick": 2
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "copper_ingot",
+  "inputs": {
+   "copper_ore": 1,
+   "charcoal": 1
+  },
+  "station": "furnace"
+ },
+ {
+  "output": "iron_ingot",
+  "inputs": {
+   "iron_ore": 1,
+   "charcoal": 1
+  },
+  "station": "furnace"
+ },
+ {
+  "output": "copper_wire",
+  "inputs": {
+   "copper_ingot": 1
+  },
+  "station": "workbench",
+  "count": 3
+ },
+ {
+  "output": "paper",
+  "inputs": {
+   "plant_fiber": 2
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "book",
+  "inputs": {
+   "paper": 3,
+   "rope": 1
+  }
+ },
+ {
+  "output": "copper_pickaxe",
+  "inputs": {
+   "stick": 2,
+   "copper_ingot": 2
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "terminal",
+  "inputs": {
+   "copper_wire": 4,
+   "iron_ingot": 2,
+   "stone": 1
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "hoe",
+  "inputs": {
+   "stick": 2,
+   "flint": 1,
+   "rope": 1
+  }
+ },
+ {
+  "output": "millstone",
+  "inputs": {
+   "stone": 6,
+   "log": 1
+  },
+  "station": "workbench"
+ },
+ {
+  "output": "flour",
+  "inputs": {
+   "wheat": 2
+  },
+  "station": "millstone"
+ },
+ {
+  "output": "bread",
+  "inputs": {
+   "flour": 2
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "bed",
+  "inputs": {
+   "planks": 3,
+   "plant_fiber": 4
+  }
+ },
+ {
+  "output": "door",
+  "inputs": {
+   "planks": 2,
+   "rope": 1
+  }
+ },
+ {
+  "output": "fishing_rod",
+  "inputs": {
+   "stick": 2,
+   "rope": 1,
+   "plant_fiber": 1
+  }
+ },
+ {
+  "output": "cooked_fish",
+  "inputs": {
+   "fish": 1
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "cooked_egg",
+  "inputs": {
+   "egg": 1
+  },
+  "station": "campfire"
+ },
+ {
+  "output": "cloth",
+  "inputs": {
+   "wool": 2
+  },
+  "station": "workbench"
+ }
+]

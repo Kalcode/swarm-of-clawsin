@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/
+bench/results/
+worlds/
+
+inbox
+web/assets/limezu/
