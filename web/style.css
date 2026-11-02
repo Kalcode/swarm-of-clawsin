@@ -1124,3 +1124,69 @@ button.wwho:hover { text-decoration-color: currentColor; }
 /* music has its own switch next to the speaker */
 .music-btn { font-size: 14px; line-height: 1; }
 .music-btn[aria-pressed="false"] { opacity: 0.4; filter: grayscale(1); }
+
+/* ------------------------------------------------------- skins (stream S7) */
+/* The world-art switcher in the panel footer: LimeZu, Kenney, ASCII (remembered in localStorage). */
+.panel-foot { align-items: center; }
+.panel-foot .foot-credit { min-width: 0; }
+.skin-switch { display: inline-flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--ink-1); }
+.skin-switch button {
+  height: 20px; padding: 0 7px;
+  border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-3);
+  font: 600 10.5px/1 var(--sans); letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.skin-switch button:hover { color: var(--text); background: var(--ink-3); }
+.skin-switch button[aria-checked="true"] { color: var(--text); background: var(--ink-4); }
+.skin-switch button[data-skin="ascii"] { font-family: var(--mono); }
+
+/* ASCII: the roguelike skin keeps the chrome plain and monospace where the map talks */
+html[data-skin="ascii"] .hud { border-radius: 2px; font-family: var(--mono); }
+html[data-skin="ascii"] .cre-portrait { border-radius: 2px; background: #0d130e; }
+
+/* LimeZu: pieces of the Modern User Interface pack (web/assets/limezu/ui.png, gitignored) dress the map's
+   overlays, buttons, need bars and the portrait. limezu.js sets html.lz-ui and the --lz-* images only when
+   the pack is there; without it nothing below applies. */
+html.lz-ui[data-skin="limezu"] .hud {
+  border: 8px solid transparent;
+  border-image: var(--lz-panel) 8 / 8px / 0 stretch;
+  border-radius: 0;
+  background-clip: padding-box;
+  image-rendering: pixelated;
+}
+html.lz-ui[data-skin="limezu"] .hud-top { padding: 0 0 0 6px; }
+html.lz-ui[data-skin="limezu"] .hud-bl { padding: 0 4px; }
+html.lz-ui[data-skin="limezu"] .hud-br { padding: 0; }
+html.lz-ui[data-skin="limezu"] .hud-br .icon-btn,
+html.lz-ui[data-skin="limezu"] .skin-switch button[aria-checked="true"] {
+  border: 6px solid transparent;
+  border-image: var(--lz-button) 6 fill / 6px stretch;
+  border-radius: 0;
+  background: transparent;
+  color: #4a3020;
+  image-rendering: pixelated;
+}
+html.lz-ui[data-skin="limezu"] .hud-br .icon-btn:active { border-image-source: var(--lz-button-down); }
+html.lz-ui[data-skin="limezu"] .hud-br .icon-btn:disabled { opacity: 0.55; }
+html.lz-ui[data-skin="limezu"] .skin-switch button[aria-checked="true"] { height: 22px; padding: 0 3px; line-height: 10px; }
+html.lz-ui[data-skin="limezu"] .bar {
+  height: 8px; border-radius: 0; overflow: visible;
+  border: 3px solid transparent; border-image: var(--lz-bar-track) 3 fill / 3px stretch;
+  background: transparent; image-rendering: pixelated;
+}
+html.lz-ui[data-skin="limezu"] .bar-fill {
+  height: 8px; margin: -3px; width: calc(100% + 6px); border-radius: 0;
+  border: 3px solid transparent; border-image: var(--lz-bar-yellow) 3 fill / 3px stretch;
+  background: transparent; image-rendering: pixelated;
+}
+html.lz-ui[data-skin="limezu"] .need[data-need="energy"] .bar-fill { background: transparent; border-image-source: var(--lz-bar-blue); }
+html.lz-ui[data-skin="limezu"] .need[data-need="health"] .bar-fill { background: transparent; border-image-source: var(--lz-bar-red); }
+html.lz-ui[data-skin="limezu"] .need[data-need="satiety"] .bar-fill { background: transparent; }
+html.lz-ui[data-skin="limezu"] .cre-portrait {
+  border: 8px solid transparent;
+  border-image: var(--lz-panel) 8 / 8px / 0 stretch;
+  border-radius: 0; background-clip: padding-box !important;
+  width: 64px; height: 64px;
+  image-rendering: pixelated;
+}

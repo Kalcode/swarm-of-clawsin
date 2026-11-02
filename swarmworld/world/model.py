@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from .catalog import Catalog
 from .events import Event
 # Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
-from .registry import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
+from .registry import ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
+
+VIEW_KIND_FIELDS = ("look", "glyph", "glow")  # what the viewer's art reads from a kind's data, besides its name
 
 TICK_SECONDS = 0.5
 DAY_TICKS = 1200
@@ -266,7 +268,7 @@ class World:
         return out
 
     def to_init(self) -> dict:
-        return {
+        init = {
             "type": "init",
             "width": self.width,
             "height": self.height,
@@ -277,7 +279,14 @@ class World:
             "clock": self.clock(),
             "items": {i: it.name for i, it in self.catalog.items.items()},
             "landmarks": getattr(self, "landmarks", []),
+            "kinds": {k: {"name": spec["name"], **{f: spec[f] for f in VIEW_KIND_FIELDS if spec.get(f)}}
+                      for k, spec in KINDS.items()},
         }
+        # the land's biomes and river flow (rows aligned with tiles; see terrain.py), for the viewer's art only
+        land = {k: v for k, v in (self.ext.get("nature") or {}).items() if k in ("biomes", "flow") and v}
+        if land:
+            init["nature"] = land
+        return init
 
     def take_object_changes(self) -> tuple[list[dict], list[str]]:
         upsert = []
