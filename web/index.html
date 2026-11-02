@@ -30,13 +30,14 @@
       <div class="hstat" title="Creatures in the world">
         <span class="ico" data-ico="people"></span>
         <span class="hstat-main"><b class="num" id="h-pop">0</b> creatures</span>
-        <span class="hstat-sub"><span class="num" id="h-awake">0</span> awake · <span class="num" id="h-asleep">0</span> asleep</span>
+        <span class="hstat-sub"><span class="num" id="h-awake">0</span> awake · <span class="num" id="h-asleep">0</span> asleep<span id="h-away-wrap" hidden> · <span class="num" id="h-away">0</span> away</span></span>
       </div>
     </div>
 
     <div class="topbar-end">
       <div class="sound-ctl">
         <button class="icon-btn" id="sound-btn" type="button" aria-pressed="false" title="Turn sound on (M)"><span class="sr-only">Sound</span></button>
+        <button class="icon-btn music-btn" id="music-btn" type="button" aria-pressed="true" title="Turn music off (sound effects stay on)"><span aria-hidden="true">🎵</span><span class="sr-only">Music</span></button>
         <input id="sound-vol" class="sound-vol" type="range" min="0" max="100" step="1" value="60" aria-label="Volume" title="Volume">
       </div>
       <div class="voice">

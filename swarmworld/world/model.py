@@ -75,6 +75,11 @@ class Creature:
     def collapsed(self) -> bool:
         return self.collapsed_until > 0
 
+    @property
+    def sleeping(self) -> bool:
+        """Asleep for the night (an activity), as opposed to `asleep`: in stasis because no brain is connected."""
+        return bool(self.activity and self.activity.get("sleep"))
+
 
 class World:
     def __init__(self, width: int, height: int, tiles: list[list[str]], catalog: Catalog, seed: int = 0):
@@ -249,7 +254,7 @@ class World:
         return {
             "id": c.id, "name": c.name, "x": c.x, "y": c.y, "model": c.model, "color": c.color,
             "activity": (c.activity or {}).get("label", "idle") if not c.collapsed else "collapsed",
-            "thinking": c.thinking, "asleep": c.asleep,
+            "thinking": c.thinking, "asleep": c.asleep, "sleeping": c.sleeping,
             "say": c.say if c.say_until > self.tick else None,
             "satiety": round(c.satiety), "energy": round(c.energy), "health": round(c.health),
             "holding": holding,

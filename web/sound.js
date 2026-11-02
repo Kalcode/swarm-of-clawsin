@@ -10,7 +10,8 @@
   const MIN_GAP_MS = 140;      // per sound kind
 
   let ctx = null, master = null, sfx = null, musicBus = null, noiseBuf = null;
-  let state = { on: false, vol: 0.6 };
+  const MUSIC_GAIN = 0.16;
+  let state = { on: false, vol: 0.6, music: true };
   try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* private mode */ }
   state.on = !!state.on;
   state.vol = Math.min(1, Math.max(0, +state.vol || 0));
@@ -29,7 +30,7 @@
     master = ctx.createGain();
     master.connect(ctx.destination);
     sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
-    musicBus = ctx.createGain(); musicBus.gain.value = 0.16; musicBus.connect(master);
+    musicBus = ctx.createGain(); musicBus.gain.value = state.music ? MUSIC_GAIN : 0; musicBus.connect(master);
     const n = ctx.sampleRate * 2;
     noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -40,6 +41,7 @@
 
   function applyVolume() {
     if (master) master.gain.setTargetAtTime(state.on ? state.vol * state.vol : 0, ctx.currentTime, 0.03);
+    if (musicBus) musicBus.gain.setTargetAtTime(state.music ? MUSIC_GAIN : 0, ctx.currentTime, 0.3);  // music fades on its own
   }
 
   // ---------------------------------------------------------------- voice helpers
@@ -197,7 +199,7 @@
     padNodes = { g, stop() { os.forEach((o) => { try { o.stop(); } catch (e) { /* stopped */ } }); } };
   }
   function musicLoop() {
-    if (!ctx || !state.on || ctx.state !== 'running') return;
+    if (!ctx || !state.on || !state.music || ctx.state !== 'running') return;
     setPad();
     const m = MUSIC[variant()];
     while (nextNote < ctx.currentTime + 0.6) {
@@ -215,7 +217,7 @@
     }
   }
   function startMusic() {
-    if (musicTimer) return;
+    if (musicTimer || !state.music) return;
     nextNote = 0;
     musicTimer = setInterval(musicLoop, 300);
     musicLoop();
@@ -235,6 +237,19 @@
       b.title = live ? 'Mute sound (M)' : 'Turn sound on (M)';
     }
     if (v) { v.value = Math.round(state.vol * 100); v.disabled = false; }
+    const mb = document.getElementById('music-btn');
+    if (mb) {
+      mb.setAttribute('aria-pressed', state.music ? 'true' : 'false');
+      mb.title = state.music ? 'Turn music off (sound effects stay on)' : 'Turn music on';
+    }
+  }
+
+  function setMusic(on) {  // music has its own switch; sound effects keep playing either way
+    state.music = !!on;
+    save();
+    applyVolume();
+    if (state.music && state.on && !pendingStart && ctx && ctx.state === 'running') startMusic(); else stopMusic();
+    renderUI();
   }
 
   function setOn(on) {
@@ -258,6 +273,8 @@
     renderUI();
     if (b) b.addEventListener('click', (e) => { e.stopPropagation(); setOn(!(state.on && !pendingStart)); });
     if (v) v.addEventListener('input', () => { state.vol = v.value / 100; save(); applyVolume(); });
+    const mb = document.getElementById('music-btn');
+    if (mb) mb.addEventListener('click', (e) => { e.stopPropagation(); setMusic(!state.music); });
     window.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName) || '';
       if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag)) setOn(!(state.on && !pendingStart));

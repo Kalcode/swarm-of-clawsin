@@ -1107,3 +1107,7 @@ button.wwho:hover { text-decoration-color: currentColor; }
 .sound-ctl .icon-btn[aria-pressed="true"] { color: var(--text); border-color: #45394d; }
 .sound-vol { width: 64px; accent-color: var(--text-2); cursor: pointer; }
 @media (max-width: 720px) { .sound-vol { display: none; } }
+
+/* music has its own switch next to the speaker */
+.music-btn { font-size: 14px; line-height: 1; }
+.music-btn[aria-pressed="false"] { opacity: 0.4; filter: grayscale(1); }

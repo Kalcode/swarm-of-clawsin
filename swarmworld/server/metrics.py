@@ -43,7 +43,7 @@ class Metrics:
         for c in world.creatures.values():
             s = creature_stats[c.model]
             s["creatures"] += 1
-            s["awake"] += 0 if c.asleep else 1
+            s["awake"] += 0 if c.asleep or c.sleeping else 1
             for k in ("speech", "discoveries", "crafted", "collapses", "built", "gathered", "programs", "writing",
                       "inventions", "tamed", "planted"):
                 s[k] += c.stats.get(k, 0) - c.stats_base.get(k, 0)

@@ -210,3 +210,16 @@ def test_starving_is_the_first_thing_a_creature_senses():
     assert perceive(w, c).splitlines()[0].startswith("You are starving")
     c.satiety = 80.0
     assert not perceive(w, c).splitlines()[0].startswith("You are starving")
+
+
+def test_night_sleepers_are_not_counted_awake():
+    from swarmworld.server.metrics import Metrics
+    from swarmworld.world.catalog import Catalog
+    from swarmworld.world.model import START_TICK, Creature, World
+    w = World(20, 20, [["g"] * 20 for _ in range(20)], Catalog.load())
+    w.tick = START_TICK + 100
+    a, b = Creature("c1", "Ann", 5, 5, model="m", asleep=False), Creature("c2", "Bob", 7, 7, model="m", asleep=False)
+    b.activity = {"type": "busy", "ticks": 10_000, "label": "sleeping", "sleep": True}
+    w.creatures.update({a.id: a, b.id: b})
+    assert not a.sleeping and b.sleeping and w.cre_dict(b)["sleeping"] is True
+    assert Metrics().snapshot(w, 0)["models"]["m"]["awake"] == 1

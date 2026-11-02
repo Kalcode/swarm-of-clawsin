@@ -412,11 +412,18 @@
     pi.dataset.phase = phase;
     setIco(pi, phase === 'night' ? 'night' : 'sun');
     setText($('h-tick'), `tick ${fmtNum(S.tick)}`);
-    let awake = 0, asleep = 0;
-    for (const e of S.cres.values()) { if (e.d.asleep) asleep++; else awake++; }
-    setText($('h-pop'), String(awake + asleep));
+    // asleep = sleeping for the night; away = no brain connected (in stasis until its machine rejoins)
+    let awake = 0, asleep = 0, away = 0;
+    for (const e of S.cres.values()) {
+      if (e.d.asleep) away++;
+      else if (e.d.sleeping || /^sleeping/.test(String(e.d.activity || ''))) asleep++;
+      else awake++;
+    }
+    setText($('h-pop'), String(awake + asleep + away));
     setText($('h-awake'), String(awake));
     setText($('h-asleep'), String(asleep));
+    setText($('h-away'), String(away));
+    $('h-away-wrap').hidden = !away;
   }
 
   /* ================================================================ events */
