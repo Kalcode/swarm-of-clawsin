@@ -12,6 +12,7 @@
 - Steward policy (user's choice, 2026-11-02): Claude may intervene in the live world on its own judgment (answer, grant
   or note wishes; speak from the sky; admin/test actions) and must log every intervention in docs/steward-log.md
   (time, tick, what, why, outcome). The live world is the experiment, so keep interventions purposeful and logged.
+  Resetting the world (`--fresh`, old save kept as .bak) is allowed when useful; log it too.
 - Never commit `inbox/`, `web/assets/limezu/` or `docs/media/`: licensed LimeZu art (see .gitignore).
 - `worlds/` holds the living world's save; `--fresh` keeps the old one as `worlds/default.<time>.bak`.
 - Tests: `uv run pytest`.

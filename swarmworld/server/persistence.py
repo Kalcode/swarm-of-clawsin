@@ -54,6 +54,7 @@ def snapshot(st: "ServerState") -> dict:
         "owner": st.owner,
         "model_colors": st.model_colors,
         "chronicle": st.chronicle,
+        "sky_words": st.sky_words,
         "relations": {k: dict(v) for k, v in st.relations.items()},
         "history": st.history,
         "wishes": st.wishes.to_dict(),
@@ -151,6 +152,7 @@ def restore(st: "ServerState", path: Path) -> None:
     st.owner = data.get("owner", {})
     st.model_colors = data.get("model_colors", {})
     st.chronicle = data.get("chronicle", [])
+    st.sky_words = data.get("sky_words", [])
     st.relations = {k: Counter(v) for k, v in data.get("relations", {}).items()}
     st.history = data.get("history", [])
     st.wishes = Wishes(w.catalog)

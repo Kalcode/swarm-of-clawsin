@@ -227,7 +227,8 @@ RECALL_HINT = "(You can think back with recall: target is what you want to remem
 
 
 def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None,
-                       layers: set[str] = frozenset(), recalled: list[str] = (), thought_back: list[str] = ()) -> list[dict]:
+                       layers: set[str] = frozenset(), recalled: list[str] = (), thought_back: list[str] = (),
+                       sky: list[str] = ()) -> list[dict]:
     p = c.persona or {}
     traits = " and ".join(p.get("traits", [])) or "ordinary"
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
@@ -239,6 +240,7 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     lines.append("")
     lines.append("What you know:")
     lines.append(f"- Your goal: {memory.goal or 'none yet'}")
+    lines += [f"- {s}" for s in sky]  # the voice from the sky stays on everyone's mind for a day
     if "plan" in layers:
         lines += plan_lines(memory)
     if memory.summary:

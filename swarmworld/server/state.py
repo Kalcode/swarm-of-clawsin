@@ -51,8 +51,16 @@ SAYS_RE = re.compile(r'^(\w+) says(?: to (?:you|\w+))?: "(.*)"$')
 GAVE_RE = re.compile(r"^(\w+) gave you (.*)\.$")
 
 
-def _heard_counts_less(doc) -> float:
-    return AUTO_HEARD if doc.kind == "memory" and SPEECH_RE.match(doc.text) else 1.0
+SKY_RE = re.compile(r"^(?:In a dream, )?an? (?:booming )?voice from the sky", re.I)
+SKY_LINGER = 1200  # the sky's words stay on creatures' minds for a day
+SKY_SHOWN = 2
+
+
+def auto_weight(doc) -> float:
+    """Unasked recall: what others said counts half, but the voice from the sky is never idle chatter."""
+    if doc.kind == "memory" and SPEECH_RE.match(doc.text) and not SKY_RE.match(doc.text):
+        return AUTO_HEARD
+    return 1.0
 
 
 @dataclass
@@ -114,6 +122,7 @@ class ServerState:
         self.relations: dict[str, Counter] = {}
         self.history: list[dict] = []  # a snapshot every HISTORY_EVERY ticks, for charts  # "a|b" (sorted ids) -> counts of talk, gift, teach
         self.chronicle: list[dict] = []
+        self.sky_words: list[dict] = []  # recent words from the sky: {"text", "tick", "who": [ids] or None, "wish"}
         self.wishes = Wishes(self.world.catalog)
         self.chronicle_due = self.world.tick + CHRONICLE_EVERY
         self.chronicle_from = self.world.tick
@@ -403,7 +412,7 @@ class ServerState:
         query = " ".join(dict.fromkeys(w for w in words if w))
         hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent,
                                   semantic=stable, lore=False,  # lore is already shown as techniques
-                                  weight=_heard_counts_less)
+                                  weight=auto_weight)
         return [(d.kind, d.text[:AUTO_LINE]) for d in hits]
 
     def make_job(self, node: Node, c: Creature) -> dict:
@@ -427,7 +436,8 @@ class ServerState:
                 shown = [t.name for t in TECHNIQUES if t.line in tips]
             thought_back, mem.thought_back = mem.thought_back, []
             kind, messages, schema, max_tokens = "act", build_act_messages(
-                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back), \
+                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back,
+                self.sky_lines(c)), \
                 (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), \
                 (ACT_TOKENS_PLAN if "plan" in layers else ACT_TOKENS)
             shown_recalled = [f"{k}: {t[:60]}" for k, t in recalled]
@@ -601,21 +611,54 @@ class ServerState:
 
     # ------------------------------------------------------------ the experimenter
     def voice_from_the_sky(self, text: str, x=None, y=None, radius=None) -> list[str]:
+        """The experimenter speaks. Awake creatures in range hear it; sleepers dream it. It stays on their minds a day."""
         w = self.world
-        heard = []
+        reached, who = [], []
         for c in w.creatures.values():
-            if c.collapsed or c.asleep:
+            if c.collapsed:
                 continue
             if x is not None and y is not None and max(abs(c.x - int(x)), abs(c.y - int(y))) > int(radius or 6):
                 continue
-            line = f'A booming voice from the sky says: "{text}"'
-            self.sim.heard[c.id].append(line)
-            self._remember(c, line, 3)
-            self.sim.wake(c, "heard")
-            heard.append(c.name)
+            if c.asleep:
+                self._remember(c, f'In a dream, a booming voice from the sky said: "{text}"', 3)
+                reached.append(f"{c.name} (in a dream)")
+            else:
+                line = f'A booming voice from the sky says: "{text}"'
+                self.sim.heard[c.id].append(line)
+                self._remember(c, line, 3)
+                self.sim.wake(c, "heard")
+                reached.append(c.name)
+            who.append(c.id)
+        self._sky_said(text, None if x is None or y is None else who)
         cx, cy = (int(x), int(y)) if x is not None and y is not None else w.center
         w.emit("voice", None, cx, cy, f'A voice from the sky: "{text}"', line=text)
-        return heard
+        return reached
+
+    def _sky_said(self, text: str, who: list[str] | None, wish: str = "") -> None:
+        self.sky_words = (self.sky_words + [{"text": text, "tick": self.world.tick, "who": who, "wish": wish}])[-10:]
+
+    def sky_lines(self, c: Creature) -> list[str]:
+        """The sky's recent words this creature heard, worded for its prompt ("earlier today", "yesterday")."""
+        out = []
+        for s in self.sky_words:
+            if self.world.tick - s["tick"] >= SKY_LINGER or (s["who"] is not None and c.id not in s["who"]):
+                continue
+            when = "earlier today" if self._same_day(s["tick"]) else "yesterday"
+            if s.get("wish"):
+                out.append(f'The sky answered your wish for {s["wish"]}: "{s["text"]}" ({when})')
+            else:
+                out.append(f'The sky has spoken: "{s["text"]}" ({when})')
+        return out[-SKY_SHOWN:]
+
+    def _same_day(self, tick: int) -> bool:
+        w = self.world
+        now = w.clock()["day"]
+        saved, w.tick = w.tick, tick
+        try:
+            then = w.clock()["day"]
+        finally:
+            w.tick = saved
+        return then == now
 
     def answer_wish(self, wid: str, reply: str = "", grant: str = "", count: int = 1, status: str = "") -> dict:
         """The people running the world answer a wish: a reply from the sky, a gift, or a note that it will be built."""
@@ -658,6 +701,7 @@ class ServerState:
             self.world.emit("voice", None, *self.world.center, f'A voice from the sky answers the wish for {w["thing"]}: "{reply}"',
                             line=reply)
             w["answer"] = reply
+            self._sky_said(reply, [c.id for c in wishers], wish=w["thing"])
             if w["status"] in ("open", "noted"):
                 w["status"] = "answered"
         if status in ("open", "noted", "closed"):
