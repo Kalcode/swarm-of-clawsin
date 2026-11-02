@@ -34,6 +34,8 @@ VERB_ALIASES = {
     "design": "invent", "innovate": "invent", "devise": "invent",
 }
 FILLER = {"the", "a", "an", "nearest", "closest", "nearby", "near", "some", "to", "that", "this", "over", "there", "my"}
+VECTORS = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
+           "west": (-1, 0), "northwest": (-1, -1), "north": (0, -1), "northeast": (1, -1)}
 TOOLS_AXE = ("stone_axe",)
 GATHERABLE = {"tree", "pine", "bush", "rock", "copper_vein", "iron_vein", "clay", "crop", "chicken", "sheep", "cow"}
 ITEM_SOURCES = {
@@ -454,17 +456,19 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
 def _explore(world: World, c: Creature, it: Intention) -> ActionResult:
     words = _words(it.target)
     d = next((w for w in words if w in DIRS), None) or world.rng.choice(DIRS)
-    vec = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
-           "west": (-1, 0), "northwest": (-1, -1), "north": (0, -1), "northeast": (1, -1)}[d]
-    for span in (9, 7, 5, 3):
-        tx, ty = c.x + vec[0] * span, c.y + vec[1] * span
-        goals = {(x, y) for x in range(tx - 1, tx + 2) for y in range(ty - 1, ty + 2) if world.walkable(x, y)}
-        if goals:
-            path = bfs_path(world, (c.x, c.y), goals)
+
+    order = sorted(DIRS, key=lambda o: min((DIRS.index(o) - DIRS.index(d)) % 8, (DIRS.index(d) - DIRS.index(o)) % 8))
+    for alt in order:
+        vx, vy = VECTORS[alt]
+        for span in (9, 7, 5, 3):
+            tx, ty = c.x + vx * span, c.y + vy * span
+            goals = {(x, y) for x in range(tx - 1, tx + 2) for y in range(ty - 1, ty + 2) if world.walkable(x, y)}
+            path = bfs_path(world, (c.x, c.y), goals) if goals else None
             if path:
-                c.activity = {"type": "walk", "path": path, "label": f"exploring {d}", "result": f"You walked {d} for a while."}
-                return ActionResult(True, f"You head off {d}.", instant=False)
-    return ActionResult(False, f"You can't go any further {d}.")
+                note = "" if alt == d else f"The land ends to the {d}, so you turn {alt} instead. "
+                c.activity = {"type": "walk", "path": path, "label": f"exploring {alt}", "result": f"{note}You walked {alt} for a while."}
+                return ActionResult(True, f"{note}You head off {alt}.", instant=False)
+    return ActionResult(False, "There's nowhere to go from here.")
 
 
 def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
@@ -701,9 +705,10 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         known = world.catalog.recipe_for(wanted) if wanted and wanted in c.known_recipes else None
         if known:
             return ActionResult(False, f"You know how to make {world.catalog.name(wanted)}: {world.catalog.describe_recipe(known)}.")
+        lacking = f" ({missing[0].rstrip('.')}.)" if missing else ""
         if world.catalog.near_miss(ids):
-            return ActionResult(False, f"You turn the {names_txt} over in your hands. They feel like part of something, but one more ingredient seems to be missing.")
-        return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it.")
+            return ActionResult(False, f"You turn the {names_txt} over in your hands. They feel like part of something, but one more ingredient seems to be missing.{lacking}")
+        return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it.{lacking}")
     return _try_recipe(world, c, r, it.count if it.count > 1 else 1, "combine")
 
 
@@ -728,6 +733,8 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
             return ActionResult(False, "You have nothing to eat.")
         name = foods[0]
     iid = world.catalog.resolve(name)
+    if iid is None and any(w in ("chicken", "cow", "sheep", "hen", "lamb", "animal") for w in _words(name)):
+        return ActionResult(False, "You can't eat a live animal. But an animal that trusts you (feed it twice) gives eggs, milk or wool.")
     if (iid in (None, "berries")) and c.inventory.get("berries", 0) <= 0 and any(w in _words(name) for w in ("berry", "berries", "bush")):
         bush = find_object(world, c, "berry bush", kinds={"bush"})
         if bush is None:

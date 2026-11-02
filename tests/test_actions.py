@@ -389,3 +389,12 @@ def test_carving_and_learning_by_reading(world):
     res = act(world, b, action="read", target="carving")
     assert res.ok and "stone knife" in res.message and "stone_knife" in b.known_recipes
     assert any(e.kind == "learn" and e.data["how"] == "reading" for e in world.events)
+
+
+def test_explore_turns_at_the_edge_and_animals_arent_food(world):
+    c = creature(world, "Tam", 10, 0)  # top edge
+    res = apply_intention(world, c, Intention("explore", target="north"))
+    assert res.ok and "turn" in res.message
+    c2 = creature(world, "Mara", 20, 20)
+    res = act(world, c2, action="eat", target="chicken")
+    assert not res.ok and "live animal" in res.message
