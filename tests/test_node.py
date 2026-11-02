@@ -58,3 +58,12 @@ async def test_mock_node_end_to_end(aiohttp_client):
     task.cancel()
     assert st.metrics.models["mock"]["act_ok"] >= 8
     assert len(st.world.creatures) == 4
+
+
+def test_brain_turns_thinking_off_for_omlx_and_ollama():
+    q = LLMBrain("http://pc:11434/v1", "qwen3.5:9b").body([], None, 260)
+    assert q["chat_template_kwargs"] == {"enable_thinking": False}  # oMLX, vLLM
+    assert q["reasoning_effort"] == "none" and q["max_tokens"] == 260  # Ollama
+    g = LLMBrain("http://pc:11434/v1", "gpt-oss:20b").body([], None, 260)
+    assert g["reasoning_effort"] == "low"  # gpt-oss can't stop reasoning, only shorten it
+    assert g["max_tokens"] >= 260 + 400  # room for that reasoning before the answer

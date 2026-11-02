@@ -14,6 +14,8 @@ import aiohttp
 from ..world.actions import _first_json_object
 
 THINK_RE = re.compile(r"<think>.*?</think>", re.S)
+ALWAYS_REASONS = re.compile(r"gpt-oss", re.I)
+REASONING_HEADROOM = 512
 
 
 class LLMBrain:
@@ -46,7 +48,12 @@ class LLMBrain:
             body["response_format"] = {"type": "json_schema",
                                        "json_schema": {"name": "intention", "schema": schema, "strict": True}}
         if self.disable_thinking:
-            body["chat_template_kwargs"] = {"enable_thinking": False}
+            body["chat_template_kwargs"] = {"enable_thinking": False}  # oMLX, vLLM, llama-server
+            if ALWAYS_REASONS.search(self.model):  # gpt-oss can only shorten its reasoning, which shares max_tokens
+                body["reasoning_effort"] = "low"
+                body["max_tokens"] = max_tokens + REASONING_HEADROOM
+            else:
+                body["reasoning_effort"] = "none"  # Ollama ignores chat_template_kwargs
         body.update(self.extra_body)
         return body
 
