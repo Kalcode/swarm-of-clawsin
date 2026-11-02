@@ -35,6 +35,10 @@
     </div>
 
     <div class="topbar-end">
+      <div class="sound-ctl">
+        <button class="icon-btn" id="sound-btn" type="button" aria-pressed="false" title="Turn sound on (M)"><span class="sr-only">Sound</span></button>
+        <input id="sound-vol" class="sound-vol" type="range" min="0" max="100" step="1" value="60" aria-label="Volume" title="Volume">
+      </div>
       <div class="voice">
         <button class="voice-btn" id="voice-btn" type="button" aria-expanded="false" aria-controls="voice-pop" title="Speak to the world as a voice from the sky (V)">
           <span class="ico" data-ico="voice"></span><span>Speak</span>
@@ -295,6 +299,7 @@
 
   <script src="tiles.js"></script>
   <script src="limezu.js"></script>
+  <script src="sound.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>

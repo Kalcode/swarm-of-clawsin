@@ -345,7 +345,8 @@
     if (m.clock) S.clock = m.clock;
     if (Array.isArray(m.landmarks)) { S.landmarks = m.landmarks; if (S.tab === 'society') renderPlaces(); }
 
-    pushEvents(m.events);
+    if (window.SwarmSound) SwarmSound.tick(m.events, S.cam, S.clock);
+    pushEvents((m.events || []).filter((ev) => !(ev && ev.kind === 'sound')));  // sounds are for the ears, not the feed
     renderHeader();
     if (S.selected) renderCreaturePanel();
     else if (S.tab === 'creature' && S.tick % 4 === 0) renderRoster();
