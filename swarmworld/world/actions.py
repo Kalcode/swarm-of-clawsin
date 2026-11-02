@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from .catalog import Recipe
 from .events import HEARING
 from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, Creature, World, WorldObject
-from .perception import DIRS, dist, direction, sight_range, visible_creatures, visible_objects
+from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 
 VERBS = [
     "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
@@ -423,6 +423,37 @@ def _dream(world: World, c: Creature, hint: str) -> str:
     return dream
 
 
+WATER_WORDS = {"water", "lake", "river", "pond", "stream"}
+
+
+def _recall(world: World, c: Creature, target: str, kinds: set[str] | None = None) -> tuple[str, int, int] | None:
+    """The nearest remembered spot of a thing out of sight: matched by name, or by kinds (sources of an item)."""
+    words = _words(target)
+    phrase = " ".join(words)
+    best = None
+    for kind, (x, y, _t) in c.spots.items():
+        if kinds is not None:
+            hit = kind in kinds
+        elif kind == "water":
+            hit = bool(WATER_WORDS & set(words))
+        else:
+            names = [spot_name(kind)] + OBJECT_ALIASES.get(kind, [])
+            hit = bool(phrase) and (phrase in names or any(n in phrase for n in names if len(n) > 2) or any(w in names for w in words))
+        d = dist(c.x, c.y, x, y)
+        if hit and (best is None or d < best[0]):
+            best = (d, kind, x, y)
+    return best[1:] if best else None
+
+
+def _walk_to_spot(world: World, c: Creature, kind: str, x: int, y: int, then: Intention | None = None) -> ActionResult:
+    name = spot_name(kind)
+    res = start_walk(world, c, _adjacent_goals(world, x, y, include_self=kind not in BLOCKING),
+                     f"heading back to the {name} you remember", f"You reach the spot where you remember the {name}.")
+    if then is not None and c.activity:
+        c.activity["then"] = then
+    return res
+
+
 def _noop_key(it: Intention) -> str:
     return f"{it.action} {it.target.lower()}"
 
@@ -490,6 +521,9 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     for d in DIRS:
         if d in _words(it.target):
             return _explore(world, c, Intention("explore", target=d))
+    spot = _recall(world, c, it.target)
+    if spot:
+        return _walk_to_spot(world, c, *spot)
     return ActionResult(False, f"You don't see any '{it.target}' around you.")
 
 
@@ -591,6 +625,9 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             return _busy(c, 4 * it.count, "fishing", msg)
         if not target:
             return ActionResult(False, "There's nothing to gather right beside you. Walk to a tree, bush or rock first.")
+        spot = _recall(world, c, target, ITEM_SOURCES.get(want_item or "")) or _recall(world, c, target)
+        if spot and spot[0] != "water":
+            return _walk_to_spot(world, c, *spot, then=it)
         return ActionResult(False, f"There's no '{target}' within reach to gather from.")
 
     got: Counter = Counter()

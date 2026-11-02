@@ -23,6 +23,7 @@ def _creature_dict(c: Creature) -> dict:
         "id": c.id, "name": c.name, "x": c.x, "y": c.y, "model": c.model, "color": c.color, "persona": c.persona,
         "inventory": dict(c.inventory), "satiety": c.satiety, "energy": c.energy, "health": c.health,
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
+        "spots": {k: list(v) for k, v in c.spots.items()},
     }
 
 
@@ -101,7 +102,8 @@ def restore(st: "ServerState", path: Path) -> None:
         c = Creature(cd["id"], cd["name"], cd["x"], cd["y"], model=cd["model"], color=cd["color"], persona=cd["persona"],
                      inventory=Counter(cd["inventory"]), satiety=cd["satiety"], energy=cd["energy"], health=cd["health"],
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
-                     known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]))
+                     known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
+                     spots={k: tuple(v) for k, v in cd.get("spots", {}).items()})
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r

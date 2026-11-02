@@ -8,7 +8,7 @@ from typing import Callable
 from .actions import ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
-from .perception import visible_creatures
+from .perception import note_spots, visible_creatures
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -88,6 +88,8 @@ class Simulation:
                     self.remember(c, res.message, 1)
                 self.wake(c, "result")
             self._notice_others(c, t)
+            if t % 3 == 0 and not c.asleep:
+                note_spots(w, c, t)
             self._maybe_sleep(c)
             idle_after = IDLE_TICKS * (2 if (c.persona or {}).get("initiative") == "reactive" else 1)
             if c.activity is None and not c.thinking and c.wake_reason is None and t - c.last_think_tick >= idle_after:

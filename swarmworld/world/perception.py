@@ -39,6 +39,40 @@ def near_lit_fire(world: World, x: int, y: int, radius: int = FIRE_RADIUS) -> bo
     return False
 
 
+# Things worth walking back to: a creature remembers where it last saw the nearest of each kind.
+REMEMBERED_KINDS = {"tree", "pine", "bush", "rock", "clay", "copper_vein", "iron_vein", "campfire", "workbench",
+                    "furnace", "terminal", "tablet", "sign", "chest", "basket", "millstone", "bed"}
+MAX_SPOTS = 20
+RECALL_SHOWN = 5
+
+
+def spot_name(kind: str) -> str:
+    return "water" if kind == "water" else OBJECT_NAMES.get(kind, kind)
+
+
+def note_spots(world: World, c: Creature, tick: int) -> None:
+    """Update the creature's map memory from what it sees: newest sighting wins, things found gone are forgotten."""
+    r = sight_range(world, c)
+    nearest: dict[str, tuple[int, int, int]] = {}
+    for o, d, _ in visible_objects(world, c):
+        if o.kind in REMEMBERED_KINDS and (o.kind not in nearest or d < nearest[o.kind][0]):
+            nearest[o.kind] = (d, o.x, o.y)
+    for y in range(c.y - r, c.y + r + 1):
+        for x in range(c.x - r, c.x + r + 1):
+            if world.in_bounds(x, y) and world.tile(x, y) in "wW":
+                d = dist(c.x, c.y, x, y)
+                if "water" not in nearest or d < nearest["water"][0]:
+                    nearest["water"] = (d, x, y)
+    for kind, (x, y, _t) in list(c.spots.items()):
+        if kind not in nearest and dist(c.x, c.y, x, y) <= r:  # should be in view, isn't: it's gone
+            del c.spots[kind]
+    for kind, (_d, x, y) in nearest.items():
+        c.spots[kind] = (x, y, tick)
+    if len(c.spots) > MAX_SPOTS:
+        for kind, _ in sorted(c.spots.items(), key=lambda kv: kv[1][2])[:len(c.spots) - MAX_SPOTS]:
+            del c.spots[kind]
+
+
 def sight_range(world: World, creature: Creature) -> int:
     if world.clock()["phase"] != "night":
         return DAY_SIGHT
@@ -254,6 +288,11 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     far = _far_features(world, c, r)
     if far:
         lines.append("Around you: " + far + ".")
+    in_view = {o.kind for o, _, _ in visible_objects(world, c)} | ({"water"} if far and "water" in far else set())
+    recalled = sorted((dist(c.x, c.y, x, y), kind, x, y) for kind, (x, y, _t) in c.spots.items() if kind not in in_view)
+    if recalled:
+        lines.append("You remember: " + ", ".join(f"{spot_name(k)} {_where(d, direction(x - c.x, y - c.y))}"
+                                                  for d, k, x, y in recalled[:RECALL_SHOWN]) + ".")
 
     if heard:
         lines.append("You hear: " + " ".join(heard[-6:]))

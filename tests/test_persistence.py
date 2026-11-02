@@ -8,6 +8,7 @@ def test_save_and_restore_roundtrip(tmp_path):
     c = st.new_creature("mock")
     c.inventory.update({"stick": 2, "stone_axe": 1})
     c.known_recipes.add("stone_axe")
+    c.spots["rock"] = (3, 4, 100)
     st.memory(c.id).goal = "build a hut"
     st.memory(c.id).add(st.world.tick, "I met Mara.", 2)
     apply_intention(st.world, c, Intention("gather", target="grass"))
@@ -21,6 +22,7 @@ def test_save_and_restore_roundtrip(tmp_path):
     restore(st2, path)
     c2 = st2.world.creatures[c.id]
     assert c2.name == c.name and c2.inventory["stone_axe"] == 1 and "stone_axe" in c2.known_recipes
+    assert c2.spots["rock"] == (3, 4, 100)
     assert c2.asleep  # wakes when its brain node rejoins
     assert st2.memory(c.id).goal == "build a hut" and "I met Mara." in st2.memory(c.id).recent()
     assert len(st2.world.objects) == n_objects

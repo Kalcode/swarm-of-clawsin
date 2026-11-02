@@ -65,3 +65,19 @@ def test_hunger_offers_seeds_only_when_nothing_better(world):
     assert "2 berries" in text and "wheat seeds" not in text.split("You carry food")[1].split("\n")[0]
     c.inventory.pop("berries")
     assert "3 wheat seeds" in perceive(world, c).split("You carry food")[1]
+
+
+def test_remembers_resources_out_of_sight_and_forgets_gone_ones(world):
+    from swarmworld.world.perception import note_spots
+    c = add_creature(world)
+    world.add_object("rock", 14, 10)
+    bush = world.add_object("bush", 10, 14, berries=3)
+    note_spots(world, c, world.tick)
+    assert set(c.spots) >= {"rock", "bush"}
+    c.x, c.y = 26, 26  # far away: neither is in sight
+    text = perceive(world, c)
+    assert "You remember:" in text and "boulder" in text.split("You remember:")[1]
+    world.change_kind(bush, "bush_empty")  # picked clean while they were away
+    c.x, c.y = 10, 11
+    note_spots(world, c, world.tick)
+    assert "bush" not in c.spots and "rock" in c.spots

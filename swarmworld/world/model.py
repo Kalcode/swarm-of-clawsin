@@ -103,6 +103,7 @@ class Creature:
     seen: dict = field(default_factory=dict)
     seen_pos: dict = field(default_factory=dict)  # lowercase name -> (x, y, tick) where last seen
     last_noop: str = ""  # "action target" of the last turn that changed nothing
+    spots: dict = field(default_factory=dict)  # object kind (or "water") -> (x, y, tick) of the nearest one last seen
     stats: Counter = field(default_factory=Counter)
 
     @property

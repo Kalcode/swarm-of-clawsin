@@ -156,6 +156,17 @@ def test_myth_hint_only_for_names_of_things(world):
     assert "No one has ever made a 'berry wand'" in res.message
 
 
+def test_walk_to_and_gather_use_remembered_spots(world):
+    c = creature(world)
+    world.add_object("rock", 30, 10)
+    c.spots["rock"] = (30, 10, world.tick)  # seen yesterday, far out of sight now
+    res = act(world, c, action="walk_to", target="boulder")
+    assert res.ok and max(abs(c.x - 30), abs(c.y - 10)) == 1
+    c.x, c.y = 10, 10
+    res = act(world, c, action="gather", target="stone")
+    assert c.inventory.get("stone", 0) > 0
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
