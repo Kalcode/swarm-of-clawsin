@@ -28,12 +28,19 @@ curl -sf http://127.0.0.1:8000/v1/models >/dev/null || start_omlx
 WORLD_ARGS=(--seed "$SEED" --tick "$TICK" --port "$PORT" --world "$WORLD")
 NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "$SLOTS")
 [[ -n "${MODEL2:-}" ]] && NODE_ARGS+=(--model "$MODEL2")
+if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
+  WORLD_ARGS+=(--token "$TOKEN")
+  NODE_ARGS+=(--token "$TOKEN")
+fi
 for arg in "$@"; do
   case "$arg" in
     --lan)
-      TOKEN="${TOKEN:-$(openssl rand -hex 4)}"
-      WORLD_ARGS+=(--lan --token "$TOKEN")
-      NODE_ARGS+=(--token "$TOKEN")
+      if [[ -z "${TOKEN:-}" ]]; then
+        TOKEN="$(openssl rand -hex 4)"
+        WORLD_ARGS+=(--token "$TOKEN")
+        NODE_ARGS+=(--token "$TOKEN")
+      fi
+      WORLD_ARGS+=(--lan)
       ;;
     --fresh) WORLD_ARGS+=(--fresh) ;;
     --no-inspiration) WORLD_ARGS+=(--no-inspiration) ;;

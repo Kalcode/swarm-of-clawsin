@@ -176,3 +176,16 @@ async def test_history_snapshots(client):
     hist = await resp.json()
     assert hist and "mock" in hist[-1]["models"] and "recipes_known" in hist[-1]["world"]
     await ws.close()
+
+
+async def test_tunnelled_requests_are_not_local(client):
+    # cloudflared runs on this machine, so tunnelled visitors arrive from 127.0.0.1 with proxy headers
+    resp = await client.post("/api/voice", json={"text": "hi"}, headers={"CF-Connecting-IP": "203.0.113.9"})
+    assert resp.status == 403
+    resp = await client.post("/api/voice", json={"text": "hi"})
+    assert resp.status == 200
+    ws = await client.ws_connect("/ws/node", headers={"X-Forwarded-For": "203.0.113.9"})
+    await ws.send_json({"type": "hello", "node": "intruder", "slots": 1, "models": [{"tag": "m", "creatures": 3}]})
+    err = await _recv_type(ws, "error")
+    assert "token" in err["message"]
+    assert not any(c.model == "m" for c in client.app[STATE].world.creatures.values())

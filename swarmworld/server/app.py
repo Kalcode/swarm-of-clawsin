@@ -16,6 +16,12 @@ from .state import ServerState
 log = logging.getLogger("swarmworld.server")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 STATE = web.AppKey("state", ServerState)
+PROXY_HEADERS = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "Forwarded")
+
+
+def is_direct_local(request: web.Request) -> bool:
+    """True only for a request made on this machine itself, not one relayed by a tunnel or proxy running here."""
+    return request.remote in ("127.0.0.1", "::1") and not any(h in request.headers for h in PROXY_HEADERS)
 
 
 async def tick_loop(app: web.Application) -> None:
@@ -54,6 +60,7 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
     st = request.app[STATE]
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=4 * 1024 * 1024)
     await ws.prepare(request)
+    direct = is_direct_local(request) or request.remote not in ("127.0.0.1", "::1")  # LAN peers connect directly
     node = None
     try:
         async for msg in ws:
@@ -68,8 +75,9 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
                 if kind != "hello":
                     await ws.send_json({"type": "error", "message": "say hello first"})
                     continue
-                if st.token and data.get("token") != st.token:
-                    await ws.send_json({"type": "error", "message": "bad join token"})
+                if (st.token and data.get("token") != st.token) or (not st.token and not direct):
+                    msg = "bad join token" if st.token else "joining from outside this machine needs a join token (start the world with --token)"
+                    await ws.send_json({"type": "error", "message": msg})
                     await ws.close()
                     break
                 node, creatures = st.register_node(ws, data)
@@ -131,8 +139,7 @@ async def api_inventions(request: web.Request) -> web.Response:
 async def api_voice(request: web.Request) -> web.Response:
     """A voice from the sky: the human experimenter speaks into the world. Only from this machine, or with the join token."""
     st = request.app[STATE]
-    local = request.remote in ("127.0.0.1", "::1")
-    if not local and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
         raise web.HTTPForbidden(text="the voice from the sky only speaks from the world's own machine")
     body = await request.json()
     text = " ".join(str(body.get("text", "")).split())[:300]
@@ -152,8 +159,10 @@ async def api_history(request: web.Request) -> web.Response:
 
 async def api_nodes(request: web.Request) -> web.Response:
     st = request.app[STATE]
+    local = is_direct_local(request)
     return web.json_response([
-        {"name": n.name, "slots": n.slots, "inflight": len(n.inflight), "models": n.models, "hardware": n.hardware}
+        {"name": n.name, "slots": n.slots, "inflight": len(n.inflight), "models": n.models,
+         "hardware": n.hardware if local else {}}
         for n in st.nodes.values()
     ])
 
