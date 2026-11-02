@@ -334,7 +334,7 @@ class ServerState:
         reason = c.wake_reason
         layers = self.harness.layers_for(c)
         if mem.needs_reflection():
-            kind, messages, schema, max_tokens = "reflect", build_reflect_messages(c, mem), None, 220
+            kind, messages, schema, max_tokens = "reflect", build_reflect_messages(c, mem, layers), None, 220
         else:
             self.sim.maybe_inspire(c)
             perception = perceive(self.world, c, heard=self.sim.take_heard(c))
@@ -415,7 +415,7 @@ class ServerState:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1)
         elif not res.ok:
             self._remember(c, f"You tried to {it.summary()}, but: {res.message}", 1)
-        if plan_on and it.step_done and res.ok and mem.plan:
+        if plan_on and it.step_done and res.ok and not res.noop and mem.plan:
             if res.instant:
                 self._advance_plan(c)
             elif c.activity:

@@ -149,3 +149,32 @@ def test_plan_survives_restart(tmp_path):
     restore(st2, tmp_path / "w.json")
     m2 = st2.memory(c.id)
     assert m2.plan == STEPS and m2.plan_step == 1
+
+
+def test_reflection_sees_the_plan_only_in_plan_layer():
+    from swarmworld.mind.prompts import build_reflect_messages
+    st, node, c = setup()
+    mem = st.memory(c.id)
+    mem.set_plan(STEPS)
+    mem.advance()
+    on = build_reflect_messages(c, mem, {"plan"})[1]["content"]
+    assert "Your plan: 1. done: get 3 plant fiber. 2. NOW: make rope." in on and "Say if it should change" in on
+    assert build_reflect_messages(c, mem)[1]["content"] == build_reflect_messages(c, mem, set())[1]["content"]
+    assert "Your plan" not in build_reflect_messages(c, mem)[1]["content"]
+    mem.thinks_since_reflect = mem.entries_since_reflect = 12
+    assert "Your plan:" in st.make_job(node, c)["messages"][1]["content"]
+
+
+def test_a_noop_does_not_finish_a_step():
+    st, node, c = setup()
+    mem = st.memory(c.id)
+    mem.set_plan(STEPS)
+    from swarmworld.world.actions import ActionResult
+    import swarmworld.server.state as S
+    orig = S.apply_intention
+    S.apply_intention = lambda w, cr, it: ActionResult(True, "Nothing changes.", noop=True)
+    try:
+        act(st, node, c, {"action": "say", "text": "x", "step_done": True})
+    finally:
+        S.apply_intention = orig
+    assert mem.plan_step == 0

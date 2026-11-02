@@ -166,14 +166,18 @@ INTENTION_SCHEMA_PLAN = {
 }
 
 
-def plan_lines(memory: Memory) -> list[str]:
-    if not memory.plan:
-        return ["- No plan yet. If your goal takes several steps, write them in plan (up to 5 short steps)."]
+def _plan_steps(memory: Memory) -> str:
     steps = []
     for i, s in enumerate(memory.plan):
         mark = "done: " if i < memory.plan_step else "NOW: " if i == memory.plan_step else ""
         steps.append(f"{i + 1}. {mark}{s.rstrip('.')}.")
-    return [f"- Your plan: {' '.join(steps)}",
+    return " ".join(steps)
+
+
+def plan_lines(memory: Memory) -> list[str]:
+    if not memory.plan:
+        return ["- No plan yet. If your goal takes several steps, write them in plan (up to 5 short steps)."]
+    return [f"- Your plan: {_plan_steps(memory)}",
             "(Put up to 5 short steps in plan only when you make a new plan, otherwise []. "
             "Set step_done to true when this action finishes the NOW step.)"]
 
@@ -225,12 +229,14 @@ REFLECT_BY_TEMPERAMENT = {
 }
 
 
-def build_reflect_messages(c: Creature, memory: Memory) -> list[dict]:
+def build_reflect_messages(c: Creature, memory: Memory, layers: set[str] = frozenset()) -> list[dict]:
     mem = "\n".join(f"- {t}" for t in memory.recent(24))
     user = (
         f"You are {c.name}. Here are your recent experiences, oldest first:\n{mem}\n\n"
         f"Your earlier reflections: {memory.summary or '(none)'}\n"
-        f"Your current goal: {memory.goal or '(none)'}\n\n"
+        f"Your current goal: {memory.goal or '(none)'}\n"
+        + (f"Your plan: {_plan_steps(memory)} Say if it should change.\n" if "plan" in layers and memory.plan else "")
+        + "\n"
         "In 2 to 4 short sentences, in first person, write down what you have learned about this world "
         "(including any recipes or useful places), who matters to you and why, and what you mean to do next. "
         "If something you need doesn't seem to exist in this world, say what you wish for (\"I wish...\"). "
