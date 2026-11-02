@@ -352,6 +352,89 @@ async def test_embed_loop_survives_a_dead_embedder():
     assert app[STATE].recall.pending(1)  # keyword search carries on
 
 
+class HTTPError(Exception):
+    """Like aiohttp's ClientResponseError: carries the HTTP status (and here, a key that must never be logged)."""
+
+    def __init__(self, status):
+        super().__init__(f"{status} for Authorization: Bearer pa-secret")
+        self.status = status
+
+
+class Flaky:
+    """Answers with each outcome in turn: an HTTP status to fail with, or None to succeed."""
+
+    def __init__(self, outcomes):
+        self.outcomes, self.calls = list(outcomes), 0
+
+    async def embed(self, texts, input_type):
+        self.calls += 1
+        status = self.outcomes.pop(0) if self.outcomes else None
+        if status:
+            raise HTTPError(status)
+        return [[1.0, 0.5, float(len(t) % 5)] for t in texts]
+
+
+class Stop(Exception):
+    pass
+
+
+async def run_embed_loop(emb, sleeps):
+    from swarmworld.server.app import STATE, create_app, embed_loop
+
+    app = create_app(seed=7, start_loop=False, embedder=emb)
+    for i in range(1000):  # plenty of work queued, so every turn of the loop calls the embedder
+        app[STATE].recall.add("c1", "memory", f"note {i}", i)
+    delays = []
+
+    async def fake_sleep(s):
+        delays.append(s)
+        if len(delays) >= sleeps:
+            raise Stop
+
+    try:
+        await embed_loop(app, every=3.0, sleep=fake_sleep)
+    except Stop:
+        pass
+    return app[STATE], delays
+
+
+@pytest.mark.asyncio
+async def test_embed_failures_back_off_and_reset(caplog):
+    caplog.set_level("INFO")
+    st, delays = await run_embed_loop(Flaky([429, 429, 429, None, 503] + [500] * 9), sleeps=14)
+    assert delays[:5] == [6.0, 12.0, 24.0, 3.0, 6.0]  # doubles on failure, back to 3 s after a success
+    assert max(delays) == 300.0 and delays[-2:] == [300.0, 300.0]  # capped at 5 minutes
+    fails = [r for r in caplog.records if "embedding failed" in r.getMessage()]
+    assert len(fails) == 13 and all(r.exc_info is None for r in fails)  # one line each, no traceback
+    assert "HTTP 429" in fails[0].getMessage() and "HTTP 503" in fails[3].getMessage()
+    assert not any("pa-secret" in r.getMessage() for r in caplog.records)
+    assert st.embedder is not None
+
+
+@pytest.mark.asyncio
+async def test_rejected_key_turns_embeddings_off(caplog):
+    caplog.set_level("INFO")
+    for status in (401, 403):
+        caplog.clear()
+        st, delays = await run_embed_loop(Flaky([status]), sleeps=3)
+        assert delays == [] and st.embedder is None  # the loop ends instead of retrying
+        msgs = [r.getMessage() for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+        assert len(msgs) == 1 and f"HTTP {status}" in msgs[0] and "keywords only" in msgs[0]
+        assert not any("pa-secret" in r.getMessage() for r in caplog.records)
+
+
+def test_startup_line_says_what_recall_uses(tmp_path, monkeypatch):
+    from swarmworld.server.__main__ import make_embedder, recall_search_line
+
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert recall_search_line(make_embedder(None), None) == "Recall search: keywords only (no VOYAGE_API_KEY)"
+    assert recall_search_line(make_embedder("none"), "none") == "Recall search: keywords only (--embed none)"
+    monkeypatch.setenv("VOYAGE_API_KEY", "pa-secret")
+    line = recall_search_line(make_embedder(None), None)
+    assert line == "Recall search: keywords + Voyage embeddings (voyage-3.5-lite)" and "pa-secret" not in line
+
+
 @pytest.mark.asyncio
 async def test_no_embedder_means_no_embed_task():
     import asyncio

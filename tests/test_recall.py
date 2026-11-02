@@ -103,7 +103,8 @@ class Fake:
 
 async def test_embedder_failure_falls_back_to_keywords():
     idx = make_index(3)
-    assert await embed_pending(idx, Boom()) == 0
+    with pytest.raises(RuntimeError):  # the caller (the embed loop) decides how to log and when to retry
+        await embed_pending(idx, Boom())
     assert idx.search("a", "clay", now=60)[0].text.startswith("the clay bank")
     assert idx.pending()  # still waiting
 

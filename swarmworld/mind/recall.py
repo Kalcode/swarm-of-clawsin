@@ -6,7 +6,6 @@ background task embeds them (`embed_pending`) and hands the vectors back with `s
 
 from __future__ import annotations
 
-import logging
 import math
 import re
 from collections import Counter
@@ -15,7 +14,6 @@ from typing import Awaitable, Callable, Iterable
 
 import numpy as np
 
-log = logging.getLogger(__name__)
 
 K1 = 1.2
 B = 0.75
@@ -263,19 +261,16 @@ class VoyageEmbedder:
 
 
 async def embed_pending(index: RecallIndex, embedder) -> int:
-    """Embed one batch of what `index` is waiting on. Returns how many vectors were set; 0 on any error."""
-    try:
-        items = index.pending(BATCH)
-        docs = [(k, t) for k, t in items if not k.startswith("q:")]
-        queries = [(k, t) for k, t in items if k.startswith("q:")]
-        done = 0
-        for group, input_type in ((docs, "document"), (queries, "query")):
-            if not group:
-                continue
-            vecs = await embedder.embed([t for _, t in group], input_type)
-            index.set_vectors([(k, v) for (k, _), v in zip(group, vecs)])
-            done += len(group)
-        return done
-    except Exception:
-        log.exception("recall embedding failed; keyword search continues")
-        return 0
+    """Embed one batch of what `index` is waiting on. Returns how many vectors were set. Errors propagate: the
+    caller decides how to report them and when to retry; keyword search carries on regardless."""
+    items = index.pending(BATCH)
+    docs = [(k, t) for k, t in items if not k.startswith("q:")]
+    queries = [(k, t) for k, t in items if k.startswith("q:")]
+    done = 0
+    for group, input_type in ((docs, "document"), (queries, "query")):
+        if not group:
+            continue
+        vecs = await embedder.embed([t for _, t in group], input_type)
+        index.set_vectors([(k, v) for (k, _), v in zip(group, vecs)])
+        done += len(group)
+    return done

@@ -59,14 +59,30 @@ async def tick_loop(app: web.Application) -> None:
 
 
 EMBED_EVERY_S = 3.0
+EMBED_MAX_WAIT_S = 300.0
 
 
-async def embed_loop(app: web.Application, every: float = EMBED_EVERY_S) -> None:
-    """Embed what recall is waiting on, one batch at a time, off the tick loop. Failures just mean keyword search."""
+async def embed_loop(app: web.Application, every: float = EMBED_EVERY_S, sleep=asyncio.sleep) -> None:
+    """Embed what recall is waiting on, one batch at a time, off the tick loop. Failures just mean keyword search:
+    each is logged on one line (HTTP status or error type, never the key) and the wait doubles, up to 5 minutes,
+    until a batch succeeds. A refused key (401/403) turns embeddings off for the rest of the session."""
     st = app[STATE]
-    while True:
-        await embed_pending(st.recall, st.embedder)
-        await asyncio.sleep(every)
+    wait = every
+    while st.embedder is not None:
+        try:
+            await embed_pending(st.recall, st.embedder)
+            wait = every
+        except Exception as exc:
+            status = getattr(exc, "status", None)
+            what = f"HTTP {status}" if isinstance(status, int) else type(exc).__name__
+            if status in (401, 403):
+                log.warning("Voyage refused the API key (%s): recall search is keywords only for the rest of this "
+                            "session", what)
+                st.embedder = None
+                return
+            wait = min(EMBED_MAX_WAIT_S, wait * 2)
+            log.warning("recall embedding failed (%s); keyword search continues, retrying in %.0f s", what, wait)
+        await sleep(wait)
 
 
 async def node_ws(request: web.Request) -> web.WebSocketResponse:
