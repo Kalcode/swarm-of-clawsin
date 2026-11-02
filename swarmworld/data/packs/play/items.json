@@ -1,0 +1,6 @@
+{
+  "flute": {"name": "flute", "aliases": ["pipe", "whistle"], "tags": ["instrument"],
+            "desc": "A hollow wooden pipe with finger holes. Blow across it to make music."},
+  "drum": {"name": "drum", "aliases": ["hand drum"], "tags": ["instrument"],
+           "desc": "A hollow log with a taut skin of woven fiber. Beat it for rhythm to dance to."}
+}
