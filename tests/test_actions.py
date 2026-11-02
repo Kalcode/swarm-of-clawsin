@@ -398,3 +398,10 @@ def test_explore_turns_at_the_edge_and_animals_arent_food(world):
     c2 = creature(world, "Mara", 20, 20)
     res = act(world, c2, action="eat", target="chicken")
     assert not res.ok and "live animal" in res.message
+
+
+def test_known_recipe_among_extra_items(world):
+    c = creature(world)
+    c.inventory.update({"plant_fiber": 3, "stick": 1})
+    res = act(world, c, action="combine", items=["plant fiber", "stick"])
+    assert res.ok and c.inventory["rope"] == 1 and c.inventory["stick"] == 1

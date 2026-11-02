@@ -664,7 +664,8 @@ def choose_recipe(world: World, c: Creature, ids: set[str], hint: str = "") -> R
     exact = [r for r in cat.recipes if set(r.inputs) == ids]
     if not exact:  # a tool named among the ingredients is just the tool being used
         exact = [r for r in cat.recipes if r.tools and set(r.tools) <= ids and set(r.inputs) == ids - set(r.tools)]
-    cands = exact or [r for r in cat.recipes if set(r.inputs) <= ids and len(r.inputs) >= 2]
+    cands = exact or [r for r in cat.recipes if set(r.inputs) <= ids
+                      and (len(r.inputs) >= 2 or r.output in c.known_recipes)]  # a known recipe hidden among extras still works
     if not cands:
         return None
     wanted = cat.resolve(hint) if hint else None

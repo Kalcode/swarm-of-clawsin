@@ -353,11 +353,11 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
   flex: 1;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: none; border: 0;
-  font-size: 12px; font-weight: 600;
+  font-size: 11.5px; font-weight: 600;
   color: var(--text-3);
   cursor: pointer;
   transition: color 0.15s;
-  padding: 0 2px;
+  padding: 0 1px;
   white-space: nowrap;
 }
 .tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--k-chronicle); }
@@ -579,6 +579,41 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 .panel-foot span { overflow: hidden; text-overflow: ellipsis; }
 .panel-foot a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; }
 .panel-foot a:hover { color: var(--text); }
+
+/* ---------------------------------------------------------------- history */
+.hsec { margin-top: 18px; }
+.hsec:first-child { margin-top: 4px; }
+.hsec > h3 { margin: 0 0 3px; font-size: 13px; font-weight: 650; color: var(--text); }
+.hsub { margin: 0 0 8px; font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
+.hlegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; font-size: 11.5px; color: var(--text-2); }
+.hlegend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; margin-right: 6px; vertical-align: 3px; }
+.hlegend i.step { width: 12px; height: 7px; border-top: 2px solid; border-left: 2px solid; border-radius: 0; vertical-align: 0; }
+.hchart { position: relative; }
+.hchart canvas { display: block; }
+.hmini { margin-top: 6px; }
+.hmini-t { display: block; margin: 0 0 1px 32px; font-size: 11px; color: var(--text-3); }
+.htip {
+  position: absolute; left: 0; top: 0; z-index: 2;
+  min-width: 120px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(20, 16, 23, 0.96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  font-size: 11.5px;
+}
+.htip-h { margin-bottom: 4px; color: var(--text-3); white-space: nowrap; }
+.htip-r { display: flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--text-3); }
+.htip-r i { width: 12px; height: 2px; border-radius: 1px; flex: none; }
+.htip-r b { min-width: 28px; font: 650 12px/1.5 var(--sans); font-variant-numeric: tabular-nums; color: var(--text); }
+.htable { margin-top: 18px; font-size: 12px; color: var(--text-2); }
+.htable summary { cursor: pointer; color: var(--text-2); }
+.htable-wrap { overflow-x: auto; margin-top: 8px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.htable table { border-collapse: collapse; width: 100%; font: 11.5px/1.3 var(--mono); }
+.htable th, .htable td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+.htable th { color: var(--text-3); font-weight: 600; font-family: var(--sans); }
+.htable td:first-child, .htable th:first-child { text-align: left; }
 
 /* ---------------------------------------------------------------- society */
 .tabpane.society { padding-top: 12px; }

@@ -887,6 +887,9 @@
     if (name === 'events') { S.unread = 0; $('ev-unread').hidden = true; }
     if (name === 'swarm') renderSwarm();
     if (name === 'creature') renderCreaturePanel();
+    if (name === 'history') {
+      if (!hist.data || performance.now() - hist.at > 30000) fetchHistory(); else renderHistory();
+    }
     if (name === 'society') {
       sizeSociety();
       if (!soc.data || performance.now() - soc.at > 10000) fetchSociety();
@@ -929,6 +932,279 @@
       invBusy = false;
       invAt = performance.now();
     }
+  }
+
+  /* =============================================================== history */
+  // Small, honest charts of culture accumulating: one y axis each, hairline
+  // grid, 2px lines, end dots ringed in the surface colour, a crosshair that
+  // snaps to the nearest snapshot and a tooltip listing every series there.
+  const hist = { data: null, err: null, busy: false, at: 0 };
+  const DAY_TICKS = 1200;
+  const CH = { surface: '#141017', grid: '#282130', axis: '#3a3140', muted: '#8f8393', ink2: '#b9aebb', ink: '#ebe3d5',
+    blue: '#3987e5', orange: '#d95926' };   // validated against the panel surface (dataviz validator, dark)
+
+  async function fetchHistory() {
+    if (hist.busy) return;
+    hist.busy = true;
+    try {
+      const d = await api('/api/history');
+      hist.data = (Array.isArray(d) ? d : (d && Array.isArray(d.history) ? d.history : [])).filter((x) => x && isNum(+x.tick));
+      hist.err = null;
+    } catch (err) {
+      hist.err = (err && err.message) || String(err);
+    } finally {
+      hist.busy = false;
+      hist.at = performance.now();
+    }
+    if (S.tab === 'history') renderHistory();
+  }
+
+  /** The world's model colour moved into the chart lightness band (OKLab L 0.52–0.66), hue kept. */
+  const chartColorCache = new Map();
+  function chartColor(hex) {
+    if (chartColorCache.has(hex)) return chartColorCache.get(hex);
+    const [r8, g8, b8] = T.rgb(hex);
+    const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const enc = (c) => { c = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(clamp(c, 0, 1) * 255); };
+    const r = lin(r8), g = lin(g8), b = lin(b8);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const L = clamp(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 0.52, 0.66);
+    const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    const l2 = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+    const m2 = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+    const s2 = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+    const out = `rgb(${enc(4.0767416621 * l2 - 3.3077115913 * m2 + 0.2309699292 * s2)},` +
+      `${enc(-1.2684380046 * l2 + 2.6097574011 * m2 - 0.3413193965 * s2)},${enc(-0.0004196086 * l2 - 0.7034186147 * m2 + 1.7076147010 * s2)})`;
+    chartColorCache.set(hex, out);
+    return out;
+  }
+
+  function niceMax(v) {
+    if (!(v > 0)) return 1;
+    const e = 10 ** Math.floor(Math.log10(v));
+    const f = v / e;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e;
+  }
+  const fmtVal = (v) => (!isNum(v) ? '–' : Math.abs(v) >= 100 || Number.isInteger(v) ? fmtNum(Math.round(v)) : v.toFixed(1));
+
+  /** Renders a line chart into `el` (keeps its canvas and tooltip between refreshes). */
+  function lineChart(el, spec) {
+    let cv = el.querySelector('canvas');
+    if (!cv) {
+      el.innerHTML = '<canvas></canvas><div class="htip" hidden></div>';
+      cv = el.querySelector('canvas');
+      cv.addEventListener('pointermove', (e) => { const r = cv.getBoundingClientRect(); el._hover = e.clientX - r.left; paint(); });
+      cv.addEventListener('pointerleave', () => { el._hover = null; paint(); });
+    }
+    el._spec = spec;
+    const tip = el.querySelector('.htip');
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.max(200, el.clientWidth), Hh = spec.height || 120;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(Hh * dpr);
+    cv.style.width = W + 'px'; cv.style.height = Hh + 'px';
+    function paint() {
+      const sp = el._spec;
+      const g = cv.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, W, Hh);
+      const xs = sp.xs;
+      if (!xs.length) return;
+      const padL = 32, padR = sp.endPad || 10, padT = 8, padB = 18;
+      const pw = W - padL - padR, ph = Hh - padT - padB;
+      const x0 = xs[0], x1 = xs[xs.length - 1] > x0 ? xs[xs.length - 1] : x0 + 1;
+      let ymax = 0;
+      for (const s of sp.series) for (const v of s.values) if (isNum(v)) ymax = Math.max(ymax, v);
+      ymax = niceMax(ymax);
+      const X = (v) => padL + (v - x0) / (x1 - x0) * pw;
+      const Y = (v) => padT + ph - v / ymax * ph;
+      g.font = `11px ${SANS}`;
+      g.textBaseline = 'middle';
+      // grid + y ticks (0, half, max)
+      g.lineWidth = 1;
+      for (const t of [0, ymax / 2, ymax]) {
+        const y = Math.round(Y(t)) + 0.5;
+        g.strokeStyle = t === 0 ? CH.axis : CH.grid;
+        g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
+        g.fillStyle = CH.muted;
+        g.textAlign = 'right';
+        g.fillText(fmtVal(t), padL - 6, y);
+      }
+      // x ticks: whole days
+      g.textAlign = 'center';
+      g.textBaseline = 'top';
+      const span = x1 - x0;
+      const stepD = span > 12 ? Math.ceil(span / 6) : span > 4 ? 2 : span > 1.2 ? 1 : span > 0.6 ? 0.5 : span > 0.25 ? 0.1 : 0.05;
+      const first = Math.ceil(x0 / stepD - 1e-9) * stepD;
+      for (let k = 0, d = first; d <= x1 + 1e-9; k++, d = first + k * stepD) {
+        const x = Math.round(X(d)) + 0.5;
+        g.strokeStyle = CH.axis;
+        g.beginPath(); g.moveTo(x, padT + ph); g.lineTo(x, padT + ph + 3); g.stroke();
+        g.fillStyle = CH.muted;
+        const lbl = stepD < 0.1 ? d.toFixed(2) : stepD < 1 ? d.toFixed(1) : fmtVal(d);
+        g.fillText(k === 0 ? `day ${lbl}` : lbl, x, padT + ph + 5);
+      }
+      // series
+      const ends = [];
+      for (const s of sp.series) {
+        const pts = [];
+        s.values.forEach((v, i) => { if (isNum(v)) pts.push([X(xs[i]), Y(v)]); });
+        if (!pts.length) continue;
+        const path = () => {
+          g.beginPath();
+          pts.forEach(([x, y], i) => {
+            if (!i) g.moveTo(x, y);
+            else if (s.step) { g.lineTo(x, pts[i - 1][1]); g.lineTo(x, y); }
+            else g.lineTo(x, y);
+          });
+        };
+        if (s.area) {
+          path();
+          g.lineTo(pts[pts.length - 1][0], Y(0)); g.lineTo(pts[0][0], Y(0)); g.closePath();
+          g.fillStyle = T.rgba(s.color, 0.1);
+          g.fill();
+        }
+        path();
+        g.strokeStyle = s.color;
+        g.lineWidth = 2;
+        g.lineJoin = 'round'; g.lineCap = 'round';
+        g.stroke();
+        const [ex, ey] = pts[pts.length - 1];
+        g.fillStyle = CH.surface;
+        g.beginPath(); g.arc(ex, ey, 6, 0, Math.PI * 2); g.fill();
+        g.fillStyle = s.color;
+        g.beginPath(); g.arc(ex, ey, 4, 0, Math.PI * 2); g.fill();
+        ends.push({ y: ey, x: ex, text: s.endLabel });
+      }
+      // selective direct labels at the line ends, skipped where they would collide
+      if (sp.endLabels) {
+        g.textAlign = 'left';
+        g.textBaseline = 'middle';
+        g.font = `600 11px ${SANS}`;
+        ends.sort((a, b) => a.y - b.y);
+        let lastY = -1e9;
+        for (const e of ends) {
+          if (!e.text || e.y - lastY < 12) continue;
+          g.fillStyle = CH.ink2;
+          g.fillText(e.text, Math.min(e.x + 8, W - padR + 4), e.y);
+          lastY = e.y;
+        }
+      }
+      // crosshair + tooltip
+      const hx = el._hover;
+      if (hx == null || hx < padL - 4 || hx > W - padR + 4) { tip.hidden = true; return; }
+      let best = 0;
+      for (let i = 1; i < xs.length; i++) if (Math.abs(X(xs[i]) - hx) < Math.abs(X(xs[best]) - hx)) best = i;
+      const cx = Math.round(X(xs[best])) + 0.5;
+      g.strokeStyle = 'rgba(235,227,213,0.35)';
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(cx, padT); g.lineTo(cx, padT + ph); g.stroke();
+      for (const s of sp.series) {
+        const v = s.values[best];
+        if (!isNum(v)) continue;
+        g.fillStyle = CH.surface;
+        g.beginPath(); g.arc(cx, Y(v), 6, 0, Math.PI * 2); g.fill();
+        g.fillStyle = s.color;
+        g.beginPath(); g.arc(cx, Y(v), 4, 0, Math.PI * 2); g.fill();
+      }
+      tip.replaceChildren();
+      const head = document.createElement('div');
+      head.className = 'htip-h';
+      head.textContent = `Day ${xs[best].toFixed(1)} · tick ${fmtNum(sp.ticks[best])}`;
+      tip.appendChild(head);
+      for (const s of sp.series) {
+        const row = document.createElement('div');
+        row.className = 'htip-r';
+        const key = document.createElement('i');
+        key.style.background = s.color;
+        const val = document.createElement('b');
+        val.textContent = fmtVal(s.values[best]);
+        const lab = document.createElement('span');
+        lab.textContent = s.label;
+        row.append(key, val, lab);
+        tip.appendChild(row);
+      }
+      tip.hidden = false;
+      const tw = tip.offsetWidth;
+      tip.style.transform = `translate(${clamp(cx + 10, 0, W - tw) | 0}px, ${padT}px)`;
+      if (cx + 10 + tw > W) tip.style.transform = `translate(${Math.max(0, cx - tw - 10) | 0}px, ${padT}px)`;
+    }
+    paint();
+  }
+
+  function legend(el, items) {
+    el.replaceChildren();
+    for (const it of items) {
+      const sp = document.createElement('span');
+      const key = document.createElement('i');
+      key.style.background = it.color;
+      if (it.step) { key.className = 'step'; key.style.background = 'transparent'; key.style.borderColor = it.color; }
+      sp.append(key, document.createTextNode(it.label));
+      el.appendChild(sp);
+    }
+  }
+
+  function renderHistory() {
+    const H = hist.data;
+    const ok = !!(H && H.length >= 2 && !hist.err);
+    $('hist-body').hidden = !ok;
+    $('hist-empty').hidden = ok;
+    setText($('hist-empty-text'), hist.err
+      ? `History isn’t available yet (${hist.err}). The server records a snapshot every 60 ticks.`
+      : H && H.length < 2 ? 'Not enough history yet: snapshots arrive every 60 ticks.' : 'Loading…');
+    if (!ok) return;
+    const xs = H.map((h) => +h.tick / DAY_TICKS + 1);
+    const ticks = H.map((h) => +h.tick);
+    const w = (k) => H.map((h) => (h.world && isNum(+h.world[k]) ? +h.world[k] : null));
+    const last = H[H.length - 1];
+
+    // 1. knowledge
+    const rk = w('recipes_known'), firsts = w('firsts');
+    legend($('hist-k-legend'), [{ label: 'Recipes known', color: CH.blue }, { label: 'Firsts (discovered here)', color: CH.orange, step: true }]);
+    lineChart($('hist-k'), {
+      xs, ticks, height: 150, endLabels: true, endPad: 34,
+      series: [
+        { label: 'recipes known', color: CH.blue, values: rk, area: true, endLabel: fmtVal(rk[rk.length - 1]) },
+        { label: 'firsts', color: CH.orange, values: firsts, step: true, endLabel: fmtVal(firsts[firsts.length - 1]) },
+      ],
+    });
+
+    // 2. per model, per creature
+    const tags = [];
+    for (const h of H) for (const t of Object.keys(h.models || {})) if (!tags.includes(t)) tags.push(t);
+    const colorOf = (tag) => chartColor(modelColor(tag));
+    legend($('hist-m-legend'), tags.map((t) => ({ label: t, color: colorOf(t) })));
+    for (const metric of ['crafted', 'learned', 'speech']) {
+      lineChart($(`hist-m-${metric}`), {
+        xs, ticks, height: 92, endLabels: tags.length <= 4, endPad: 10,
+        series: tags.map((t) => ({
+          label: t, color: colorOf(t),
+          values: H.map((h) => {
+            const m = h.models && h.models[t];
+            return m && +m.creatures > 0 && isNum(+m[metric]) ? +m[metric] / +m.creatures : null;
+          }),
+        })),
+      });
+    }
+
+    // 3. settlement (one series each: no legend, the title names it)
+    for (const k of ['structures', 'camps', 'ties']) {
+      const v = w(k);
+      lineChart($(`hist-s-${k}`), {
+        xs, ticks, height: 78, endLabels: true, endPad: 30,
+        series: [{ label: k, color: CH.blue, values: v, endLabel: fmtVal(v[v.length - 1]) }],
+      });
+    }
+
+    // table view: the last snapshots, newest first
+    const rows = H.slice(-15).reverse();
+    const cols = ['recipes_known', 'firsts', 'inventions', 'structures', 'camps', 'ties'];
+    const head = '<thead><tr><th>Day</th>' + ['Recipes', 'Firsts', 'Invent.', 'Struct.', 'Camps', 'Ties'].map((c) => `<th>${c}</th>`).join('') + '</tr></thead>';
+    setHTML($('hist-table'), head + '<tbody>' + rows.map((h) =>
+      `<tr><td>${esc((+h.tick / DAY_TICKS + 1).toFixed(1))}</td>${cols.map((c) => `<td>${esc(fmtVal(h.world ? +h.world[c] : null))}</td>`).join('')}</tr>`).join('') + '</tbody>');
+    void last;
   }
 
   /* =============================================================== society */
@@ -2150,6 +2426,7 @@
     setInterval(() => {
       if (S.loaded && performance.now() - invAt > 120000) fetchInventions();
       if (S.loaded && S.tab === 'society' && !document.hidden && performance.now() - soc.at > 10000) fetchSociety();
+      if (S.loaded && S.tab === 'history' && !document.hidden && performance.now() - hist.at > 30000) fetchHistory();
       if (S.tab === 'chronicle') updateChronicleAges();
       renderConn();
       if (S.selected) renderDetailFoot();

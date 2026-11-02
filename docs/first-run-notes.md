@@ -52,6 +52,16 @@ The chronicler's first chapter:
 
 `GET /api/metrics` (and the viewer's Swarm tab) per model: thoughts, average latency, action success rate, parse failures (zero since grammar), repeated-failure loops, gathered, crafted, discoveries, speech, built, collapses. Metrics persist in the world save.
 
+## Second world (fresh start, evening of 1 Nov)
+
+With learning by watching and listening, a slower clock and clearer senses, the fresh world moved much faster:
+
+- **First invention at tick 178.** Lune: the "seed-bomb", "a small explosive for gathering grass".
+- **A knife spreads through the village.** Tib made the first stone knife at tick 311, and within minutes 9 creatures had learned it by watching and 1 by listening to Gale.
+- **Second-generation culture.** Dune invented the "signal tether"; Pip learned it by watching Dune, then Yves and Lune learned it by watching Pip.
+- **Ideas crossing between models.** Moss (Gemma) learned Lune's (Qwen) seed-bomb and then taught it to others by example.
+- **Camps.** "Tib's camp" and "Gale's camp" formed where structures clustered.
+
 ## The scripting arc so far
 
 No terminal has been programmed yet, but Pip (Qwen 4B) has made the terminal a personal quest: "the full recipe is hidden in the terminal code... Let's go deeper to solve it." Pip has read the tablet, walked to the terminal and tried `program` once with no code. Terminals now glow with "READY: awaiting a Lua program" and example code. When you used the voice from the sky ("Stone speak Lua"), Pip relayed it to Gale within a minute.

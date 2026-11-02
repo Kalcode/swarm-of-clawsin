@@ -92,6 +92,7 @@
         <button type="button" role="tab" class="tab" id="tabbtn-swarm" data-tab="swarm" aria-selected="false" aria-controls="tab-swarm">Swarm</button>
         <button type="button" role="tab" class="tab" id="tabbtn-chronicle" data-tab="chronicle" aria-selected="false" aria-controls="tab-chronicle">Chronicle <span class="tab-dot" id="chron-dot" hidden></span></button>
         <button type="button" role="tab" class="tab" id="tabbtn-society" data-tab="society" aria-selected="false" aria-controls="tab-society">Society</button>
+        <button type="button" role="tab" class="tab" id="tabbtn-history" data-tab="history" aria-selected="false" aria-controls="tab-history">History</button>
       </nav>
 
       <!-- Creature -->
@@ -233,6 +234,37 @@
         <div class="block">
           <h3>Places</h3>
           <ol class="places" id="soc-places"></ol>
+        </div>
+      </section>
+
+      <!-- History -->
+      <section class="tabpane history" id="tab-history" role="tabpanel" aria-labelledby="tabbtn-history" hidden>
+        <div class="empty small" id="hist-empty"><p class="empty-sub" id="hist-empty-text">Loading…</p></div>
+        <div id="hist-body" hidden>
+          <div class="hsec">
+            <h3>Knowledge in the society</h3>
+            <p class="hsub">Recipes known by at least one creature, and how many were found first-hand.</p>
+            <div class="hlegend" id="hist-k-legend"></div>
+            <div class="hchart" id="hist-k"></div>
+          </div>
+          <div class="hsec">
+            <h3>Per model, per creature</h3>
+            <p class="hsub">Cumulative counts divided by the model’s creatures, so models of different sizes compare fairly.</p>
+            <div class="hlegend" id="hist-m-legend"></div>
+            <div class="hmini"><span class="hmini-t">Crafted</span><div class="hchart" id="hist-m-crafted"></div></div>
+            <div class="hmini"><span class="hmini-t">Learned from others</span><div class="hchart" id="hist-m-learned"></div></div>
+            <div class="hmini"><span class="hmini-t">Speech</span><div class="hchart" id="hist-m-speech"></div></div>
+          </div>
+          <div class="hsec">
+            <h3>Settlement</h3>
+            <div class="hmini"><span class="hmini-t">Structures</span><div class="hchart" id="hist-s-structures"></div></div>
+            <div class="hmini"><span class="hmini-t">Camps</span><div class="hchart" id="hist-s-camps"></div></div>
+            <div class="hmini"><span class="hmini-t">Ties between creatures</span><div class="hchart" id="hist-s-ties"></div></div>
+          </div>
+          <details class="htable">
+            <summary>Data table</summary>
+            <div class="htable-wrap"><table id="hist-table"></table></div>
+          </details>
         </div>
       </section>
 

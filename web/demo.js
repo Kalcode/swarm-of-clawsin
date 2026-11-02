@@ -13,7 +13,8 @@
 
   const params = new URLSearchParams(location.search);
   const SEED = (parseInt(params.get('seed'), 10) || 7) >>> 0;
-  const START_TICK = params.has('start') ? Math.max(0, parseInt(params.get('start'), 10) || 0) : 430;
+  // the demo world has been running for a few days, so the History tab has something to show
+  const START_TICK = params.has('start') ? Math.max(0, parseInt(params.get('start'), 10) || 0) : 4030;
   const SPEED = Math.min(8, Math.max(0.25, parseFloat(params.get('speed')) || 1));
   const W = 64, H = 64, DAY = 1200, TICK_MS = 500 / SPEED;
 
@@ -247,9 +248,10 @@
 
   /* ------------------------------------------------------------- creatures */
   const MODELS = [
-    { tag: 'qwen3.5-9b', color: '#5fd0ff' },
-    { tag: 'qwen3.5-4b', color: '#ffb35c' },
-    { tag: 'gemma-4-e4b', color: '#d59bff' },
+    // these hues pass the dataviz colour checks together once moved into the chart lightness band
+    { tag: 'qwen3.5-9b', color: '#5bc0eb' },
+    { tag: 'qwen3.5-4b', color: '#f2c14e' },
+    { tag: 'gemma-4-e4b', color: '#e87ba4' },
   ];
   const NAMES = ['Tam', 'Mara', 'Ivo', 'Pell', 'Suri', 'Odo', 'Bex', 'Nim', 'Rook', 'Lia', 'Juno', 'Cato'];
   const TRAITS = ['curious', 'patient', 'chatty', 'cautious', 'bold', 'generous', 'stubborn', 'thoughtful', 'restless', 'tidy', 'playful', 'wary'];
@@ -300,6 +302,43 @@
     });
   });
   const byId = new Map(cres.map((c) => [c.id, c]));
+
+  /* ---------------------------------------------------------------- history */
+  // A plausible past: smooth growth curves with a little deterministic texture,
+  // one snapshot every 60 ticks from the beginning of the world.
+  function historyList() {
+    const out = [];
+    let rkMax = 2, firstMax = 0, stMax = 0, tieMax = 0;
+    for (let tk = 0; tk <= tick; tk += 60) {
+      const t = tk / DAY;
+      const wob = (k) => mulberry32(SEED * 97 + tk * 7 + k)();
+      const models = {};
+      MODELS.forEach((m, k) => {
+        const n = cres.filter((c) => c.model === m.tag).length;
+        const skill = [1, 0.82, 0.68][k];
+        const grow = (a, p) => Math.floor(n * a * Math.pow(t, p) * skill);   // cumulative: never decreases
+        models[m.tag] = {
+          creatures: n, thinks: grow(70, 1), crafted: grow(4.2, 1.25), discoveries: Math.floor(Math.min(6, t * 1.3 * skill)),
+          inventions: Math.floor(t * 0.45 * skill), speech: Math.floor(n * 16 * t * [0.9, 1.35, 1.1][k]), built: grow(0.8, 1.4),
+          gathered: grow(38, 1), writing: grow(0.35, 1.2), collapses: Math.floor(n * 0.12 * t), learned: grow(1.4, 1.35),
+          recipes_known: Math.floor(n * (2 + 6 * (1 - Math.exp(-t * skill / 2)))),
+        };
+      });
+      rkMax = Math.max(rkMax, 2 + Math.floor(14 * (1 - Math.exp(-t / 1.6)) + 0.9 * wob(9)));
+      firstMax = Math.max(firstMax, Math.floor((rkMax - 2) * 0.6 + 0.6 * wob(10)));
+      stMax = Math.max(stMax, Math.floor(17 * (1 - Math.exp(-t / 2.1)) + 0.5 * wob(11)));
+      tieMax = Math.max(tieMax, Math.floor(34 * (1 - Math.exp(-t / 1.25)) + wob(12)));
+      out.push({
+        tick: tk, day: Math.floor(tk / DAY) + 1, models,
+        world: {
+          recipes_known: rkMax, firsts: firstMax,
+          structures: stMax, camps: Math.min(3, Math.floor(t / 1.1)),
+          inventions: Math.floor(t * 0.9), ties: tieMax,
+        },
+      });
+    }
+    return out;
+  }
 
   /* ---------------------------------------------------------------- society */
   const ties = new Map();               // 'a|b' (sorted ids) -> {a, b, talk, gift, teach}
@@ -1007,6 +1046,7 @@
         if (p === '/api/state') { const x = initMsg(); delete x.type; return resolve(x); }
         if (p === '/api/chronicle') return resolve(JSON.parse(JSON.stringify(chapters)));
         if (p === '/api/society') return resolve(JSON.parse(JSON.stringify(societyMsg())));
+        if (p === '/api/history') return resolve(historyList());
         if (p === '/api/inventions') return resolve(JSON.parse(JSON.stringify(inventionList.filter((x) => x.tick <= tick))));
         reject(new Error('HTTP 404'));
       }, 40 + Math.random() * 80);
