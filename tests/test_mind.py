@@ -70,3 +70,13 @@ def test_curated_recent_limits_small_talk():
     rec = curated_recent(m)
     assert sum("says" in r for r in rec) == 3
     assert rec[0] == "You gathered 3 stick." and rec[-1] == "You made 1 campfire."
+
+
+def test_recipe_list_in_prompt_is_capped_and_relevant():
+    from swarmworld.mind.prompts import MAX_RECIPES_IN_PROMPT, known_recipes_for_prompt
+    w = _world()
+    c = Creature("c1", "Tam", 1, 1)
+    c.known_recipes = {r.output for r in w.catalog.recipes}
+    c.inventory["fish"] = 1
+    known = known_recipes_for_prompt(w, c)
+    assert len(known) == MAX_RECIPES_IN_PROMPT and "cooked fish" in known[0]

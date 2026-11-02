@@ -112,11 +112,23 @@ def curated_recent(memory: Memory, n: int = 10, max_speech: int = 3) -> list[str
     return list(reversed(out))
 
 
+MAX_RECIPES_IN_PROMPT = 14
+
+
+def known_recipes_for_prompt(world: World, c: Creature) -> list[str]:
+    """The recipes worth keeping in mind right now: ones whose ingredients the creature holds come first."""
+    cat = world.catalog
+    recipes = [cat.recipe_for(r) for r in c.known_recipes if cat.recipe_for(r)]
+    held = {i for i, n in c.inventory.items() if n > 0}
+    recipes.sort(key=lambda r: (-len(set(r.inputs) & held), r.output))
+    return [cat.describe_recipe(r) for r in recipes[:MAX_RECIPES_IN_PROMPT]]
+
+
 def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None) -> list[dict]:
     p = c.persona or {}
     traits = " and ".join(p.get("traits", [])) or "ordinary"
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
-    known = [world.catalog.describe_recipe(world.catalog.recipe_for(r)) for r in sorted(c.known_recipes) if world.catalog.recipe_for(r)]
+    known = known_recipes_for_prompt(world, c)
     lines = [f"You are {c.name}, a {traits} creature, moved by {drive}."]
     lines.append("")
     lines.append("What you know:")

@@ -64,12 +64,15 @@ def restore(st: "ServerState", path: Path) -> None:
     data = json.loads(path.read_text())
     wd = data["world"]
     w = World(wd["width"], wd["height"], [list(r) for r in wd["tiles"]], Catalog.load())
-    from ..world.actions import invention_effects
+    from ..world.actions import invention_effects, is_toolish
     for inv in data.get("inventions", []):
-        if not inv.get("effects") and not inv.get("food"):  # re-check older saves against the current effect words
-            inv["effects"] = invention_effects(inv["name"] + " " + inv.get("desc", ""))
+        words = inv["name"] + " " + inv.get("desc", "")
+        if not inv.get("effects") and not inv.get("food"):  # re-check older saves against the current rules
+            inv["effects"] = invention_effects(words)
             if inv["effects"]:
                 inv["tool"], inv["placeable"] = False, True
+            elif not inv.get("tool") and is_toolish(words):
+                inv["tool"], inv["placeable"] = True, False
         w.catalog.add_invention(inv)
     w.tick = wd["tick"]
     w._next_id = wd["next_id"]

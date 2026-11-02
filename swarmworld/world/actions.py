@@ -1044,8 +1044,14 @@ TOOL_WORDS = ("hammer", "tool", "axe", "knife", "spear", "saw", "shovel", "spade
               "blade", "scraper", "drill", "needle", "hook", "trap", "sling", "bow", "net", "basket", "bag", "sickle", "rake")
 
 
+TOOL_PURPOSE = re.compile(r"\b(for|to|helps?|used to|good for)\s+(gather|gathering|cut|cutting|chop|chopping|dig|digging|mine|mining|"
+                          r"carry|carrying|catch|catching|hunt|hunting|fish|fishing|scrape|scraping|break|breaking|smash|smashing|"
+                          r"split|splitting|harvest|harvesting|collect|collecting|pick|picking|crush|crushing|grind|grinding)\b")
+
+
 def is_toolish(text: str) -> bool:
-    return any(re.search(rf"\b{w}s?\b", text.lower()) for w in TOOL_WORDS)
+    t = text.lower()
+    return any(re.search(rf"\b{w}s?\b", t) for w in TOOL_WORDS) or bool(TOOL_PURPOSE.search(t))
 NAME_RE = re.compile(r"^[a-z][a-z \-']{2,29}$")
 
 
