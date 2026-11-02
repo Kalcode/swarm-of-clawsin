@@ -29,16 +29,17 @@
   const W = { rain: 0, drizzle: 0, storm: 0, fog: 0, wind: 0, heat: 0 };  // eased weather levels 0..1
   const flash = { at: -1e9, x: 0, y: 0, strike: false, seed: 0 };
   const burning = new Map();             // "x,y" -> { x, y, until }: trees struck by lightning
-  const acc = {};                        // emission accumulators
+  const acc = new Map();                 // emission accumulators, per source (cleared now and then: fires come and go)
   const walkAt = new Map();              // creature id -> last dust puff (ms)
   let fogCv = null, fogCtx = null;
 
   const rnd = (a, b) => a + Math.random() * (b - a);
   function add(kind, p) { const list = P[kind]; if (list.length < CAPS[kind]) list.push(p); }
   function emit(key, rate, dt) {                    // how many to emit this frame for a steady `rate` per second
-    acc[key] = (acc[key] || 0) + rate * dt;
-    const n = Math.floor(acc[key]);
-    acc[key] -= n;
+    if (acc.size > 256) acc.clear();
+    const v = (acc.get(key) || 0) + rate * dt;
+    const n = Math.floor(v);
+    acc.set(key, v - n);
     return n;
   }
   function age(list, dt) {
@@ -466,6 +467,7 @@
     for (const list of Object.values(P)) if (list !== P.wind) list.length = 0;
     burning.clear();
     walkAt.clear();
+    acc.clear();
   }
 
   function stats() {
