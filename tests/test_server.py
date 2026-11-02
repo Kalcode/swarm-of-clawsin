@@ -202,3 +202,18 @@ async def test_tunnelled_requests_are_not_local(client):
     err = await _recv_type(ws, "error")
     assert "token" in err["message"]
     assert not any(c.model == "m" for c in client.app[STATE].world.creatures.values())
+
+
+def test_think_log_records_what_happened(tmp_path):
+    from swarmworld.server.state import ServerState
+
+    class NullWS:
+        async def send_json(self, _):
+            pass
+
+    st = ServerState(seed=7, run_dir=tmp_path)
+    node, _ = st.register_node(NullWS(), {"node": "t", "slots": 2, "models": [{"tag": "mock", "creatures": 1}]})
+    job = next(job for _, job in st.plan_dispatch())
+    st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "say", "text": "hello"}})
+    line = json.loads((tmp_path / "thinks.jsonl").read_text().splitlines()[-1])
+    assert line["result"]["ok"] is True and line["result"]["noop"] is False and "hello" in line["result"]["message"]

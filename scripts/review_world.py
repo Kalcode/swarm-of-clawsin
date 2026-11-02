@@ -48,6 +48,7 @@ def main() -> None:
 
     # 1. how each model spends its turns, and how often a turn achieves nothing
     acts: dict[str, Counter] = defaultdict(Counter)
+    outcomes: dict[str, Counter] = defaultdict(Counter)  # from the result each think log line records (newer runs)
     unparsed: Counter = Counter()
     streaks: Counter = Counter()
     last: dict[str, tuple] = {}
@@ -60,6 +61,9 @@ def main() -> None:
             unparsed[t["model"]] += 1
             continue
         acts[t["model"]][o["action"]] += 1
+        r = t.get("result")
+        if r:
+            outcomes[t["model"]]["no-op" if r.get("noop") else "ok" if r.get("ok") else "failed"] += 1
         key = (o["action"], str(o.get("target", "")).lower())
         run_len[t["name"]] = run_len[t["name"]] + 1 if last.get(t["name"]) == key else 1
         last[t["name"]] = key
@@ -97,6 +101,9 @@ def main() -> None:
         top = ", ".join(f"{k} {100 * v / total:.0f}%" for k, v in c.most_common(9))
         print(f"- **{m}** ({total} actions, {unparsed[m]} unparsed, {streaks[m]} streaks of 4+ identical actions, "
               f"{collapses[m]} collapses): {top}")
+        if outcomes[m]:
+            n = sum(outcomes[m].values())
+            print("  - outcomes: " + ", ".join(f"{k} {100 * outcomes[m][k] / n:.0f}%" for k in ("ok", "no-op", "failed")))
     print("\n## Most common failures per model\n")
     for m, c in sorted(fails.items()):
         total = sum(c.values())

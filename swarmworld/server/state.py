@@ -325,11 +325,16 @@ class ServerState:
         self.metrics.bump(c.model, "cached_tokens", int(msg.get("cached_tokens") or 0))
         mem = self.memory(c.id)
         output = msg.get("output")
-        if self._thinks_fh:
-            self._thinks_fh.write(json.dumps({"tick": self.world.tick, "creature": c.id, "name": c.name, "model": c.model,
-                                              "kind": job.kind, "ok": ok, "output": output, "error": msg.get("error"),
-                                              "latency_ms": msg.get("latency_ms"), "tokens_in": msg.get("tokens_in"),
-                                              "cached_tokens": msg.get("cached_tokens")}) + "\n")
+        log = {"tick": self.world.tick, "creature": c.id, "name": c.name, "model": c.model, "kind": job.kind, "ok": ok,
+               "output": output, "error": msg.get("error"), "latency_ms": msg.get("latency_ms"),
+               "tokens_in": msg.get("tokens_in"), "cached_tokens": msg.get("cached_tokens")}
+
+        def write_log(result: dict | None = None) -> None:
+            if self._thinks_fh:
+                self._thinks_fh.write(json.dumps({**log, "result": result} if result else log) + "\n")
+
+        if not ok or job.kind == "reflect":
+            write_log()
         if not ok:
             c.last_think_tick = self.world.tick + 6  # back off a little
             c.wake_reason = "idle"
@@ -344,6 +349,7 @@ class ServerState:
         it = parse_intention(output)
         info = self.last.setdefault(c.id, {})
         if it is None:
+            write_log({"ok": False, "parsed": False})
             self.metrics.bump(c.model, "parse_failures")
             info.update(thought="(confused)", intention=str(output)[:200], result="You hesitate, unsure what to do.")
             self._remember(c, "You hesitated, unsure what to do.", 1)
@@ -353,6 +359,7 @@ class ServerState:
         if it.goal and it.goal.lower() not in ("", "none", "same", "keep"):
             mem.goal = it.goal
         res = apply_intention(self.world, c, it)
+        write_log({"ok": res.ok, "noop": res.noop, "message": res.message[:240]})
         info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick)
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
         if res.noop:
