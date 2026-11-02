@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distilling a Fast Mind</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* One visual world, single theme by choice: a pixel meadow, with wood-framed parchment panels laid over the grass
+     the way the game's UI pack frames its menus. Text lives on parchment; the grass is only the ground. */
+  --ink: #3a3a50;          /* the tiles' outline color, used for all text */
+  --parchment: #f1e7d0;    /* panel fill */
+  --wood: #b5754d;         /* frames and buttons */
+  --grass: #479757;        /* the ground */
+  --water: #1f72a8;        /* chart series 1 and links */
+  --ember: #c0702a;        /* chart series 2 */
+  --ink-soft: #5b5c74;
+  --parchment-deep: #e5d6b6;
+  --kept: #2f7a3a;  --kept-bg: #d6ecc4;     /* status: kept */
+  --dropped: #a83228; --dropped-bg: #f3d2c8; /* status: dropped */
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --frame: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' shape-rendering='crispEdges'%3E%3Cpath fill='%234b3a40' d='M1 0h10v1H1zM1 11h10v1H1zM0 1h1v10H0zM11 1h1v10h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z'/%3E%3Cpath fill='%23b5754d' d='M2 1h8v1H2zM2 10h8v1H2zM1 2h1v8H1zM10 2h1v8h-1z'/%3E%3Cpath fill='%23daa463' d='M2 2h8v1H2zM2 3h1v6H2z'/%3E%3Cpath fill='%23955a45' d='M2 9h8v1H2zM9 3h1v6H9z'/%3E%3Cpath fill='%236b5052' d='M3 3h6v1H3zM3 8h6v1H3zM3 4h1v4H3zM8 4h1v4H8z'/%3E%3Cpath fill='%23f1e7d0' d='M4 4h4v4H4z'/%3E%3C/svg%3E");
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { background: var(--grass); }
+body {
+  margin: 0; color: var(--ink); background-color: var(--grass); background-size: 128px 128px;
+  image-rendering: pixelated; font: 17px/1.6 var(--body);
+}
+main { max-width: 900px; margin: 0 auto; padding: 28px 16px 64px; display: grid; gap: 30px; }
+.panel {
+  border: 10px solid transparent; border-image: var(--frame) 4 fill / 10px / 0 stretch;
+  background: var(--parchment); background-clip: padding-box; padding: 22px 26px 26px;
+  filter: drop-shadow(5px 5px 0 rgba(28, 44, 32, .35)); image-rendering: auto;
+}
+.panel > * + * { margin-top: 14px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.15; text-wrap: balance; margin: 0; letter-spacing: .01em; }
+h1 { font-size: clamp(34px, 6vw, 52px); }
+h2 { font-size: clamp(25px, 3.6vw, 32px); }
+h3 { font-size: 21px; }
+p { margin: 0; max-width: 66ch; }
+.eyebrow { font: 500 15px var(--display); color: var(--ink-soft); letter-spacing: .04em; }
+.lede { font-size: 19px; }
+.muted { color: var(--ink-soft); }
+.small { font-size: 15px; }
+code, .mono { font-family: var(--mono); font-size: .86em; }
+code { background: var(--parchment-deep); padding: 1px 5px; }
+a { color: var(--water); }
+strong { font-weight: 700; }
+canvas.px { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }
+.scene { border: 3px solid var(--ink); background: var(--grass); }
+figure { margin: 0; }
+figcaption { font-size: 15px; color: var(--ink-soft); margin-top: 8px; max-width: 70ch; }
+svg.diagram { display: block; width: 100%; height: auto; color: var(--ink); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.note {
+  background: var(--parchment-deep); padding: 12px 14px; border-left: 4px solid var(--wood); font-size: 16px; max-width: none;
+}
+.btn {
+  font: 700 15px var(--display); color: var(--ink); background: #ebcb8f; border: 0; padding: 7px 12px; cursor: pointer;
+  box-shadow: 0 0 0 2px var(--ink), inset -2px -3px 0 #c99a59, inset 2px 2px 0 #f8e2b3; margin: 2px;
+}
+.btn:hover { background: #f2d69f; }
+.btn[aria-pressed="true"] { background: #9bc246; box-shadow: 0 0 0 2px var(--ink), inset -2px -3px 0 #6f9a2c, inset 2px 2px 0 #c4e27a; }
+.btn:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--water); outline-offset: 3px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.switch { display: flex; gap: 10px; align-items: flex-start; font-size: 16px; cursor: pointer; }
+.switch input {
+  appearance: none; flex: 0 0 auto; width: 34px; height: 18px; margin: 3px 0 0; background: #cdbb98; cursor: pointer;
+  box-shadow: 0 0 0 2px var(--ink); position: relative;
+}
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; background: var(--ink); }
+.switch input:checked { background: #9bc246; }
+.switch input:checked::after { left: 19px; }
+.switch input:disabled { opacity: .75; cursor: not-allowed; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 700 13px var(--display); padding: 2px 8px; white-space: nowrap; }
+.chip.kept { color: var(--kept); background: var(--kept-bg); box-shadow: 0 0 0 2px var(--kept); }
+.chip.dropped { color: var(--dropped); background: var(--dropped-bg); box-shadow: 0 0 0 2px var(--dropped); }
+.chip.tag { color: var(--ink); background: var(--parchment-deep); box-shadow: 0 0 0 2px #b9a37f; font-weight: 500; }
+/* hero */
+.hero h1 { margin-top: 6px; }
+.short { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; counter-reset: s; }
+.short div { background: var(--parchment-deep); padding: 10px 12px; font-size: 15px; }
+.short b { display: block; font: 700 17px var(--display); }
+/* FSM */
+.fsm { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: start; }
+.ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ladder li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 7px 10px; background: var(--parchment-deep); font-size: 15px; }
+.ladder li .n { font: 700 15px var(--display); color: var(--ink-soft); }
+.ladder li .st { font: 700 15px var(--display); }
+.ladder li.on { background: #9bc246; box-shadow: 0 0 0 2px var(--ink); }
+.ladder li.skip { opacity: .55; }
+.statebox { font: 700 18px var(--display); margin-top: 8px; }
+/* GOAP */
+.goap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; counter-reset: st; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; align-items: baseline; padding: 7px 10px; background: var(--parchment-deep); font-size: 15px; }
+.steps li::before { content: counter(st); font: 700 15px var(--display); color: var(--ink-soft); }
+.steps li.walk { background: transparent; box-shadow: inset 0 0 0 2px #cdbb98; }
+.steps li.active { background: #f2d69f; box-shadow: 0 0 0 2px var(--ink); }
+.steps li.done::after { content: "✓"; font-weight: 700; color: var(--kept); }
+.steps .cost { font: 500 13px var(--display); color: var(--ink-soft); }
+.carry { font-size: 15px; }
+/* JSON and messages */
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 13.5px/1.55 var(--mono); }
+.msg { padding: 12px 14px; position: relative; }
+.msg .who { font: 700 14px var(--display); letter-spacing: .03em; display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.msg.system { background: #e3e1ea; }
+.msg.user { background: #e7dcc2; }
+.msg.assistant { background: #d6ecc4; }
+.lesson { display: grid; gap: 10px; }
+.lesson.grade .msg.system, .lesson.grade .msg.user { opacity: .45; }
+.lesson.grade .msg.assistant { box-shadow: 0 0 0 3px var(--kept); }
+details summary { cursor: pointer; font: 700 15px var(--display); }
+/* filter */
+.rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+.moves { display: grid; gap: 8px; }
+.move { display: grid; grid-template-columns: 150px 1fr auto; gap: 12px; align-items: center; padding: 9px 12px; background: var(--parchment-deep); font-size: 15px; }
+.move.out { opacity: .62; }
+.move .who b { font-family: var(--display); font-size: 16px; display: block; }
+.move .what code { background: transparent; padding: 0; }
+.move .said { color: var(--ink-soft); font-style: italic; }
+.tally { font: 700 18px var(--display); }
+.bar { display: flex; gap: 2px; height: 16px; padding: 2px; background: var(--ink); width: 100%; max-width: 360px; }
+.bar i { flex: 1; background: #6d6b7d; }
+.bar i.on { background: #9bc246; }
+.bar.warn i.on { background: var(--gold, #f2b22b); }
+.bar.hot i.on { background: #e63f38; }
+/* tokens */
+.toks { display: flex; flex-wrap: wrap; gap: 4px; font: 14px var(--mono); }
+.toks span { background: #fff8e6; box-shadow: 0 0 0 1px #c9b48c; padding: 1px 4px; white-space: pre; }
+.toks span.blank { background: #9bc246; box-shadow: 0 0 0 2px var(--ink); min-width: 36px; text-align: center; }
+.guesses { display: grid; gap: 5px; max-width: 520px; }
+.guess { display: grid; grid-template-columns: 90px 1fr 54px; gap: 10px; align-items: center; font-size: 15px; }
+.guess .lbl { font-family: var(--mono); font-size: 14px; }
+.guess .track { height: 14px; background: var(--parchment-deep); }
+.guess .fill { height: 14px; background: var(--water); border-radius: 0 4px 4px 0; }
+.guess.right .fill { background: var(--kept); }
+.guess .pct { text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
+.surprise { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: center; }
+/* LoRA */
+.lora { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; align-items: center; }
+input[type="range"] { width: 100%; accent-color: var(--wood); }
+.num { font: 700 24px var(--display); font-variant-numeric: tabular-nums; }
+.readout { display: grid; gap: 10px; }
+.readout div { background: var(--parchment-deep); padding: 10px 12px; font-size: 15px; }
+/* chart */
+.chart { position: relative; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--ink); color: #f6f0e2; font-size: 14px; line-height: 1.4;
+  padding: 7px 10px; max-width: 260px; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s;
+}
+.tip.show { opacity: 1; transform: none; }
+.tip b { font-family: var(--display); }
+table { border-collapse: collapse; font-size: 15px; margin-top: 8px; }
+th, td { text-align: left; padding: 4px 12px 4px 0; border-bottom: 1px solid #cdbb98; font-variant-numeric: tabular-nums; }
+/* timeline */
+.night { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.night div { background: var(--parchment-deep); padding: 12px 14px; font-size: 15px; }
+.night .k { font: 700 13px var(--display); color: var(--ink-soft); letter-spacing: .05em; }
+.night h3 { font-size: 19px; margin: 2px 0 6px; }
+dl.gloss { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; margin: 0; }
+dl.gloss div { break-inside: avoid; }
+dl.gloss dt { font: 700 17px var(--display); }
+dl.gloss dd { margin: 0; font-size: 15px; }
+footer { text-align: left; color: #e9f3dd; font-size: 14px; padding: 0 6px; text-shadow: 1px 1px 0 rgba(0,0,0,.35); }
+footer p { max-width: none; }
+@media (max-width: 720px) {
+  .cols, .fsm, .goap, .lora, .rules, dl.gloss { grid-template-columns: 1fr; }
+  .short, .night { grid-template-columns: 1fr; }
+  .move { grid-template-columns: 1fr; gap: 4px; }
+  .panel { padding: 16px 16px 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ============================================================ hero -->
+<section class="panel hero" aria-labelledby="t">
+  <canvas id="hero" class="px scene" width="240" height="96" role="img"
+    aria-label="Pixel meadow: a big teacher creature with a mortarboard thinks a three-step plan by a campfire; a small student creature copies the plan into a notebook. A river flows on the right."></canvas>
+  <p class="eyebrow">Swarm World · issue 020 · the plan as of 2 Nov 2026</p>
+  <h1 id="t">Distilling a Fast Mind</h1>
+  <p class="lede">Tonight a big, slow model plays practice worlds. Tomorrow a small, fast model learns from its best moves. This page walks through how that works, and where two classic game-AI ideas, <strong>FSM</strong> and <strong>GOAP</strong>, end up inside the model.</p>
+  <div class="short">
+    <div><b>1 · The teacher plays</b>gpt-oss 20B thinks for creatures in practice worlds all night and writes down what it saw, chose and caused.</div>
+    <div><b>2 · We keep the good moves</b>Moves that worked become lessons. Mistakes, no-ops and anything from Gemini are thrown out.</div>
+    <div><b>3 · The student learns them</b>A ~1.7B model is fine-tuned on those lessons with LoRA on this Mac, then joins the live world.</div>
+  </div>
+</section>
+
+<!-- ============================================================ FSM -->
+<section class="panel" aria-labelledby="c1">
+  <p class="eyebrow">Chapter 1 · cheap behaviour</p>
+  <h2 id="c1">A finite state machine: rules that run every tick</h2>
+  <p>A <strong>finite state machine</strong> (FSM) is the oldest trick in game AI. A character is always in exactly one state, and a few rules decide which. It costs almost nothing, so it can run every tick for every character. Our animals already work this way. Below is their real rule list from <code>simulation.py</code>: checked top to bottom each tick, first match wins.</p>
+  <div class="fsm">
+    <div>
+      <canvas id="fsmScene" class="px scene" width="120" height="60" role="img" aria-label="A sheep in the meadow, acting out its current state."></canvas>
+      <p class="statebox" id="fsmState" aria-live="polite">State: graze</p>
+      <div class="row" style="margin-top:8px; display:grid; gap:8px">
+        <label class="switch"><input type="checkbox" id="fStranger"> A creature that hasn't fed it comes close</label>
+        <label class="switch"><input type="checkbox" id="fTame"> It's tame, and its owner is near carrying food</label>
+        <label class="switch"><input type="checkbox" id="fNight"> Night falls</label>
+        <label class="switch"><input type="checkbox" id="fFar"> It has wandered more than 3 tiles from home</label>
+      </div>
+    </div>
+    <div>
+      <ol class="ladder" id="ladder" aria-label="The animal's rules, in the order they're checked">
+        <li data-s="wary"><span class="n">1</span><span>An untamed animal sees a stranger within reach</span><span class="st">wary: flee</span></li>
+        <li data-s="follow"><span class="n">2</span><span>Its owner is within 6 tiles with food it likes</span><span class="st">follow</span></li>
+        <li data-s="rest"><span class="n">3</span><span>It is night</span><span class="st">rest</span></li>
+        <li data-s="home"><span class="n">4</span><span>It is more than 3 tiles from home</span><span class="st">go home</span></li>
+        <li data-s="graze"><span class="n">5</span><span>Otherwise</span><span class="st">graze</span></li>
+      </ol>
+      <p class="small muted" style="margin-top:12px">Creatures have one rule like this too, a survival reflex: a starving body eats what it carries, or berries within reach, with no thought at all.</p>
+    </div>
+  </div>
+  <p class="note">An FSM is fast and predictable, but it only does what someone wrote down. A sheep never invents a better way to flee.</p>
+</section>
+
+<!-- ============================================================ GOAP -->
+<section class="panel" aria-labelledby="c2">
+  <p class="eyebrow">Chapter 2 · planning</p>
+  <h2 id="c2">GOAP: work backwards from a goal</h2>
+  <p><strong>Goal-Oriented Action Planning</strong> (GOAP) gives a character a goal instead of a state. Every action lists what it needs and what it gives. A planner chains actions backwards from the goal until everything needed is already in hand. The 2005 shooter <em>F.E.A.R.</em> made it famous: its soldiers planned their own flanking moves.</p>
+  <p>Here is a tiny planner running on our real recipes, from where a creature named Holt actually stood in a test world. He carries <strong>6 plant fiber, 2 sticks and 1 stone</strong>. An oak tree is 5 steps southwest and a boulder 4 steps southwest. Pick a goal:</p>
+  <div class="row" role="group" aria-label="Choose Holt's goal" id="goals">
+    <button class="btn" data-goal="stone_axe" aria-pressed="true">Stone axe</button>
+    <button class="btn" data-goal="campfire" aria-pressed="false">Campfire</button>
+    <button class="btn" data-goal="fishing_rod" aria-pressed="false">Fishing rod</button>
+    <button class="btn" data-goal="workbench" aria-pressed="false">Workbench</button>
+  </div>
+  <div class="goap">
+    <figure>
+      <canvas id="goapMap" class="px scene" width="144" height="96" role="img" aria-label="Map around Holt: berry bushes, a boulder and an oak tree to the southwest. Holt walks the plan."></canvas>
+      <figcaption id="goapSum">Plan: 2 actions, no walking.</figcaption>
+    </figure>
+    <div>
+      <ol class="steps" id="steps" aria-live="polite"></ol>
+      <p class="carry muted" id="carry" style="margin-top:10px"></p>
+    </div>
+  </div>
+  <p class="small muted">Real GOAP searches for the cheapest plan (usually with A*). This demo chains backwards greedily, which is enough for a recipe tree. Recipes: 3 plant fiber → rope; stick + stone + rope → stone axe; 3 sticks + 2 stones → campfire; 2 sticks + rope + plant fiber → fishing rod; a log → 2 planks (needs an axe); 4 planks → workbench.</p>
+  <p class="note">A planner like this is about forty lines and answers instantly. But it only knows the recipes we typed in. Our creatures discover recipes, invent things, read signs and talk each other into plans. A hand-written planner can't do any of that.</p>
+</section>
+
+<!-- ============================================================ the mind -->
+<section class="panel" aria-labelledby="c3">
+  <p class="eyebrow">Chapter 3 · what a model adds</p>
+  <h2 id="c3">A language model writes the plan itself</h2>
+  <p>Our creatures already plan like GOAP, but in words. With the harness's <em>plan</em> layer on, the model returns a goal, a plan of up to five steps, the next action and whether a step is done. This is a real answer from Dov, a gpt-oss creature in the live world today:</p>
+  <div class="cols">
+    <div class="msg assistant">
+      <div class="who"><span>Dov's answer (gpt-oss 20B)</span><span>tick 29,325</span></div>
+<pre>{
+  "thought": "I need more plant fiber to keep rope supply steady and feed the fire, and Gil needs stone for his blade.",
+  "action": "gather", "target": "grass", "count": 5,
+  "goal": "collect 5 more plant fiber",
+  "plan": ["gather 5 plant fiber", "craft 5 rope",
+           "give rope to Mika", "fetch stone for Gil"],
+  "step_done": true,
+  "speech": "Just a few more stems for the rope."
+}</pre>
+    </div>
+    <div class="msg user">
+      <div class="who"><span>What the world said back</span></div>
+      <p class="small" style="font-style:italic">You pull up grass and get 5 plant fiber and 1 wheat seeds. (While doing it you say: "Just a few more stems for the rope.")</p>
+      <table aria-label="Planner and model compared">
+        <tr><th></th><th>GOAP planner</th><th>Model</th></tr>
+        <tr><td>Speed</td><td>instant</td><td>11 to 42 s a thought</td></tr>
+        <tr><td>Knows</td><td>what we typed in</td><td>whatever it saw, heard or found</td></tr>
+        <tr><td>Plans for</td><td>itself</td><td>Mika and Gil too</td></tr>
+        <tr><td>New ideas</td><td>never</td><td>invents and tries</td></tr>
+      </table>
+    </div>
+  </div>
+  <p>So the model gives us the flexible planning. The catch is speed.</p>
+  <figure class="chart" id="latFig">
+    <svg class="diagram" id="lat" role="img" aria-label="Average seconds per thought by model in the live world: Gemini 3.8 Flash 2.9 s, gpt-oss 20B on the gaming PC 10.8 s, Qwen 3.5 4B 22.6 s, Gemma 4 E4B 23.6 s, gpt-oss 20B on this Mac 42.0 s. The student is not measured yet."></svg>
+    <div class="tip" id="latTip" role="status"></div>
+    <figcaption>Average seconds per thought in the live world on 2 Nov 2026, under real load with many creatures thinking at once. Hover or tab to a bar for its thought count. Gemini is striped because Google's terms restrict using its answers to build other models, so it is never a teacher.</figcaption>
+    <details style="margin-top:8px"><summary>Show as a table</summary>
+      <table id="latTable"></table>
+    </details>
+  </figure>
+  <p class="note">One Mac runs about 20 creatures' minds today. The goal is 80 or more. A model several times smaller could think several times faster, if it can learn to plan as well as the big one. That is what distillation is for.</p>
+</section>
+
+<!-- ============================================================ distillation -->
+<section class="panel" aria-labelledby="c4">
+  <p class="eyebrow">Chapter 4 · teacher and student</p>
+  <h2 id="c4">Distillation: a small model copies a big one's good moves</h2>
+  <p><strong>Distillation</strong> means training a small <em>student</em> model on answers from a big <em>teacher</em>. The student doesn't need to know everything the teacher knows. It only needs to answer the way the teacher does for this one job: being a creature in our world.</p>
+  <figure>
+    <svg class="diagram" viewBox="0 0 780 250" role="img" aria-label="The teacher gpt-oss 20B plays practice worlds and writes a logbook; good moves are filtered into lessons; LoRA training on the Mac turns them into the student, Qwen3 about 1.7B. Gemini's outputs are blocked from the lessons.">
+      <defs>
+        <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker>
+      </defs>
+      <g font-family="Pixelify Sans, monospace" font-size="15" fill="currentColor" text-anchor="middle">
+        <g shape-rendering="crispEdges" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="30" width="140" height="88" fill="#f6dfae"/>
+          <rect x="214" y="30" width="140" height="88" fill="#e7dcc2"/>
+          <rect x="424" y="30" width="140" height="88" fill="#d6ecc4"/>
+          <rect x="634" y="30" width="140" height="88" fill="#cfe3f2"/>
+          <rect x="4" y="176" width="140" height="66" fill="#f3d2c8" stroke-dasharray="6 4"/>
+        </g>
+        <text x="74" y="58" font-weight="700" font-size="17">Teacher</text>
+        <text x="74" y="80">gpt-oss 20B</text>
+        <text x="74" y="100" font-size="13">Apache 2.0 · slow</text>
+        <text x="284" y="58" font-weight="700" font-size="17">Logbook</text>
+        <text x="284" y="80">saw · chose ·</text>
+        <text x="284" y="100">what happened</text>
+        <text x="494" y="58" font-weight="700" font-size="17">Lessons</text>
+        <text x="494" y="80">only moves</text>
+        <text x="494" y="100">that worked</text>
+        <text x="704" y="58" font-weight="700" font-size="17">Student</text>
+        <text x="704" y="80">Qwen3 ~1.7B</text>
+        <text x="704" y="100" font-size="13">Apache 2.0 · fast</text>
+        <text x="74" y="203" font-weight="700">Gemini</text>
+        <text x="74" y="224" font-size="13">never a teacher</text>
+        <g font-size="12">
+          <text x="179" y="64">plays</text><text x="179" y="80">overnight</text>
+          <text x="389" y="64">keep the</text><text x="389" y="80">good moves</text>
+          <text x="599" y="64">LoRA on</text><text x="599" y="80">the Mac</text>
+          <text x="330" y="212" text-anchor="start">Google's terms restrict using its answers to build other models.</text>
+          <text x="330" y="230" text-anchor="start">Licensed art and sound never enter the data either: lessons are text.</text>
+        </g>
+      </g>
+      <g stroke="currentColor" stroke-width="2" fill="none">
+        <line x1="146" y1="92" x2="210" y2="92" marker-end="url(#ar)"/>
+        <line x1="356" y1="92" x2="420" y2="92" marker-end="url(#ar)"/>
+        <line x1="566" y1="92" x2="630" y2="92" marker-end="url(#ar)"/>
+        <path d="M146 208 H 250 V 124" stroke-dasharray="6 4"/>
+      </g>
+      <g stroke="#a83228" stroke-width="4"><line x1="238" y1="150" x2="262" y2="174"/><line x1="262" y1="150" x2="238" y2="174"/></g>
+    </svg>
+    <figcaption>Both teacher and student are Apache-licensed, so the student is ours to run and share. Qwen 3.5 creatures' good moves can become lessons too.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ anatomy of a lesson -->
+<section class="panel" aria-labelledby="c5">
+  <p class="eyebrow">Chapter 5 · one lesson up close</p>
+  <h2 id="c5">A lesson is a conversation with the right answer filled in</h2>
+  <p>Every think is a short chat. The <strong>system</strong> message holds the world's rules, about 1,000 tokens and the same for everyone. The <strong>user</strong> message is the creature's senses and memories right now. The <strong>assistant</strong> message is the answer. A lesson keeps all three. Training grades the student only on the answer.</p>
+  <div class="row"><button class="btn" id="gradeBtn" aria-pressed="false">Show what gets graded</button></div>
+  <div class="lesson" id="lesson">
+    <div class="msg system">
+      <div class="who"><span>system · the world's rules</span><span>≈1,000 tokens</span></div>
+      <details><summary>The first lines (real)</summary>
+<pre>You are a living creature in a small wild world. This is not a game you are playing: you only know what your own senses tell you right now, plus your memories. Other creatures live here too, each with a mind of its own. Sound carries only about 5 steps, so to talk with someone, walk to them first.
+
+Each turn choose ONE action and reply with ONLY a JSON object of this shape:
+{"thought": "...", "action": "...", "target": "...", "items": [], "text": "", "count": 1, "goal": "", "speech": ""}
+…then every action, and the rules of the world.</pre>
+      </details>
+    </div>
+    <div class="msg user">
+      <div class="who"><span>user · what Holt senses and remembers</span><span>≈400 tokens · real</span></div>
+<pre>You are Holt, a curious and cheerful creature, moved by a pull toward the unknown edges of the world. …
+
+What you know:
+- Your goal: none yet
+- No plan yet. If your goal takes several steps, write them in plan (up to 5 short steps).
+- Recipes you know: 3 stick + 2 stone -> campfire; 3 plant fiber -> rope
+
+Right now:
+Day 1, morning.
+You stand on grass.
+Tall grass grows all around you; its tough stems could be gathered as plant fiber.
+You see: 6 berry bushes, the nearest 2 steps southwest; a wishing stone 3 steps north; a chicken grazing 3 steps west; a boulder 4 steps southwest; a wild herbs 5 steps southwest; an oak tree 5 steps southwest; …
+You're in open meadow: grass, wildflowers and berry bushes.
+You carry: 6 plant fiber, 2 stick, 1 stone.
+Your hands itch to try combining some of what you carry.
+You feel fed.
+
+What do you do next? Reply with one JSON object.</pre>
+    </div>
+    <div class="msg assistant">
+      <div class="who"><span>assistant · the answer the student learns</span><span>≈80 tokens · example</span></div>
+<pre>{"thought": "Six fiber makes rope, and rope with a stick and a stone might make a tool.",
+ "action": "craft", "target": "rope", "items": [], "text": "", "count": 1,
+ "goal": "make a stone tool", "speech": "",
+ "plan": ["craft rope", "combine stick, stone and rope", "gather more stone at the boulder"],
+ "step_done": false}</pre>
+    </div>
+  </div>
+  <p class="small muted">The prompt is real: the game's own prompt code wrote it for Holt in a test world. The answer is an example in the exact shape a teacher must return. Today's live logs keep the answers but not the prompts, so the teacher runs record both.</p>
+</section>
+
+<!-- ============================================================ filtering -->
+<section class="panel" aria-labelledby="c6">
+  <p class="eyebrow">Chapter 6 · choosing lessons</p>
+  <h2 id="c6">Only the good moves become lessons</h2>
+  <p>A student copies everything it's shown, mistakes included. So the logbook is filtered before training. These seven moves are real, from the live world today. Flip the rules and watch what the student would learn.</p>
+  <div class="rules" id="rules">
+    <label class="switch"><input type="checkbox" id="rFail" checked> Drop failed moves</label>
+    <label class="switch"><input type="checkbox" id="rNoop" checked> Drop no-ops (nothing changed)</label>
+    <label class="switch"><input type="checkbox" id="rUseful" checked> Useful moves count twice</label>
+    <label class="switch"><input type="checkbox" id="rRepeat" checked> Repeats count half</label>
+    <label class="switch"><input type="checkbox" checked disabled> Never learn from Gemini (always on)</label>
+  </div>
+  <div class="moves" id="moves" aria-live="polite"></div>
+  <div class="row" style="justify-content:space-between">
+    <p class="tally" id="tally"></p>
+    <div class="bar" id="tallyBar" aria-hidden="true" style="flex:1 1 220px"></div>
+  </div>
+  <p class="small muted">“Counts twice” means the lesson appears twice; “counts half” means it's kept half the time. The exact weights get tuned. Whole practice worlds are also held back unseen, as the student's exam.</p>
+</section>
+
+<!-- ============================================================ how learning works -->
+<section class="panel" aria-labelledby="c7">
+  <p class="eyebrow">Chapter 7 · how a model learns</p>
+  <h2 id="c7">Guess the next token, measure the surprise, nudge</h2>
+  <p>A model reads and writes in <strong>tokens</strong>, small pieces of text. To answer, it guesses one token at a time, giving every possible next token a probability. Training walks through each lesson's answer and, at every token, asks how surprised the student was by the teacher's choice. That surprise is the <strong>loss</strong>. Then it nudges the model's numbers so the teacher's choice becomes a little more likely next time.</p>
+  <div class="toks" aria-label="The answer's first tokens, roughly as a model splits them">
+    <span>{"</span><span>thought</span><span>":"</span><span>Six</span><span> fiber</span><span> makes</span><span> rope</span><span>…</span><span>","</span><span>action</span><span>":"</span><span class="blank">?</span>
+  </div>
+  <div class="row" role="group" aria-label="Before or after fine-tuning">
+    <button class="btn" data-phase="before" aria-pressed="true">Before tuning</button>
+    <button class="btn" data-phase="after" aria-pressed="false">After tuning</button>
+  </div>
+  <div class="guesses" id="guesses" aria-live="polite"></div>
+  <div class="surprise">
+    <span class="tally" id="surpriseNum"></span>
+    <div class="bar hot" id="surpriseBar" aria-hidden="true"></div>
+  </div>
+  <p class="small muted">Illustrative numbers, not a measurement. The teacher wrote <code>craft</code>. Surprise is −ln(probability of the right token), so 9% gives a surprise of 2.4 and 81% gives 0.2. Training averages this over every answer token of every lesson, then repeats for a few hundred to a few thousand steps.</p>
+</section>
+
+<!-- ============================================================ LoRA -->
+<section class="panel" aria-labelledby="c8">
+  <p class="eyebrow">Chapter 8 · LoRA</p>
+  <h2 id="c8">Learning without rewriting the whole brain</h2>
+  <p>A model is billions of numbers arranged in big grids (matrices). Changing all of them is a full fine-tune. It is slow, and it needs memory for extra copies of every number. <strong>LoRA</strong> (low-rank adaptation) freezes the original grid W and trains two thin strips beside it, B and A, whose product is added on top. The strips' width is the <strong>rank</strong>.</p>
+  <div class="lora">
+    <figure>
+      <canvas id="loraCv" class="px" width="276" height="112" role="img" aria-label="The frozen grid W, plus thin strips B times A whose width is the rank."></canvas>
+      <figcaption>W is frozen; only the green strips B and A learn.</figcaption>
+    </figure>
+    <div class="readout">
+      <label for="rank" class="small"><strong>Rank</strong>: <span id="rankV" class="mono">8</span></label>
+      <input type="range" id="rank" min="0" max="5" step="1" value="2" aria-describedby="rankHelp">
+      <div><span class="small muted">One 2,048 × 2,048 layer, full fine-tune</span><br><span class="num" id="fullN">4,194,304</span> <span class="small">numbers change</span></div>
+      <div><span class="small muted">The same layer with LoRA</span><br><span class="num" id="loraN">32,768</span> <span class="small">numbers learn · <b id="loraP">0.78%</b></span></div>
+    </div>
+  </div>
+  <p id="rankHelp" class="small muted">Main layers in a ~1.7B Qwen are about 2,048 numbers wide. Rank 8 to 16 is the usual start. Higher ranks can learn more and need more memory. Because only the strips train, it fits on this Mac beside the world (target: about 12 GB).</p>
+  <p class="note">When training is done, the strips are <strong>fused</strong>: W + B×A is computed once and saved as one ordinary model, <code>~/models/swarm-student-&lt;date&gt;</code>, which oMLX serves like any other.</p>
+</section>
+
+<!-- ============================================================ overfitting -->
+<section class="panel" aria-labelledby="c9">
+  <p class="eyebrow">Chapter 9 · knowing when to stop</p>
+  <h2 id="c9">Memorizing is not learning</h2>
+  <p>Train long enough and the student starts memorizing its lessons word for word. Surprise on the lessons keeps falling, but on practice worlds it has never seen, surprise starts to rise. That is <strong>overfitting</strong>. So we hold back whole practice worlds, not random lines, and keep the checkpoint where surprise on them was lowest. Random lines would leak: the same world's next tick looks almost identical.</p>
+  <figure>
+    <svg class="diagram" id="ovf" viewBox="0 0 660 250" role="img" aria-label="A sketch: surprise on the lessons keeps falling with training time; surprise on held-back worlds falls, bottoms out, then rises. The best checkpoint is at its lowest point."></svg>
+    <figcaption>A sketch of the shape we watch for, not our numbers.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ the plan -->
+<section class="panel" aria-labelledby="c10">
+  <p class="eyebrow">Chapter 10 · the plan, step by step</p>
+  <h2 id="c10">From one night of play to a new mind</h2>
+  <div class="night">
+    <div><span class="k">TONIGHT</span><h3>1 · Practice worlds</h3>Fresh worlds with new seeds, 6 creatures each, 2,400 ticks (two in-game days). They run turn-based, so speed doesn't matter. gpt-oss 20B thinks for every creature, on your PC when it's free and on this Mac meanwhile, with all the harness layers on.</div>
+    <div><span class="k">MORNING</span><h3>2 · Keep the good moves</h3><code>export_training.py</code> keeps only gpt-oss and Qwen moves that worked and changed something, weights them, removes duplicates and holds back whole worlds for the exam.</div>
+    <div><span class="k">MORNING</span><h3>3 · Train with LoRA</h3><code>train_student.sh</code> runs mlx-lm, made for Apple silicon. The ~1.7B Qwen3 base stays frozen while the strips learn. The live world slows or pauses for those hours.</div>
+    <div><span class="k">AFTER</span><h3>4 · Fuse</h3>The strips are folded into the base: one model folder in <code>~/models</code> that oMLX can serve.</div>
+    <div><span class="k">LIVE</span><h3>5 · Half the creatures</h3><code>ADOPT</code> gives half of one model's creatures the student's mind. <code>review_world.py --split</code> compares the halves: success, no-ops, collapses, things made and thoughts per minute.</div>
+    <div><span class="k">AGAIN</span><h3>6 · Better moves, better lessons</h3>The student's own best games become new lessons, and it trains again. This loop is called rejection-sampling fine-tuning.</div>
+  </div>
+  <p class="small muted">One trap to get right: the live brain asks for answers with “thinking” turned off and a strict JSON shape. The lessons must look exactly like what the student will see when it's serving, or it learns a format it never gets.</p>
+</section>
+
+<!-- ============================================================ where FSM & GOAP end up -->
+<section class="panel" aria-labelledby="c11">
+  <p class="eyebrow">Chapter 11 · the whole picture</p>
+  <h2 id="c11">Where FSM and GOAP end up</h2>
+  <p>Games run cheap rules every tick and consult something smarter only at decision points. That is the shape we're building toward. The rules stay as code. The planning moves into a small, fast model that learned it from watching a big one plan.</p>
+  <figure>
+    <svg class="diagram" viewBox="0 0 760 290" role="img" aria-label="Three layers. Every tick: code, instant: reflexes, animals' state machines, the world's rules. At decision points: the student model reads its senses and writes a goal, a plan and the next action. Each night: teachers play practice worlds and make new lessons that train the student.">
+      <defs><marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>
+      <g shape-rendering="crispEdges" stroke="currentColor" stroke-width="2">
+        <rect x="4" y="6" width="600" height="76" fill="#d6ecc4"/>
+        <rect x="4" y="104" width="600" height="76" fill="#cfe3f2"/>
+        <rect x="4" y="202" width="600" height="76" fill="#f6dfae"/>
+      </g>
+      <g font-family="Pixelify Sans, monospace" fill="currentColor">
+        <text x="20" y="34" font-size="17" font-weight="700">Every tick · code · instant (FSM)</text>
+        <text x="20" y="60" font-size="14">reflexes (a starving body eats), animals' states, weather, growth, fire</text>
+        <text x="20" y="132" font-size="17" font-weight="700">At decision points · the student · fast (learned GOAP)</text>
+        <text x="20" y="158" font-size="14">reads its senses, writes a goal, a plan and the next action; talks, invents</text>
+        <text x="20" y="230" font-size="17" font-weight="700">Each night · the teachers · slow, offline</text>
+        <text x="20" y="256" font-size="14">play practice worlds, keep the good moves, train the student again</text>
+        <g font-size="13" text-anchor="middle">
+          <text x="686" y="96">calls when</text><text x="686" y="112">something</text><text x="686" y="128">needs a choice</text>
+          <text x="686" y="196">new lessons</text>
+        </g>
+      </g>
+      <g stroke="currentColor" stroke-width="2" fill="none">
+        <path d="M606 44 H 622 V 136 H 610" marker-end="url(#ar2)"/>
+        <path d="M606 240 H 748 V 150 H 610" marker-end="url(#ar2)" stroke-dasharray="6 4"/>
+      </g>
+    </svg>
+    <figcaption>The rules stay hand-written and cheap. The planning is learned, so it can grow as the world grows: new recipes, new buildings, new animals.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ glossary -->
+<section class="panel" aria-labelledby="c12">
+  <p class="eyebrow">Words, for later</p>
+  <h2 id="c12">Glossary</h2>
+  <dl class="gloss">
+    <div><dt>Token</dt><dd>A small piece of text, often part of a word. Models read and write in tokens; Holt's prompt is about 1,400 of them.</dd></div>
+    <div><dt>Weights</dt><dd>The model's numbers. A “1.7B” model has about 1.7 billion of them.</dd></div>
+    <div><dt>Fine-tuning</dt><dd>Training an already-trained model a little more, on your own examples.</dd></div>
+    <div><dt>Distillation</dt><dd>Fine-tuning a small student on a big teacher's answers.</dd></div>
+    <div><dt>LoRA</dt><dd>Low-rank adaptation: freeze the weights, train thin add-on strips.</dd></div>
+    <div><dt>Rank</dt><dd>How wide the LoRA strips are. More rank, more capacity, more memory.</dd></div>
+    <div><dt>Loss</dt><dd>The student's average surprise at the right answer. Training pushes it down.</dd></div>
+    <div><dt>Overfitting</dt><dd>Memorizing the lessons instead of learning the skill.</dd></div>
+    <div><dt>Held-out set</dt><dd>Examples the student never trains on, kept to test it. Ours are whole practice worlds.</dd></div>
+    <div><dt>Fuse</dt><dd>Fold the trained strips into the weights to get one ordinary model.</dd></div>
+    <div><dt>4-bit</dt><dd>Storing each weight in 4 bits instead of 16, so a model takes a quarter of the memory.</dd></div>
+    <div><dt>FSM</dt><dd>Finite state machine: one state at a time, rules pick it. Cheap enough for every tick.</dd></div>
+    <div><dt>GOAP</dt><dd>Goal-oriented action planning: chain actions backwards from a goal.</dd></div>
+    <div><dt>Rejection sampling</dt><dd>Keep only the attempts that turned out well and train on those.</dd></div>
+  </dl>
+</section>
+
+<footer>
+  <p>Swarm World · issue 020 · design: docs/superpowers/specs/2026-11-02-distill-a-fast-mind-design.md. The pixel art here is drawn in code in the style of the game's tiles; the licensed LimeZu sprites stay on your machine.</p>
+</footer>
+</main>
+
+<script>
+'use strict';
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const INK = '#3a3a50';
+
+// ---------------------------------------------------------------- tiny pixel kit
+function ctx2d(cv) { const c = cv.getContext('2d'); c.imageSmoothingEnabled = false; return c; }
+function R(c, x, y, w, h, col) { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), w, h); }
+function disk(c, cx, cy, r, col) {
+  c.fillStyle = col;
+  for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r) c.fillRect(cx + x, cy + y, 1, 1);
+}
+function rng(seed) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+function sprite(c, map, pal, x, y, s = 1, flip = false) {
+  const h = map.length, w = map[0].length;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const ch = map[j][flip ? w - 1 - i : i];
+    if (ch === '.' || !pal[ch]) continue;
+    R(c, x + i * s, y + j * s, s, s, pal[ch]);
+  }
+}
+const CRE = ['..oooooo..', '.ohbbbbbo.', 'obbbbbbbbo', 'obwwbbwwbo', 'obwkbbwkbo', 'obbbbbbbbo', 'obbbbbbbbo', '.obbbbbbo.', '..oo..oo..'];
+function crePal(body, hi) { return { o: INK, b: body, h: hi, w: '#ffffff', k: '#1d1d28' }; }
+const BUSH = ['..oooooo..', '.oFfrffffo', 'offffffrfo', 'ofrffffffo', 'offffrfffo', '.offffffo.', '..oooooo..'];
+const BUSHP = { o: INK, f: '#37854e', F: '#5aa865', r: '#cb2a2a' };
+const ROCK = ['..oooo..', '.oGGggo.', 'oGggggdo', 'oggggddo', 'ogggdddo', '.oooooo.'];
+const ROCKP = { o: INK, g: '#8d8fa3', G: '#b9bccb', d: '#6c6e85' };
+const SHEEP = ['..ooooo.....', '.oWWWWWoooo.', 'oWWWWWWWfffo', 'oWWWWWWWfkfo', 'oWWWWWWWfffo', '.oWWWWWWWoo.', '..oLoooLo...', '..oLo.oLo...', '..ooo.ooo...'];
+const SHEEPP = { o: INK, W: '#f4f1ea', f: '#6b5052', k: '#1d1d28', L: '#6b5052' };
+const CHICK = ['.oo...', 'oWWo..', 'oWkWoo', 'oWWWWo', '.oWWo.', '..oo..'];
+const CHICKP = { o: INK, W: '#f4f1ea', k: '#1d1d28' };
+
+function grass(c, w, h, seed) {
+  R(c, 0, 0, w, h, '#479757');
+  const r = rng(seed);
+  for (let k = 0; k < (w * h) / 16; k++) {
+    const x = (r() * w) | 0, y = (r() * h) | 0, t = r();
+    if (t < 0.55) { R(c, x, y, 1, 1, '#3d8a4d'); R(c, x + 1, y - 1, 1, 1, '#3d8a4d'); }
+    else if (t < 0.9) R(c, x, y, 1, 1, '#56a464');
+    else if (t < 0.95) R(c, x, y, 1, 1, '#f2b22b');
+    else R(c, x, y, 1, 1, '#ebe4f2');
+  }
+}
+function tree(c, x, y) { // x, y: trunk base
+  R(c, x - 6, y - 1, 13, 3, '#3b7d48');
+  R(c, x - 2, y - 7, 5, 8, INK); R(c, x - 1, y - 7, 3, 7, '#8a5a3c'); R(c, x - 1, y - 7, 1, 7, '#a8714a');
+  disk(c, x, y - 13, 8, INK); disk(c, x, y - 13, 7, '#2f7344'); disk(c, x - 1, y - 14, 5, '#3f8f55'); disk(c, x - 3, y - 16, 2, '#5aa865');
+}
+function campfire(c, x, y, t) {
+  for (const dx of [-7, 6]) { R(c, x + dx, y - 1, 3, 3, INK); R(c, x + dx + 1, y, 1, 1, '#b9bccb'); }
+  R(c, x - 5, y - 2, 11, 4, INK); R(c, x - 4, y - 1, 9, 2, '#8a5a3c'); R(c, x - 4, y - 1, 9, 1, '#a8714a');
+  const r = rng(Math.floor(t * 7) + 3), H = [2, 4, 6, 7, 6, 4, 2];
+  for (let i = 0; i < 7; i++) {
+    const h = Math.max(1, H[i] + ((r() * 3) | 0) - 1);
+    for (let j = 0; j < h; j++) R(c, x - 3 + i, y - 3 - j, 1, 1, j < h * 0.45 ? '#ff933d' : j < h * 0.8 ? '#ffc33d' : '#ffea3d');
+  }
+}
+function bubble(c, x, y, w, h) {
+  R(c, x + 1, y, w - 2, h, INK); R(c, x, y + 1, w, h - 2, INK); R(c, x + 1, y + 1, w - 2, h - 2, '#f1e7d0');
+}
+function planLines(c, x, y, n, done) {
+  const L = [22, 17, 26];
+  for (let i = 0; i < n; i++) {
+    R(c, x, y + i * 6, 4, 4, INK); R(c, x + 1, y + i * 6 + 1, 2, 2, i < done ? '#9bc246' : '#f1e7d0');
+    R(c, x + 7, y + i * 6 + 1, L[i % 3], 2, '#6c6e85');
+  }
+}
+
+// ---------------------------------------------------------------- page background: a grass tile
+(function () {
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+  grass(ctx2d(cv), 64, 64, 11);
+  document.body.style.backgroundImage = `url(${cv.toDataURL()})`;
+})();
+
+// ---------------------------------------------------------------- hero
+(function () {
+  const cv = document.getElementById('hero'), c = ctx2d(cv), W = 240, H = 96;
+  const base = document.createElement('canvas'); base.width = W; base.height = H;
+  const b = ctx2d(base);
+  grass(b, W, H, 5);
+  function river(t) {
+    for (let y = 0; y < H; y++) {
+      const x0 = 186 + Math.round(3 * Math.sin(y / 9));
+      R(c, x0 - 1, y, 1, 1, '#d8b46a'); R(c, x0 + 23, y, 1, 1, '#d8b46a');
+      R(c, x0, y, 23, 1, '#3ca3b2'); R(c, x0, y, 2, 1, '#369ab0'); R(c, x0 + 21, y, 2, 1, '#369ab0');
+    }
+    const r = rng(9);
+    for (let k = 0; k < 26; k++) { // sparkles drifting downstream
+      const sx = 188 + ((r() * 18) | 0), sy = ((r() * H + t * 14) % H) | 0;
+      R(c, sx + Math.round(3 * Math.sin(sy / 9)), sy, 2, 1, '#a8e0e6');
+    }
+  }
+  function frame(now) {
+    const t = now / 1000;
+    c.drawImage(base, 0, 0);
+    river(REDUCED ? 0 : t);
+    tree(c, 22, 40); tree(c, 44, 26); tree(c, 158, 34); tree(c, 14, 88);
+    sprite(c, BUSH, BUSHP, 118, 78); sprite(c, BUSH, BUSHP, 140, 70); sprite(c, ROCK, ROCKP, 160, 84);
+    campfire(c, 100, 66, REDUCED ? 0 : t);
+    const bob = REDUCED ? 0 : (Math.sin(t * 2.2) > 0 ? 1 : 0);
+    // teacher: big creature with a mortarboard
+    const tx = 64, ty = 48 + bob;
+    sprite(c, CRE, crePal('#e09b4e', '#f3c37f'), tx, ty, 2);
+    R(c, tx - 2, ty - 4, 24, 3, INK); R(c, tx + 5, ty - 2, 10, 3, INK); R(c, tx + 21, ty - 3, 1, 6, '#f2b22b');
+    // teacher's thought: a plan of three steps
+    bubble(c, 78, 8, 46, 24); planLines(c, 82, 12, 3, 1);
+    R(c, 78, 34, 3, 3, INK); R(c, 79, 35, 1, 1, '#f1e7d0'); R(c, 74, 40, 2, 2, INK);
+    // student: small creature with a notebook, copying the plan line by line
+    const sx = 130, sy = 54 + (REDUCED ? 0 : (Math.sin(t * 3 + 1) > 0 ? 1 : 0));
+    sprite(c, CRE, crePal('#3ca3b2', '#8fd3dc'), sx, sy, 1);
+    R(c, sx + 11, sy + 3, 8, 7, INK); R(c, sx + 12, sy + 4, 6, 5, '#f1e7d0'); R(c, sx + 13, sy + 5, 4, 1, '#6c6e85');
+    const copied = REDUCED ? 3 : 1 + Math.floor(t * 0.9) % 3;
+    bubble(c, 138, 26, 40, 22); planLines(c, 141, 29, Math.min(3, copied), 0);
+    R(c, 136, 49, 2, 2, INK);
+    if (!REDUCED && !document.hidden) setTimeout(() => requestAnimationFrame(frame), 120);
+  }
+  requestAnimationFrame(frame);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !REDUCED) requestAnimationFrame(frame); });
+})();
+
+// ---------------------------------------------------------------- FSM: the animals' real rules
+(function () {
+  const cv = document.getElementById('fsmScene'), c = ctx2d(cv), W = 120, H = 60;
+  const base = document.createElement('canvas'); base.width = W; base.height = H;
+  grass(ctx2d(base), W, H, 21);
+  const ids = ['fStranger', 'fTame', 'fNight', 'fFar'], el = Object.fromEntries(ids.map(i => [i, document.getElementById(i)]));
+  function state() {
+    const s = el.fStranger.checked, tame = el.fTame.checked;
+    if (s && !tame) return 'wary';
+    if (tame) return 'follow';
+    if (el.fNight.checked) return 'rest';
+    if (el.fFar.checked) return 'home';
+    return 'graze';
+  }
+  const LABEL = { wary: 'wary: it flees', follow: 'follow its owner', rest: 'rest (no hunger at night)', home: 'go home', graze: 'graze' };
+  function draw() {
+    const st = state();
+    c.drawImage(base, 0, 0);
+    // home: a fence post with a flag
+    R(c, 12, 22, 3, 14, INK); R(c, 13, 22, 1, 13, '#a8714a'); R(c, 15, 22, 7, 5, INK); R(c, 15, 23, 6, 3, '#e63f38');
+    R(c, 6, 36, 16, 2, '#3b7d48');
+    let sx = 26, sy = 30, flip = false;
+    if (st === 'home') { sx = 92; flip = true; for (let x = 40; x < 88; x += 4) R(c, x, 36, 2, 1, '#f1e7d0'); R(c, 38, 35, 2, 3, '#f1e7d0'); }
+    if (st === 'wary') { sx = 74; sy = 26; sprite(c, CRE, crePal('#db7b53', '#f0a57f'), 52, 30); R(c, 80, 15, 2, 6, '#e63f38'); R(c, 80, 23, 2, 2, '#e63f38');
+      for (let i = 0; i < 3; i++) R(c, 66 - i * 4, 29 + i * 3, 3, 1, '#f1e7d0'); }
+    if (st === 'follow') { sx = 40; sy = 32; sprite(c, CRE, crePal('#5fa8d3', '#a7d3ec'), 62, 32);
+      R(c, 73, 36, 3, 3, INK); R(c, 74, 37, 1, 1, '#cb2a2a'); R(c, 54, 26, 1, 1, '#e63f38'); R(c, 56, 26, 1, 1, '#e63f38'); R(c, 54, 27, 3, 1, '#e63f38'); R(c, 55, 28, 1, 1, '#e63f38'); }
+    sprite(c, SHEEP, SHEEPP, sx, sy, 1, flip);
+    if (st === 'graze') { R(c, sx + 13, sy + 8, 1, 2, '#2f7344'); R(c, sx + 15, sy + 7, 1, 3, '#2f7344'); }
+    if (st === 'rest') {
+      c.fillStyle = 'rgba(22, 26, 64, 0.5)'; c.fillRect(0, 0, W, H);
+      R(c, 100, 6, 5, 5, '#ebe4f2'); R(c, 101, 6, 4, 4, 'rgba(22,26,64,.9)');
+      sprite(c, SHEEP, SHEEPP, sx, sy);
+      c.fillStyle = 'rgba(22, 26, 64, 0.35)'; c.fillRect(0, 0, W, H);
+      R(c, sx + 10, sy - 6, 3, 1, '#f1e7d0'); R(c, sx + 12, sy - 5, 1, 1, '#f1e7d0'); R(c, sx + 11, sy - 4, 1, 1, '#f1e7d0'); R(c, sx + 10, sy - 3, 3, 1, '#f1e7d0');
+    }
+    document.getElementById('fsmState').textContent = 'State: ' + LABEL[st];
+    const order = ['wary', 'follow', 'rest', 'home', 'graze'], at = order.indexOf(st);
+    document.querySelectorAll('#ladder li').forEach((li, i) => { li.classList.toggle('on', i === at); li.classList.toggle('skip', i < at); });
+  }
+  ids.forEach(i => el[i].addEventListener('change', draw));
+  draw();
+})();
+
+// ---------------------------------------------------------------- GOAP: a tiny backward-chaining planner on our recipes
+(function () {
+  const START = { plant_fiber: 6, stick: 2, stone: 1 };
+  const NAME = { plant_fiber: 'plant fiber', stick: 'stick', stone: 'stone', rope: 'rope', stone_axe: 'stone axe', log: 'log',
+    planks: 'planks', workbench: 'workbench', campfire: 'campfire', fishing_rod: 'fishing rod' };
+  const RECIPES = {
+    rope: { inputs: { plant_fiber: 3 }, out: 1, verb: 'craft' },
+    stone_axe: { inputs: { stick: 1, stone: 1, rope: 1 }, out: 1, verb: 'combine' },
+    campfire: { inputs: { stick: 3, stone: 2 }, out: 1, verb: 'craft' },
+    fishing_rod: { inputs: { stick: 2, rope: 1, plant_fiber: 1 }, out: 1, verb: 'combine' },
+    planks: { inputs: { log: 1 }, tools: ['stone_axe'], out: 2, verb: 'craft' },
+    workbench: { inputs: { planks: 4 }, out: 1, verb: 'craft' },
+  };
+  // where things come from (tiles on the 12 x 8 map; Holt starts at 8,1)
+  const SPOT = { here: [8, 1], oak: [4, 5], boulder: [6, 4] };
+  const SOURCES = {
+    plant_fiber: { spot: null, from: 'the tall grass', verb: 'gather' },
+    stick: { spot: 'oak', from: 'the oak tree', verb: 'gather' },
+    stone: { spot: 'boulder', from: 'the boulder', verb: 'gather' },
+    log: { spot: 'oak', from: 'the oak tree', verb: 'chop', tools: ['stone_axe'] },
+  };
+  const cheb = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+  const list = o => Object.entries(o).map(([k, n]) => `${n} ${NAME[k]}`).join(' + ');
+
+  function plan(goal) {
+    const inv = { ...START }, steps = []; let at = 'here';
+    const have = i => inv[i] || 0;
+    function need(item, n) { if (have(item) < n) produce(item, n - have(item)); }
+    function produce(item, deficit) {
+      const r = RECIPES[item];
+      if (r) {
+        const times = Math.ceil(deficit / r.out);
+        (r.tools || []).forEach(t => need(t, 1));
+        for (const [i, q] of Object.entries(r.inputs)) need(i, q * times);
+        for (const [i, q] of Object.entries(r.inputs)) inv[i] -= q * times;
+        inv[item] = have(item) + r.out * times;
+        const ins = Object.fromEntries(Object.entries(r.inputs).map(([i, q]) => [i, q * times]));
+        steps.push({ kind: 'act', text: `${r.verb} ${times > 1 ? times + '× ' : ''}${NAME[item]}`,
+          detail: `${list(ins)} → ${r.out * times} ${NAME[item]}${r.tools ? ' (needs the stone axe)' : ''}`, at });
+        return;
+      }
+      const s = SOURCES[item];
+      (s.tools || []).forEach(t => need(t, 1));
+      if (s.spot && s.spot !== at) {
+        const d = cheb(SPOT[at], SPOT[s.spot]);
+        steps.push({ kind: 'walk', text: `walk to ${s.from}`, detail: `${d} steps`, from: at, to: s.spot, cost: d });
+        at = s.spot;
+      }
+      inv[item] = have(item) + deficit;
+      steps.push({ kind: 'act', text: `${s.verb} ${deficit} ${NAME[item]}`, detail: `from ${s.from}${s.tools ? ' (with the stone axe)' : ''}`, at });
+    }
+    need(goal, 1);
+    return { steps, inv };
+  }
+
+  const cv = document.getElementById('goapMap'), c = ctx2d(cv), T = 12;
+  const base = document.createElement('canvas'); base.width = 144; base.height = 96;
+  const b = ctx2d(base);
+  grass(b, 144, 96, 33);
+  for (let x = 0; x <= 12; x++) for (let y = 0; y <= 8; y++) R(b, x * T, y * T, 1, 1, '#3f8a50');
+  sprite(b, BUSH, BUSHP, 6 * T + 1, 3 * T + 3); sprite(b, BUSH, BUSHP, 5 * T + 1, 2 * T + 3); sprite(b, BUSH, BUSHP, 2 * T + 1, 3 * T + 3);
+  sprite(b, ROCK, ROCKP, 5 * T + 2, 5 * T + 4);
+  tree(b, 3 * T + 6, 6 * T + 10);
+  sprite(b, CHICK, CHICKP, 5 * T + 3, 1 * T + 4);
+  const HOLT = crePal('#5fa8d3', '#a7d3ec');
+  let pos = [8, 1], path = [], anim = null;
+
+  function drawMap() {
+    c.drawImage(base, 0, 0);
+    for (const [x, y] of path) R(c, x * T + 5, y * T + 5, 2, 2, '#f1e7d0');
+    sprite(c, CRE, HOLT, Math.round(pos[0] * T + 1), Math.round(pos[1] * T + 2));
+  }
+  function walkTiles(a, b2) {
+    const out = []; let [x, y] = a;
+    while (x !== b2[0] || y !== b2[1]) { x += Math.sign(b2[0] - x); y += Math.sign(b2[1] - y); out.push([x, y]); }
+    return out;
+  }
+  function render(goal) {
+    if (anim) clearTimeout(anim);
+    const { steps, inv } = plan(goal);
+    const ol = document.getElementById('steps');
+    ol.innerHTML = '';
+    steps.forEach(s => {
+      const li = document.createElement('li'); if (s.kind === 'walk') li.className = 'walk';
+      li.innerHTML = `<span><strong>${s.text}</strong><br><span class="cost">${s.detail}</span></span>`;
+      ol.appendChild(li);
+    });
+    const acts = steps.filter(s => s.kind === 'act').length, walked = steps.filter(s => s.kind === 'walk').reduce((a, s) => a + s.cost, 0);
+    document.getElementById('goapSum').textContent = `Plan for a ${NAME[goal]}: ${acts} actions, ${walked ? walked + ' steps walked' : 'no walking'}.`;
+    const left = Object.entries(inv).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${NAME[k]}`).join(', ');
+    document.getElementById('carry').textContent = `Afterwards Holt carries: ${left}.`;
+    // the walk: build the dotted path, then let Holt act it out
+    pos = [8, 1]; path = [];
+    let at = [8, 1];
+    const tl = [];
+    steps.forEach((s, i) => {
+      if (s.kind === 'walk') { const tiles = walkTiles(at, SPOT[s.to]); path.push(...tiles); tiles.forEach(t => tl.push({ i, tile: t })); at = SPOT[s.to]; }
+      else tl.push({ i, act: true });
+    });
+    const lis = [...ol.children];
+    if (REDUCED) { pos = at; lis.forEach(li => li.classList.add('done')); drawMap(); return; }
+    drawMap();
+    let k = 0;
+    (function stepAnim() {
+      if (k >= tl.length) { lis.forEach(li => { li.classList.remove('active'); li.classList.add('done'); }); return; }
+      const e = tl[k++];
+      lis.forEach((li, j) => { li.classList.toggle('active', j === e.i); if (j < e.i) li.classList.add('done'); });
+      if (e.tile) pos = e.tile;
+      drawMap();
+      anim = setTimeout(stepAnim, e.act ? 700 : 170);
+    })();
+  }
+  document.querySelectorAll('#goals .btn').forEach(btn => btn.addEventListener('click', () => {
+    document.querySelectorAll('#goals .btn').forEach(x => x.setAttribute('aria-pressed', String(x === btn)));
+    render(btn.dataset.goal);
+  }));
+  render('stone_axe');
+})();
+
+// ---------------------------------------------------------------- latency chart (real numbers from the live world)
+(function () {
+  const D = [
+    { m: 'Gemini 3.8 Flash', w: 'Google cloud', s: 2.9, n: 2483, hatch: true },
+    { m: 'gpt-oss 20B', w: 'your gaming PC (Ollama)', s: 10.8, n: 869, label: true },
+    { m: 'Qwen 3.5 4B', w: 'this Mac and the Air', s: 22.6, n: 4501 },
+    { m: 'Gemma 4 E4B', w: 'this Mac', s: 23.6, n: 4302 },
+    { m: 'gpt-oss 20B', w: 'this Mac (oMLX)', s: 42.0, n: 1198, label: true },
+    { m: 'Student ~1.7B', w: 'this Mac', s: null },
+  ];
+  const svg = document.getElementById('lat'), tip = document.getElementById('latTip'), fig = document.getElementById('latFig');
+  const L = 250, X1 = 690, MAX = 45, RH = 40, top = 14, H = top + D.length * RH + 40;
+  const sx = v => L + (v / MAX) * (X1 - L);
+  svg.setAttribute('viewBox', `0 0 720 ${H}`);
+  let g = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#1f72a8"/><rect width="3" height="6" fill="#f1e7d0"/></pattern></defs>`;
+  for (let v = 0; v <= 40; v += 10) {
+    g += `<line x1="${sx(v)}" y1="${top - 4}" x2="${sx(v)}" y2="${top + D.length * RH}" stroke="#cdbb98" stroke-width="1"/>`;
+    g += `<text x="${sx(v)}" y="${top + D.length * RH + 18}" font-size="13" fill="#5b5c74" text-anchor="middle" font-family="Atkinson Hyperlegible, sans-serif">${v} s</text>`;
+  }
+  g += `<text x="${X1}" y="${top + D.length * RH + 36}" font-size="13" fill="#5b5c74" text-anchor="end" font-family="Atkinson Hyperlegible, sans-serif">average seconds per thought (shorter is faster)</text>`;
+  D.forEach((d, i) => {
+    const y = top + i * RH + 12, bh = 14;
+    g += `<text x="0" y="${y + 6}" font-size="15" fill="#3a3a50" font-weight="700" font-family="Pixelify Sans, monospace">${d.m}</text>`;
+    g += `<text x="0" y="${y + 22}" font-size="13" fill="#5b5c74" font-family="Atkinson Hyperlegible, sans-serif">${d.w}</text>`;
+    if (d.s == null) {
+      g += `<rect x="${L}" y="${y - 2}" width="${sx(8) - L}" height="${bh}" fill="none" stroke="#3a3a50" stroke-width="2" stroke-dasharray="4 3"/>`;
+      g += `<text x="${sx(8) + 8}" y="${y + 10}" font-size="14" fill="#3a3a50" font-family="Atkinson Hyperlegible, sans-serif">to be measured: the goal is several times faster</text>`;
+      return;
+    }
+    const w = sx(d.s) - L, r = Math.min(4, w / 2);
+    const p = `M${L} ${y - 2}h${w - r}q${r} 0 ${r} ${r}v${bh - 2 * r}q0 ${r} -${r} ${r}h-${w - r}z`;
+    g += `<path d="${p}" fill="${d.hatch ? 'url(#hatch)' : '#1f72a8'}"/>`;
+    if (d.label) g += `<text x="${sx(d.s) + 8}" y="${y + 10}" font-size="14" font-weight="700" fill="#3a3a50" font-family="Atkinson Hyperlegible, sans-serif">${d.s.toFixed(1)} s</text>`;
+    if (d.hatch) g += `<text x="${sx(d.s) + 8}" y="${y + 10}" font-size="13" fill="#3a3a50" font-family="Atkinson Hyperlegible, sans-serif">cloud; can't be a teacher</text>`;
+    g += `<rect class="hit" data-i="${i}" tabindex="0" x="0" y="${y - 12}" width="720" height="${RH - 4}" fill="transparent" aria-label="${d.m} on ${d.w}: ${d.s} seconds per thought, ${d.n} thoughts"/>`;
+  });
+  svg.innerHTML = g;
+  function show(e, i) {
+    const d = D[i];
+    tip.innerHTML = `<b>${d.m}</b> · ${d.w}<br>${d.s.toFixed(1)} s per thought on average<br>${d.n.toLocaleString()} thoughts so far`;
+    const fr = fig.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+    const scale = sr.width / 720, y = (top + i * RH + 12) * scale + (sr.top - fr.top);
+    tip.style.left = Math.min(fr.width - 270, Math.max(0, sx(d.s) * scale - 60)) + 'px';
+    tip.style.top = (y - 74) + 'px';
+    tip.classList.add('show');
+  }
+  svg.querySelectorAll('.hit').forEach(h => {
+    const i = +h.dataset.i;
+    h.addEventListener('mouseenter', e => show(e, i)); h.addEventListener('focus', e => show(e, i));
+    h.addEventListener('mouseleave', () => tip.classList.remove('show')); h.addEventListener('blur', () => tip.classList.remove('show'));
+  });
+  document.getElementById('latTable').innerHTML = '<tr><th>Model</th><th>Where it thinks</th><th>Avg s per thought</th><th>Thoughts</th></tr>' +
+    D.map(d => `<tr><td>${d.m}</td><td>${d.w}</td><td>${d.s == null ? 'not yet' : d.s.toFixed(1)}</td><td>${d.n ? d.n.toLocaleString() : ''}</td></tr>`).join('');
+})();
+
+// ---------------------------------------------------------------- lesson: what gets graded
+(function () {
+  const btn = document.getElementById('gradeBtn'), lesson = document.getElementById('lesson');
+  btn.addEventListener('click', () => {
+    const on = btn.getAttribute('aria-pressed') !== 'true';
+    btn.setAttribute('aria-pressed', String(on)); lesson.classList.toggle('grade', on);
+    btn.textContent = on ? 'Graded: the answer only' : 'Show what gets graded';
+  });
+})();
+
+// ---------------------------------------------------------------- filter: real moves from the live world
+(function () {
+  const M = [
+    { who: 'Dov', model: 'gpt-oss 20B', what: 'craft 5 rope', said: 'You made 5 rope.', useful: 'a craft, and a plan step done' },
+    { who: 'Dov', model: 'gpt-oss 20B', what: 'gather grass (again)', said: 'You pull up grass and get 5 plant fiber and 2 carrot seeds.', repeat: true },
+    { who: 'Gil', model: 'gpt-oss 20B', what: 'give 3 sticks to the campfire', said: 'You relight the campfire with 3 stick. It will burn a good while longer.' },
+    { who: 'Gus', model: 'Qwen 3.5 4B', what: 'walk to Hux', said: 'You are already beside Hux.', noop: true },
+    { who: 'Sage', model: 'Qwen 3.5 4B', what: 'gather from the lock seal', said: "You can't gather anything from the lock seal.", fail: true },
+    { who: 'Ira', model: 'gpt-oss 20B', what: '(no answer)', said: 'TimeoutError: the thought never arrived.', empty: true },
+    { who: 'Hazel', model: 'Gemini 3.8 Flash', what: 'combine log, stick and stone', said: 'You made 1 campfire.', gemini: true },
+  ];
+  const R2 = { fail: 'rFail', noop: 'rNoop', useful: 'rUseful', repeat: 'rRepeat' };
+  const on = k => document.getElementById(R2[k]).checked;
+  function verdict(m) {
+    if (m.gemini) return { keep: 0, why: "Gemini: Google's terms" };
+    if (m.empty) return { keep: 0, why: 'no answer to learn from' };
+    if (m.fail && on('fail')) return { keep: 0, why: 'failed' };
+    if (m.noop && on('noop')) return { keep: 0, why: 'no-op' };
+    let w = 1, why = 'kept';
+    if (m.fail) why = 'kept: teaches a mistake';
+    if (m.noop) why = 'kept: teaches wasted turns';
+    if (m.useful && on('useful')) { w = 2; why = 'useful: ' + m.useful; }
+    if (m.repeat && on('repeat')) { w = 0.5; why = 'a repeat'; }
+    return { keep: w, why };
+  }
+  function draw() {
+    const box = document.getElementById('moves'); box.innerHTML = '';
+    let total = 0, kept = 0, bad = 0;
+    M.forEach(m => {
+      const v = verdict(m); total += v.keep; if (v.keep) kept++; if (v.keep && (m.fail || m.noop)) bad++;
+      const d = document.createElement('div'); d.className = 'move' + (v.keep ? '' : ' out');
+      const chip = v.keep ? `<span class="chip kept">✓ ${v.keep === 0.5 ? '×½' : '×' + v.keep}</span>` : `<span class="chip dropped">✕ dropped</span>`;
+      d.innerHTML = `<div class="who"><b>${m.who}</b><span class="small muted">${m.model}</span></div>
+        <div class="what"><code>${m.what}</code><br><span class="said">${m.said}</span></div>
+        <div style="text-align:right">${chip}<br><span class="small muted">${v.why}</span></div>`;
+      box.appendChild(d);
+    });
+    document.getElementById('tally').textContent = `${kept} of 7 moves become lessons, weight ${total % 1 ? total.toFixed(1) : total}` + (bad ? ` · ${bad} teach a bad habit` : '');
+    const bar = document.getElementById('tallyBar'); bar.className = 'bar' + (bad ? ' warn' : ''); bar.innerHTML = '';
+    for (let i = 0; i < 14; i++) { const s = document.createElement('i'); if (i < Math.round(total * 2)) s.className = 'on'; bar.appendChild(s); }
+  }
+  Object.values(R2).forEach(id => document.getElementById(id).addEventListener('change', draw));
+  draw();
+})();
+
+// ---------------------------------------------------------------- tokens: surprise before and after
+(function () {
+  const P = {
+    before: [['say', .34], ['explore', .22], ['gather', .18], ['craft', .09], ['walk_to', .07], ['others', .10]],
+    after: [['craft', .81], ['gather', .08], ['combine', .05], ['say', .02], ['walk_to', .01], ['others', .03]],
+  };
+  function draw(phase) {
+    const box = document.getElementById('guesses'); box.innerHTML = '';
+    P[phase].forEach(([t, p]) => {
+      const d = document.createElement('div'); d.className = 'guess' + (t === 'craft' ? ' right' : '');
+      d.innerHTML = `<span class="lbl">${t}${t === 'craft' ? ' ✓' : ''}</span><span class="track"><span class="fill" style="display:block;width:${p * 100}%"></span></span><span class="pct">${Math.round(p * 100)}%</span>`;
+      box.appendChild(d);
+    });
+    const pc = P[phase].find(x => x[0] === 'craft')[1], s = -Math.log(pc);
+    document.getElementById('surpriseNum').textContent = `Surprise ${s.toFixed(1)}`;
+    const bar = document.getElementById('surpriseBar'); bar.innerHTML = '';
+    for (let i = 0; i < 12; i++) { const e = document.createElement('i'); if (i < Math.round(s / 3 * 12)) e.className = 'on'; bar.appendChild(e); }
+  }
+  document.querySelectorAll('[data-phase]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-phase]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    draw(b.dataset.phase);
+  }));
+  draw('before');
+})();
+
+// ---------------------------------------------------------------- LoRA rank
+(function () {
+  const RANKS = [2, 4, 8, 16, 32, 64], SHOW = [1, 2, 3, 5, 8, 12], d = 2048;
+  const cv = document.getElementById('loraCv'), c = ctx2d(cv), r0 = rng(4);
+  const GLYPH = { W: ['#...#', '#...#', '#.#.#', '#.#.#', '.#.#.'], B: ['###.', '#..#', '###.', '#..#', '###.'], A: ['.##.', '#..#', '####', '#..#', '#..#'] };
+  function letter(c, ch, x, y) { GLYPH[ch].forEach((row, j) => [...row].forEach((p, i) => { if (p === '#') R(c, x + i, y + j, 1, 1, INK); })); }
+  const noise = Array.from({ length: 48 * 48 }, () => r0());
+  function draw(k) {
+    const r = RANKS[k], w = SHOW[k];
+    c.clearRect(0, 0, 276, 112);
+    // W: frozen grid with a lock
+    R(c, 0, 1, 98, 98, INK);
+    for (let j = 0; j < 48; j++) for (let i = 0; i < 48; i++) { const v = noise[j * 48 + i]; R(c, 1 + i * 2, 2 + j * 2, 2, 2, v < .33 ? '#8d8fa3' : v < .66 ? '#a3a5b8' : '#b9bccb'); }
+    R(c, 40, 38, 18, 14, INK); R(c, 42, 40, 14, 10, '#f2b22b'); R(c, 44, 30, 10, 2, INK); R(c, 44, 30, 2, 9, INK); R(c, 52, 30, 2, 9, INK); R(c, 48, 43, 2, 4, INK);
+    // plus
+    R(c, 106, 48, 10, 2, INK); R(c, 110, 44, 2, 10, INK);
+    // B: tall and thin (2048 x r)
+    const bx = 124;
+    R(c, bx, 1, w * 2 + 2, 98, INK);
+    for (let j = 0; j < 48; j++) for (let i = 0; i < w; i++) R(c, bx + 1 + i * 2, 2 + j * 2, 2, 2, (i + j) % 3 ? '#9bc246' : '#7fae32');
+    // times
+    const tx = bx + w * 2 + 10;
+    for (let i = 0; i < 7; i++) { R(c, tx + i, 45 + i, 2, 2, INK); R(c, tx + 6 - i, 45 + i, 2, 2, INK); }
+    // A: short and wide (r x 2048)
+    const ax = tx + 16;
+    R(c, ax, 1, 98, w * 2 + 2, INK);
+    for (let j = 0; j < w; j++) for (let i = 0; i < 48; i++) R(c, ax + 1 + i * 2, 2 + j * 2, 2, 2, (i + j) % 3 ? '#9bc246' : '#7fae32');
+    letter(c, 'W', 46, 104); letter(c, 'B', bx + w - 1, 104); letter(c, 'A', ax + 47, w * 2 + 8);
+    const n = 2 * d * r;
+    document.getElementById('rankV').textContent = r;
+    document.getElementById('loraN').textContent = n.toLocaleString();
+    document.getElementById('loraP').textContent = (n / (d * d) * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+    cv.setAttribute('aria-label', `The frozen grid W, plus strips B (2,048 by ${r}) times A (${r} by 2,048).`);
+  }
+  const s = document.getElementById('rank');
+  s.addEventListener('input', () => draw(+s.value));
+  draw(+s.value);
+})();
+
+// ---------------------------------------------------------------- overfitting sketch
+(function () {
+  const svg = document.getElementById('ovf');
+  const x0 = 60, x1 = 600, y0 = 210, y1 = 26, N = 60;
+  const X = i => x0 + (i / N) * (x1 - x0), Y = v => y0 - v * (y0 - y1);
+  const train = i => 0.08 + 0.82 * Math.exp(-i / 13);
+  const held = i => 0.22 + 0.68 * Math.exp(-i / 11) + 0.00006 * Math.pow(Math.max(0, i - 18), 2.4);
+  let best = 0; for (let i = 0; i <= N; i++) if (held(i) < held(best)) best = i;
+  const line = f => Array.from({ length: N + 1 }, (_, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(Math.min(1, f(i))).toFixed(1)}`).join('');
+  const t = 'font-family="Atkinson Hyperlegible, sans-serif"';
+  svg.innerHTML = `
+    <line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="#3a3a50" stroke-width="2"/>
+    <line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1 - 8}" stroke="#3a3a50" stroke-width="2"/>
+    <text x="${x1}" y="${y0 + 24}" font-size="13" fill="#5b5c74" text-anchor="end" ${t}>training time →</text>
+    <text x="${x0 - 10}" y="${y1}" font-size="13" fill="#5b5c74" text-anchor="end" ${t}>surprise</text>
+    <text x="${x0 - 10}" y="${y1 + 16}" font-size="13" fill="#5b5c74" text-anchor="end" ${t}>(loss)</text>
+    <line x1="${X(best)}" y1="${y0}" x2="${X(best)}" y2="${y1 + 4}" stroke="#3a3a50" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="${X(best) + 8}" y="${y1 + 14}" font-size="14" font-weight="700" fill="#3a3a50" ${t}>keep this checkpoint</text>
+    <path d="${line(train)}" fill="none" stroke="#1f72a8" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="${line(held)}" fill="none" stroke="#c0702a" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="${X(best)}" cy="${Y(held(best))}" r="5" fill="#c0702a" stroke="#f1e7d0" stroke-width="2"/>
+    <text x="${X(N) - 4}" y="${Y(train(N)) - 10}" font-size="14" font-weight="700" fill="#3a3a50" text-anchor="end" ${t}>on its lessons</text>
+    <text x="${X(N) - 4}" y="${Y(Math.min(1, held(N))) - 12}" font-size="14" font-weight="700" fill="#3a3a50" text-anchor="end" ${t}>on unseen worlds: rising means memorizing</text>
+    <g transform="translate(${x0 + 20}, ${y1 - 8})" ${t} font-size="13" fill="#3a3a50">
+      <rect x="0" y="-9" width="18" height="4" fill="#1f72a8"/><text x="24" y="-3">lessons it trains on</text>
+      <rect x="160" y="-9" width="18" height="4" fill="#c0702a"/><text x="184" y="-3">held-back practice worlds</text>
+    </g>`;
+})();
+</script>
+</body>
+</html>
