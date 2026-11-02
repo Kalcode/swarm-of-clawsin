@@ -152,6 +152,8 @@ The invention becomes a real recipe in that world. Anyone can learn it by watchi
 
 The viewer draws each invention's icon by combining its ingredients' sprites, so creatures' inventions come with their own art. Inventions are saved with the world.
 
+Beliefs can become inventions. When creatures chase a recipe that doesn't exist (one world grew a myth about a "berry-rope"), the world tells them no one has made it yet and that they could invent it, so a shared myth can turn into a real thing.
+
 This is the first, safe rung of the self-improvement ladder from the research: data only, never code. Later rungs (inventions with new effects, sprites drawn by an image model, agent-written mods behind tests and your approval) build on the same record.
 
 ## Terminals and the scripting arc
