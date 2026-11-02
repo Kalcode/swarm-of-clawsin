@@ -9,3 +9,4 @@ worlds/
 inbox
 web/assets/limezu/
 docs/media/
+.env
