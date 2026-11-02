@@ -14,7 +14,7 @@ from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, Wo
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
-from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, ITEM_SOURCES, SOURCE_PRODUCTS, STORES,
+from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, ITEM_SOURCES, KINDS, SOURCE_PRODUCTS, STORES,
                        VERB_ALIASES, VERBS, YIELDS, register_verb)
 
 _CORE_ALIASES = {  # other words minds use for the core verbs (registered with them below)
@@ -50,6 +50,18 @@ ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "pla
 ANIMAL_LURE = ANIMAL_FOOD - {"plant_fiber"}  # what a tamed animal follows its owner for (fiber feeds it, but no lure)
 EMPTY_KINDS = {"bush_empty", "stump"}
 TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
+DRINKS: dict[str, str | None] = {}  # packs: a carried drink -> what's left once it's drunk (food: pot of water -> clay pot)
+
+
+def catch_fish(world: World, c: Creature) -> str | None:
+    """What bites on one cast of a fishing line beside water: an item id, or None. A plain fish half the time; a pack
+    may replace this function (the food pack: species by water type and time of day)."""
+    return "fish" if world.rng.random() < 0.5 else None
+
+
+def is_wild(kind: str) -> bool:
+    """Wild game (a kind with "wild" in its data): shy of everyone, never tamed or milked; it can only be hunted."""
+    return bool(KINDS.get(kind, {}).get("wild"))
 
 
 @dataclass
@@ -665,6 +677,8 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                     return _walk_then(world, c, fresh, it)
         if obj is None:
             far = find_object(world, c, target, kinds=GATHERABLE) or find_object(world, c, target)
+            if far and is_wild(far.kind):  # no chasing game across the land
+                return _wild_refusal(far)
             if far:
                 return _walk_then(world, c, far, it)
     else:
@@ -709,12 +723,13 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                 return ActionResult(False, "There's no water in sight.")
             if not _has_tool(c, ("fishing_rod",)):
                 return ActionResult(False, "Fish dart about in the water, too quick to grab by hand. You'd need something to catch them with. (To drink, use drink.)")
-            caught = sum(1 for _ in range(it.count) if world.rng.random() < 0.5)
+            caught = Counter(bite for bite in (catch_fish(world, c) for _ in range(it.count)) if bite)
             if caught:
-                c.inventory["fish"] += caught
-                c.stats["gathered"] += caught
-                world.emit("gather", c.id, c.x, c.y, f"{c.name} caught {caught} fish.")
-            msg = f"You cast your line and catch {caught} fish." if caught else "You fish patiently but catch nothing this time."
+                c.inventory.update(caught)
+                c.stats["gathered"] += sum(caught.values())
+                world.emit("gather", c.id, c.x, c.y, f"{c.name} caught {_items_text(world, caught)}.")
+            msg = (f"You cast your line and catch {_items_text(world, caught)}." if caught
+                   else "You fish patiently but catch nothing this time.")
             return _busy(c, 4 * it.count, "fishing", msg)
         if not target:
             return ActionResult(False, "There's nothing to gather right beside you. Walk to a tree, bush or rock first.")
@@ -781,6 +796,9 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             got.update(_harvest(world, obj))
             break
         elif obj.kind in ANIMALS:
+            if is_wild(obj.kind):
+                world.move_object(obj, *_flee(world, c, obj))
+                return _wild_refusal(obj)
             if not obj.data.get("tamed_by"):
                 world.move_object(obj, *_flee(world, c, obj))
                 return ActionResult(False, f"The wild {obj.kind} shies away from you. Animals might trust someone who feeds them.")
@@ -959,8 +977,20 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _drink(world: World, c: Creature, it: Intention) -> ActionResult:
-    if _nearest_tile(world, c, "wW", 1) is None:
-        return ActionResult(False, "There's no water within reach. Walk to the water first.")
+    water_kinds = {k for k, spec in KINDS.items() if spec.get("water")}  # a well, say
+    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds):
+        held = next((i for i in DRINKS if c.inventory.get(i, 0) > 0), None)
+        if held is None:
+            return ActionResult(False, "There's no water within reach. Walk to the water first.")
+        c.inventory[held] -= 1
+        if c.inventory[held] <= 0:
+            del c.inventory[held]
+        left = DRINKS[held]
+        if left:
+            c.inventory[left] += 1
+        c.energy = min(100.0, c.energy + 10)
+        empty = f" Your {world.catalog.name(left)} is empty now." if left else ""
+        return ActionResult(True, f"You drink from your {world.catalog.name(held)} and feel refreshed.{empty}")
     c.energy = min(100.0, c.energy + 10)
     return ActionResult(True, "You drink cool water and feel refreshed.")
 
@@ -994,7 +1024,16 @@ def _wish(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f'You whisper a wish to the sky: "{text}".')
 
 
+def _wild_refusal(animal: WorldObject) -> ActionResult:
+    return ActionResult(False, f"The {animal.name} bolts before you get near. It's wild game, shy of everyone: it won't "
+                               f"eat from anyone's hand, but it could be hunted.")
+
+
 def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) -> ActionResult:
+    if is_wild(animal.kind):  # before walking over: game never waits to be fed
+        if dist(c.x, c.y, animal.x, animal.y) <= 1:
+            world.move_object(animal, *_flee(world, c, animal))
+        return _wild_refusal(animal)
     if dist(c.x, c.y, animal.x, animal.y) > 1:
         return _walk_then(world, c, animal, it)
     name = it.items[0] if it.items else it.text
@@ -1019,8 +1058,8 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
         c.stats["tamed"] += 1
         world.emit("tame", c.id, animal.x, animal.y, f"{c.name} tamed a {animal.kind}!", animal=animal.kind)
         gift = {"chicken": "It will lay eggs you can gather.", "cow": "You can gather milk from it.",
-                "sheep": "You can shear its wool with a knife."}[animal.kind]
-        return ActionResult(True, f"The {animal.kind} trusts you now and stays near this spot. {gift}")
+                "sheep": "You can shear its wool with a knife."}.get(animal.kind, "")  # a pack's animal: no gift text
+        return ActionResult(True, f"The {animal.kind} trusts you now and stays near this spot. {gift}".strip())
     return ActionResult(True, f"The {animal.name} eats warily from your hand. Maybe it will trust you if you feed it again.")
 
 

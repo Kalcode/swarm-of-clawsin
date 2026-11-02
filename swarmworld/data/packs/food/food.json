@@ -1,0 +1,34 @@
+{
+  "fishing": {
+    "about": "What bites on one cast, by the water beside you (deep if any deep water is within reach) and the time of day. bite is the chance of a bite; then a catch is drawn by weight among those that fit.",
+    "bite": {"dawn": 0.6, "day": 0.5, "dusk": 0.6, "night": 0.4},
+    "catches": [
+      {"item": "fish", "water": ["shallow", "deep"], "times": ["dawn", "day", "dusk", "night"], "weight": 2},
+      {"item": "perch", "water": ["shallow"], "times": ["dawn", "day", "dusk"], "weight": 3},
+      {"item": "trout", "water": ["deep"], "times": ["dawn", "day", "dusk"], "weight": 3},
+      {"item": "eel", "water": ["shallow", "deep"], "times": ["night"], "weight": 4}
+    ]
+  },
+  "keeping": {
+    "about": "Raw meat and fish spoil this many ticks after they were caught (carried, stored or on the ground). Cooked, smoked and dried food keeps.",
+    "perishable": ["meat", "fish", "perch", "trout", "eel"],
+    "spoils_after": 2400,
+    "warn_after": 1800
+  },
+  "drying": {
+    "about": "On a drying rack, raw meat and fish become these after this many ticks of dry weather (half as fast at night, twice as fast in wind or heat).",
+    "ticks": 360,
+    "makes": {"meat": "jerky", "fish": "dried_fish", "perch": "dried_fish", "trout": "dried_fish", "eel": "dried_fish"},
+    "wet_weather": ["rain", "drizzle", "storm", "fog"],
+    "fast_weather": ["wind", "heat"]
+  },
+  "water": {
+    "about": "An empty container -> the same, full of water. A full one is drunk back to empty.",
+    "fill": {"clay_pot": "water_pot"}
+  },
+  "weapons": {
+    "about": "Hunting weapons: how many steps they reach, and what each shot uses up. An invention whose name has the word counts too.",
+    "spear": {"reach": 3},
+    "sling": {"reach": 5, "ammo": "stone"}
+  }
+}
