@@ -27,6 +27,7 @@ def _creature_dict(c: Creature) -> dict:
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
         "spots": {k: list(v) for k, v in c.spots.items()},
         "minds": c.minds, "stats_base": dict(c.stats_base), "harness": dict(c.harness),
+        "landmarks_seen": sorted(c.landmarks_seen),
     }
 
 
@@ -111,7 +112,8 @@ def restore(st: "ServerState", path: Path) -> None:
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
                      spots={k: tuple(v) for k, v in cd.get("spots", {}).items()},
-                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})))
+                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})), harness=dict(cd.get("harness", {})),
+                     landmarks_seen=set(cd.get("landmarks_seen", [])))
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r

@@ -211,6 +211,18 @@ def plan_lines(memory: Memory) -> list[str]:
             "Set step_done to true when this action finishes the NOW step.)"]
 
 
+RECENT_WITH_RECALL = 6  # the recall layer makes room for itself by showing fewer recent memories
+TIPS_WITH_RECALL = 4
+
+
+def recent_limit(layers) -> int:
+    return RECENT_WITH_RECALL if "recall" in layers else 10
+
+
+def tip_limit(layers) -> int:
+    return TIPS_WITH_RECALL if "recall" in layers else 5
+
+
 RECALL_HINT = "(You can think back with recall: target is what you want to remember.)"
 
 
@@ -235,7 +247,7 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
         lines.append("- Recipes you know: " + "; ".join(known))
     if memory.people:
         lines.append("- People: " + "; ".join(f"{n} ({note})" for n, note in memory.people.items()))
-    recent = curated_recent(memory)
+    recent = curated_recent(memory, recent_limit(layers))
     if recent:
         lines.append("")
         lines.append("Recent memories (oldest first):")
@@ -251,7 +263,7 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     if wl:
         lines.append(wl)
     if "disclose" in layers:
-        tips = relevant(world, c)
+        tips = relevant(world, c, tip_limit(layers))
         if tips:
             lines.append("")
             lines.append("Things you could also do here:")

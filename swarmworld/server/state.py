@@ -14,7 +14,7 @@ from aiohttp import web
 
 from ..mind.memory import Memory
 from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages,
-                            curated_recent, make_persona)
+                            curated_recent, make_persona, recent_limit, tip_limit)
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore, relevant
 from ..world.actions import ActionResult, apply_intention, parse_intention
@@ -27,6 +27,8 @@ from .metrics import Metrics
 from .wishes import Wishes
 
 AUTO_RECALL = 3
+AUTO_LINE = 140
+HUNGRY = 40
 RECALL_ASKED = 5
 RECALL_LINE = 160
 MIN_GAP_TICKS = 4
@@ -127,7 +129,7 @@ class ServerState:
         mem = self.memory(c.id)
         mem.add(self.world.tick, text, importance)
         if index:
-            self.recall.add(c.id, kind, text, self.world.tick, importance)
+            self.recall.add(c.id, kind, text, self.world.tick, importance, skip_repeat=True)
         m = SAYS_RE.match(text)
         if m:
             mem.note_person(m.group(1), f'last said: "{m.group(2)[:70]}"')
@@ -354,6 +356,8 @@ class ServerState:
             where = "right here" if d == 0 else f"about {d} steps {direction(x - c.x, y - c.y)}"
             out.append(("place", f"{spot_name(kind)}, {where} of you (last seen {max(0, self.world.tick - t)} ticks ago)"))
         for lm in getattr(self.world, "landmarks", []):
+            if lm["name"] not in c.landmarks_seen:  # only what it has been near
+                continue
             d = dist(c.x, c.y, lm["x"], lm["y"])
             out.append(("place", f"{lm['name']}, about {d} steps {direction(lm['x'] - c.x, lm['y'] - c.y)} of you"))
         return out
@@ -368,16 +372,31 @@ class ServerState:
                                   extra=[*self._places(c), *self._recipes(c)])
         return [(d.kind, d.text[:RECALL_LINE]) for d in hits]
 
+    @staticmethod
+    def _recall_note(it, message: str) -> str:
+        """What a creature keeps of a recall: one short line, not the whole answer."""
+        found = message.splitlines()[1:]
+        query = (it.target or it.text)[:40]
+        if not found:
+            return f'You tried to think back about "{query}", but nothing came.'
+        more = f"; and {len(found) - 1} more" if len(found) > 1 else ""
+        return f'You thought back about "{query}": {found[0][:90]}{more}.'[:160]
+
     def auto_recall(self, c: Creature, mem: Memory, recent: list[str]) -> list[tuple[str, str]]:
         """Up to 3 things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
-        words = [mem.goal]
+        aim = [mem.goal]
         if mem.plan and mem.plan_step < len(mem.plan):
-            words.append(mem.plan[mem.plan_step])
+            aim.append(mem.plan[mem.plan_step])
+        stable = " ".join(w for w in aim if w)  # steady across turns, so its embedding is reused
+        words = [stable]
         words += [o.name for o, _, _ in visible_objects(self.world, c)]
         words += [o.name for o, _, _ in visible_creatures(self.world, c)]
+        if c.satiety < HUNGRY:
+            words.append("food eat berries")
         query = " ".join(dict.fromkeys(w for w in words if w))
-        hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent)
-        return [(d.kind, d.text[:RECALL_LINE]) for d in hits]
+        hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent,
+                                  semantic=stable, lore=False)  # lore is already shown as techniques
+        return [(d.kind, d.text[:AUTO_LINE]) for d in hits]
 
     def make_job(self, node: Node, c: Creature) -> dict:
         mem = self.memory(c.id)
@@ -394,9 +413,9 @@ class ServerState:
             self.last.setdefault(c.id, {})["perception"] = perception
             recalled: list[tuple[str, str]] = []
             if "recall" in layers:
-                recalled = self.auto_recall(c, mem, curated_recent(mem))
+                recalled = self.auto_recall(c, mem, curated_recent(mem, recent_limit(layers)))
             if "disclose" in layers:
-                tips = set(relevant(self.world, c))
+                tips = set(relevant(self.world, c, tip_limit(layers)))
                 shown = [t.name for t in TECHNIQUES if t.line in tips]
             kind, messages, schema, max_tokens = "act", build_act_messages(
                 self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled]), \
@@ -476,9 +495,11 @@ class ServerState:
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
         if res.noop:
             self.metrics.bump(c.model, "noops")
-        if res.ok and res.instant:
+        if res.ok and res.instant and it.action == "recall":
+            self._remember(c, self._recall_note(it, res.message), 1, index=False)
+        elif res.ok and res.instant:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1,
-                           kind="read" if it.action == "read" else "memory", index=it.action != "recall")
+                           kind="read" if it.action == "read" else "memory")
         elif not res.ok:
             self._remember(c, f"You tried to {it.summary()}, but: {res.message}", 1)
         if plan_on and it.step_done and res.ok and not res.noop and mem.plan:

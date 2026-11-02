@@ -109,6 +109,7 @@ class Creature:
     minds: list = field(default_factory=list)  # earlier models that thought for this body: {"model", "until"}
     stats_base: Counter = field(default_factory=Counter)  # stats earned before the current mind took over
     stats: Counter = field(default_factory=Counter)
+    landmarks_seen: set = field(default_factory=set)  # names of landmarks it has been near
     last_recall: tuple[str, int, str] | None = None  # (query lowercased, tick, answer) of the last recall action
     harness: dict = field(default_factory=dict)  # layer -> decided on/off for this creature (the trial split)
 

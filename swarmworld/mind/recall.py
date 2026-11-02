@@ -64,12 +64,14 @@ class RecallIndex:
     def _put(self, doc: Doc) -> None:
         self._tokens[doc.key] = tokenize(doc.text)
 
-    def add(self, cid: str, kind: str, text: str, tick: int, importance: int = 1) -> None:
+    def add(self, cid: str, kind: str, text: str, tick: int, importance: int = 1, skip_repeat: bool = False) -> None:
         text = text.strip()
         if not text:
             return
-        doc = Doc(self._new_key(cid), kind, text, tick, importance)
         docs = self._docs.setdefault(cid, [])
+        if skip_repeat and docs and docs[-1].text == text:  # a repeat of the previous doc adds nothing
+            return
+        doc = Doc(self._new_key(cid), kind, text, tick, importance)
         docs.append(doc)
         self._put(doc)
         if len(docs) > self.cap:
@@ -97,11 +99,16 @@ class RecallIndex:
         now: int = 0,
         exclude: Iterable[str] = (),
         extra: Iterable[tuple[str, str]] = (),
+        semantic: str | None = None,
+        lore: bool = True,
     ) -> list[Doc]:
+        """`query` drives keywords; `semantic` (default: the same text) is what gets embedded, so a caller can
+        keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out."""
         qtokens = tokenize(query)
-        qnorm = " ".join(query.lower().split())
+        sem = query if semantic is None else semantic
+        qnorm = " ".join(sem.lower().split())
         skip = set(exclude)
-        docs: list[Doc] = [*self._docs.get(cid, ()), *self._lore]
+        docs: list[Doc] = [*self._docs.get(cid, ()), *(self._lore if lore else ())]
         docs = [d for d in docs if d.key not in skip and d.text not in skip]
         extras = []
         for kind, text in extra:
@@ -109,12 +116,12 @@ class RecallIndex:
                 doc = Doc(f"extra:{len(extras)}", kind, text.strip(), now, 1)
                 extras.append(doc)
         docs += extras
-        if not docs or not qnorm:
+        if not docs or not (qtokens or qnorm):
             return []
 
-        qvec = self._qvecs.get(qnorm)
-        if qvec is None and qnorm not in self._pending_q:
-            self._pending_q[qnorm] = query.strip()
+        qvec = self._qvecs.get(qnorm) if qnorm else None
+        if qvec is None and qnorm and qnorm not in self._pending_q:
+            self._pending_q[qnorm] = sem.strip()
             while len(self._pending_q) > MAX_QUERY_CACHE:  # embedder down: don't queue forever
                 self._pending_q.pop(next(iter(self._pending_q)))
 
@@ -134,7 +141,14 @@ class RecallIndex:
         score = score * (1 + 0.15 * imp) * 0.5 ** (age / HALF_LIFE)
 
         order = np.argsort(-score, kind="stable")
-        out = [docs[i] for i in order[:k] if score[i] > 0]
+        out: list[Doc] = []
+        seen: set[str] = set()
+        for i in order:
+            if score[i] <= 0 or len(out) >= k:
+                break
+            if docs[i].text not in seen:  # identical texts: keep the best-scoring one
+                seen.add(docs[i].text)
+                out.append(docs[i])
         return out
 
     def _bm25(self, qtokens: list[str], docs: list[Doc]) -> np.ndarray:
@@ -193,8 +207,7 @@ class RecallIndex:
     def to_dict(self) -> dict:
         return {
             "docs": {c: [[d.kind, d.text, d.tick, d.importance] for d in ds] for c, ds in self._docs.items()},
-            "lore": [[d.key[len("lore:"):], d.text] for d in self._lore],
-        }
+        }  # lore is not saved: the server reloads it from code
 
     def load(self, d: dict) -> None:
         self.__init__(self.cap)

@@ -125,8 +125,12 @@ def test_index_roundtrip():
     other = RecallIndex()
     other.load(idx.to_dict())
     assert other.to_dict() == idx.to_dict()
+    assert "lore" not in idx.to_dict()  # reloaded from code, not saved
     assert other.search("a", "clay", now=60)[0].text.startswith("the clay bank")
-    assert other.search("zed", "dry wood", now=60)[0].kind == "lore"
+    assert not other.search("zed", "dry wood", now=60)
+    old = RecallIndex()
+    old.load({"docs": {}, "lore": [["fire", "fire needs dry wood"]]})  # older saves still load
+    assert old.search("zed", "dry wood", now=60)[0].kind == "lore"
     assert other.pending()  # vectors recomputed after restart
 
 
@@ -162,3 +166,19 @@ def test_pending_queries_are_capped():
     queued = [k for k, _ in idx.pending(10_000) if k.startswith("q:")]
     assert len(queued) == MAX_QUERY_CACHE
     assert queued[-1] == f"q:clay question number {MAX_QUERY_CACHE * 3 - 1}"  # newest kept, oldest dropped
+
+
+def test_search_returns_each_text_once():
+    idx = RecallIndex()
+    for t in (10, 20, 30):
+        idx.add("a", "memory", "found berries by the creek", tick=t)
+    idx.add("a", "memory", "berries grow near the creek bend", tick=5)
+    texts = [d.text for d in idx.search("a", "berries creek", k=3, now=40)]
+    assert len(texts) == len(set(texts)) == 2
+
+
+def test_semantic_text_is_what_gets_queued():
+    idx = make_index(3)
+    idx.search("a", "make a pot oak tree Mara", now=60, semantic="make a pot")
+    assert [k for k, _ in idx.pending() if k.startswith("q:")] == ["q:make a pot"]
+    assert idx.search("a", "clay", now=60, lore=False)
