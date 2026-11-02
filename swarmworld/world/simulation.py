@@ -15,7 +15,7 @@ SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starvi
 ENERGY_EVERY = 30  # about 40 energy a day: a creature needs a good rest roughly once a day
 STARVE_EVERY = 4
 IDLE_TICKS = 30
-SLEEP_BELOW = 55  # energy under which a creature with nothing to do will sleep through the night
+SLEEP_BELOW = {"reactive": 92, "proactive": 75}  # at night, idle creatures under this energy turn in
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -169,7 +169,8 @@ class Simulation:
     def _maybe_sleep(self, c: Creature) -> None:
         """At night a tired creature with nothing to do lies down and sleeps until dawn or until it's rested."""
         w = self.world
-        if c.activity or c.thinking or c.energy >= SLEEP_BELOW or w.clock()["phase"] != "night":
+        bedtime = SLEEP_BELOW.get((c.persona or {}).get("initiative"), 85)
+        if c.activity or c.thinking or c.energy >= bedtime or w.clock()["phase"] != "night":
             return
         from .actions import station_near
         snug = station_near(w, c, "bed") or self.exposure(c) is None
