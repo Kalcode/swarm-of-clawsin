@@ -46,6 +46,17 @@ uv run python -m swarmworld.node --model gemma-4-e4b-it-4bit:12 --model Qwen3.5-
 
 No model handy? `uv run python -m swarmworld.node --mock 12` runs rule-based creatures so you can watch the world work.
 
+### On Windows
+
+Install [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com), pull a model (`ollama pull qwen3.5:9b`, or `gpt-oss:20b` with 16 GB of GPU memory), then in PowerShell:
+
+```powershell
+.\start-world.ps1                                   # world + creatures on the first model Ollama has, opens the viewer
+$env:MODEL = "gpt-oss:20b"; $env:CREATURES = "12"; .\start-world.ps1 --lan   # choose the model; let the house join
+```
+
+It takes the same flags and settings as `start-world.sh` (`--fresh`, `--lan`, `--no-inspiration`; `MODEL2`, `MODEL_SERVER`, `ADOPT`, `HARNESS`...). If Ollama isn't running it starts `ollama serve` itself with the settings the creatures need (8k context, 8 requests at once); Ollama's tray app ignores those settings, so quit it first for best results. Ctrl+C stops everything, and the world saves first.
+
 ## How many creatures this Mac can run
 
 Measured on the M1 Max (32-core GPU, 32 GB) with oMLX 0.7.3 (details in [bench/RESULTS.md](bench/RESULTS.md)):
