@@ -18,7 +18,7 @@ from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, 
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore, relevant
 from ..world.actions import ActionResult, apply_intention, parse_intention
-from ..world.model import Creature
+from ..world.model import OBJECT_NAMES, Creature
 from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
 from ..world.simulation import Simulation
 from ..world.terrain import generate_world
@@ -633,6 +633,68 @@ class ServerState:
         cx, cy = (int(x), int(y)) if x is not None and y is not None else w.center
         w.emit("voice", None, cx, cy, f'A voice from the sky: "{text}"', line=text)
         return reached
+
+    # ------------------------------------------------------------ steward
+    def _find_creature(self, ref: str) -> Creature:
+        ref = str(ref or "").strip()
+        c = self.world.creatures.get(ref) or next((c for c in self.world.creatures.values() if c.name.lower() == ref.lower()), None)
+        if c is None:
+            raise ValueError(f"no creature '{ref}'")
+        return c
+
+    def _free_tile(self, x, y) -> tuple[int, int]:
+        x, y = int(x), int(y)
+        w = self.world
+        if not w.in_bounds(x, y) or not w.walkable(x, y) or w.object_at(x, y) or w.occupied(x, y) or w.tile(x, y) in "wW":
+            raise ValueError(f"({x}, {y}) isn't free land")
+        return x, y
+
+    def admin(self, action: str, body: dict) -> dict:
+        """Steward actions for testing and managing the live world. Each leaves a "steward" event in the log."""
+        w = self.world
+        if action == "give":
+            c = self._find_creature(body.get("creature"))
+            iid = w.catalog.resolve(str(body.get("item") or ""))
+            if iid is None:
+                raise ValueError(f"there's no '{body.get('item')}' in this world")
+            n = max(1, min(20, int(body.get("count") or 1)))
+            c.inventory[iid] += n
+            note = f"gave {c.name} {n} {w.catalog.name(iid)}"
+            out = {"creature": c.name, "inventory": dict(c.inventory)}
+        elif action == "place":
+            kind = str(body.get("kind") or "")
+            if kind not in OBJECT_NAMES:
+                raise ValueError(f"unknown object kind '{kind}'")
+            x, y = self._free_tile(body.get("x"), body.get("y"))
+            obj = w.add_object(kind, x, y, **dict(body.get("data") or {}))
+            note = f"placed a {obj.name} at ({x}, {y})"
+            out = {"object": {"id": obj.id, "kind": obj.kind, "x": x, "y": y}}
+        elif action == "remove":
+            oid = str(body.get("object") or "")
+            obj = w.objects.get(oid)
+            if obj is None:
+                raise ValueError(f"no object '{oid}'")
+            w.remove_object(oid)
+            note = f"removed the {obj.name} at ({obj.x}, {obj.y})"
+            out = {"removed": oid}
+        elif action == "move":
+            c = self._find_creature(body.get("creature"))
+            x, y = self._free_tile(body.get("x"), body.get("y"))
+            c.x, c.y, c.activity = x, y, None
+            note = f"moved {c.name} to ({x}, {y})"
+            out = {"creature": c.name, "x": x, "y": y}
+        elif action == "weather":
+            weather = str(body.get("weather") or "")
+            if weather not in ("rain", "clear"):
+                raise ValueError("weather is 'rain' or 'clear'")
+            w.weather = weather
+            w.weather_until = w.tick + max(1, min(2400, int(body.get("ticks") or 300)))
+            note = f"set the weather to {weather} for {w.weather_until - w.tick} ticks"
+            out = {"weather": weather, "until": w.weather_until}
+        else:
+            raise KeyError(action)
+        w.emit("steward", None, *w.center, f"Steward {note}.", action=action)
+        return {"ok": True, **out}
 
     def _sky_said(self, text: str, who: list[str] | None, wish: str = "") -> None:
         self.sky_words = (self.sky_words + [{"text": text, "tick": self.world.tick, "who": who, "wish": wish}])[-10:]

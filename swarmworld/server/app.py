@@ -203,6 +203,21 @@ async def api_wish_answer(request: web.Request) -> web.Response:
     return web.json_response(out)
 
 
+async def api_admin(request: web.Request) -> web.Response:
+    """Steward actions (give, place, remove, move, weather) for testing and managing the world. This machine only."""
+    st = request.app[STATE]
+    if not is_direct_local(request):
+        raise web.HTTPForbidden(text="steward actions only work from the world's own machine")
+    try:
+        body = await request.json()
+        out = st.admin(request.match_info["action"], body if isinstance(body, dict) else {})
+    except KeyError:
+        raise web.HTTPNotFound(text="unknown steward action; try give, place, remove, move or weather")
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "bad request")
+    return web.json_response(out)
+
+
 async def api_society(request: web.Request) -> web.Response:
     return web.json_response(request.app[STATE].society())
 
@@ -252,6 +267,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_get("/api/society", api_society)
     app.router.add_get("/api/wishes", api_wishes)
     app.router.add_post("/api/wishes/{wid}", api_wish_answer)
+    app.router.add_post("/api/admin/{action}", api_admin)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)

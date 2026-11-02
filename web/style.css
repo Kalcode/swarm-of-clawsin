@@ -909,6 +909,7 @@ button.wwho:hover { text-decoration-color: currentColor; }
 [data-kind="tend"] { --k: var(--k-tend); }
 [data-kind="wish"] { --k: var(--k-wish); }
 [data-kind="grant"] { --k: var(--k-grant); }
+[data-kind="steward"] { --k: var(--k-voice); }
 
 /* filters hide rows by kind (class on the feed) */
 .feed.hide-say .ev[data-kind="say"], .feed.hide-craft .ev[data-kind="craft"],

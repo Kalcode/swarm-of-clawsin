@@ -77,6 +77,8 @@ Open http://127.0.0.1:7777/. Drag to pan and scroll to zoom. Click a creature to
 
 **Wishes:** creatures say what their world lacks ("I wish we had a proper roof"), fail to make things it has never heard of, or use the `wish` action, most of all at the wishing stone at the meadow's north edge. The **Wishes** tab ranks what they want. On this machine you can answer a wish from the sky, grant an item, or note it as something to build: the creatures' own feature-request board.
 
+**Steward actions** (this machine only), for testing new content in the live world: `curl -X POST localhost:7777/api/admin/give -d '{"creature":"Mara","item":"rope","count":2}'`, and likewise `place` (`{"kind":"basket","x":30,"y":28}`), `remove` (`{"object":"o123"}`), `move` (`{"creature":"Mara","x":30,"y":29}`) and `weather` (`{"weather":"rain","ticks":300}`). Each shows up as a Steward event; interventions are logged in [docs/steward-log.md](docs/steward-log.md).
+
 Everything is also logged to `runs/<timestamp>/`. `events.jsonl` holds what happened. `thinks.jsonl` holds every model reply, which is useful for analysis and later for fine-tuning small models on successful behavior.
 
 ## Joining from another computer

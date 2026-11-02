@@ -13,18 +13,18 @@
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
-  const EVENT_KINDS = ['say', 'voice', 'wish', 'grant', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
+  const EVENT_KINDS = ['say', 'voice', 'wish', 'grant', 'steward', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
     say: 'Speech', craft: 'Craft', discover: 'Discovery', gather: 'Gather', fail: 'Fail', place: 'Place',
     write: 'Write', program: 'Program', collapse: 'Collapse', join: 'Join', sleep: 'Sleep', eat: 'Eat',
     plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn', weather: 'Weather',
-    store: 'Store', take: 'Take', tend: 'Tend fire', wish: 'Wish', grant: 'Grant',
+    store: 'Store', take: 'Take', tend: 'Tend fire', wish: 'Wish', grant: 'Grant', steward: 'Steward',
   };
   const KIND_ICON = {
     say: 'say', craft: 'craft', discover: 'discover', gather: 'gather', fail: 'fail', place: 'place',
     write: 'write', program: 'program', collapse: 'collapse', join: 'join', sleep: 'sleep', eat: 'eat',
     plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people', weather: 'rain',
-    store: 'store', take: 'take', tend: 'tend', wish: 'wish', grant: 'grant',
+    store: 'store', take: 'take', tend: 'tend', wish: 'wish', grant: 'grant', steward: 'voice',
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
