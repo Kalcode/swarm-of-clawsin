@@ -188,6 +188,16 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
 
 
+REFLECT_BY_TEMPERAMENT = {
+    "leader": "Say what you want the group to do next and who should do what.",
+    "helper": "Say who around you needs help and how you can help them.",
+    "loner": "Say what work you can do on your own.",
+    "follower": "Say whose lead you want to follow and how you can pitch in.",
+    "routine": "Name the few tasks that make up your daily routine.",
+    "novelty": "Name something new you want to try or invent.",
+}
+
+
 def build_reflect_messages(c: Creature, memory: Memory) -> list[dict]:
     mem = "\n".join(f"- {t}" for t in memory.recent(24))
     user = (
@@ -196,6 +206,8 @@ def build_reflect_messages(c: Creature, memory: Memory) -> list[dict]:
         f"Your current goal: {memory.goal or '(none)'}\n\n"
         "In 2 to 4 short sentences, in first person, write down what you have learned about this world "
         "(including any recipes or useful places), who matters to you and why, and what you mean to do next. "
+        f"{REFLECT_BY_TEMPERAMENT.get((c.persona or {}).get('role'), '')} "
+        f"{REFLECT_BY_TEMPERAMENT.get((c.persona or {}).get('novelty'), '')} "
         "Write plain sentences only, no lists, no JSON."
     )
     return [

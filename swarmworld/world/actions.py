@@ -72,7 +72,7 @@ class Intention:
         if self.text:
             bits.append(f'"{self.text[:80]}"')
         if self.speech:
-            bits.append(f'(saying "{self.speech[:60]}")')
+            bits.append(f'(saying "{self.speech[:160]}")')
         return " ".join(bits)
 
 

@@ -665,8 +665,14 @@
       const traits = Array.isArray(per.traits) ? per.traits : [];
       perHtml = traits.map((t) => `<span class="trait">${esc(t)}</span>`).join('');
       if (per.drive) perHtml += `<span class="trait drive"><span>drive</span>${esc(per.drive)}</span>`;
+      for (const k of ['initiative', 'role', 'novelty']) {
+        const v = per[k];
+        if (!v) continue;
+        const tip = TEMPERAMENT[String(v).toLowerCase()];
+        perHtml += `<span class="trait temper" data-temper="${esc(k)}"${tip ? ` title="${esc(`${v}: ${tip}`)}"` : ''}>${esc(v)}</span>`;
+      }
       for (const [k, v] of Object.entries(per)) {
-        if (k === 'traits' || k === 'drive' || k === 'name' || v == null || typeof v === 'object') continue;
+        if (k === 'traits' || k === 'drive' || k === 'name' || k in TEMPER_KEYS || v == null || typeof v === 'object') continue;
         perHtml += `<span class="trait"><span style="color:var(--text-3);margin-right:4px">${esc(humanize(k))}</span>${esc(v)}</span>`;
       }
     } else if (per) {
@@ -729,6 +735,13 @@
     renderDetailFoot();
   }
 
+  const TEMPERAMENT = {
+    proactive: 'starts things', reactive: 'waits for a reason',
+    leader: 'organizes others', follower: 'joins in', helper: 'helps those in need', loner: 'works alone',
+    routine: 'settles into routines', novelty: 'gets bored, invents',
+  };
+  const TEMPER_KEYS = { initiative: 1, role: 1, novelty: 1 };
+
   const STAT_LABEL = { stored: 'put into stores', took_from_store: 'taken from stores', tended_fire: 'fires tended' };
 
   function emptyable(el, value, emptyText) {
@@ -761,8 +774,12 @@
     if (it == null || it === '') return '';
     if (typeof it === 'string') {
       try { it = JSON.parse(it); } catch (e) {
-        const m = it.trim().match(/^([a-z_]+)\s*(.*)$/i);
-        return m ? `<span class="verb">${esc(m[1])}</span>${m[2] ? `<span class="tgt">${esc(m[2])}</span>` : ''}` : `<span class="tgt">${esc(it)}</span>`;
+        let str = it.trim(), said = '';
+        const sm = str.match(/\s*\(saying\s+["“]([\s\S]*?)["”]\)\s*$/i);
+        if (sm) { said = sm[1]; str = str.slice(0, sm.index); }
+        const m = str.match(/^([a-z_]+)\s*(.*)$/i);
+        const head = m ? `<span class="verb">${esc(m[1])}</span>${m[2] ? `<span class="tgt">${esc(m[2])}</span>` : ''}` : `<span class="tgt">${esc(str)}</span>`;
+        return head + (said ? `<span class="say">“${esc(said)}”</span>` : '');
       }
     }
     if (typeof it !== 'object') return esc(it);
@@ -1385,12 +1402,33 @@
         g.setLineDash([]);
       }
       g.font = `${focus === n.id ? 700 : 600} 10.5px ${SANS}`;
+      const role = String(n.role || (n.persona && n.persona.role) || '').toLowerCase();
+      const glyph = ROLE_GLYPH[role];
+      const tw = g.measureText(n.name).width;
+      const lx = glyph ? p.x + 5 : p.x;
       g.fillStyle = 'rgba(12,9,15,0.85)';
-      g.fillText(n.name, p.x + 1, p.y + r + 3);
+      g.fillText(n.name, lx + 1, p.y + r + 3);
       g.fillStyle = '#ebe3d5';
-      g.fillText(n.name, p.x, p.y + r + 2);
+      g.fillText(n.name, lx, p.y + r + 2);
+      if (glyph) drawRoleGlyph(g, glyph, lx - tw / 2 - 10, p.y + r + 4);
       g.restore();
     }
+  }
+
+  // tiny pixel glyphs for a creature's social role (1.5px cells)
+  const ROLE_GLYPH = {
+    leader: { color: '#f4c84a', rows: ['#.#.#', '#####', '#####'] },             // crown
+    helper: { color: '#ff8fb1', rows: ['##.##', '#####', '.###.', '..#..'] },      // a heart held out
+    loner: { color: '#b9aebb', rows: ['.#...', '.#.#.', '...#.', '.#...', '.#.#.', '...#.'] }, // footprints
+    follower: { color: '#8fc3ea', rows: ['##..##', '######', '##..##'] },        // linked dots
+  };
+  function drawRoleGlyph(g, glyph, x, y) {
+    const q = 1.5;
+    const h = glyph.rows.length * q;
+    g.fillStyle = 'rgba(12,9,15,0.85)';
+    glyph.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] === '#') g.fillRect(x + i * q + 0.75, y + (8 - h) / 2 + j * q + 0.75, q, q); });
+    g.fillStyle = glyph.color;
+    glyph.rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] === '#') g.fillRect(x + i * q, y + (8 - h) / 2 + j * q, q, q); });
   }
 
   function societyAt(mx, my) {
@@ -1422,7 +1460,8 @@
     }
     const n = h.node;
     const ties = soc.data.edges.filter((e) => e.a === n.id || e.b === n.id).length;
-    return `<b>${esc(n.name)}</b> · ${esc(n.model || '')}${n.drive ? ` · ${esc(n.drive)}` : ''} · ${plural(ties, 'tie', 'ties')}${n.asleep ? ' · asleep' : ''}<br><span>Click to follow on the map</span>`;
+    const role = n.role || (n.persona && n.persona.role);
+    return `<b>${esc(n.name)}</b> · ${esc(n.model || '')}${n.drive ? ` · ${esc(n.drive)}` : ''}${role ? ` · ${esc(role)}` : ''} · ${plural(ties, 'tie', 'ties')}${n.asleep ? ' · asleep' : ''}<br><span>Click to follow on the map</span>`;
   }
 
   function renderSocietyLists() {

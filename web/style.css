@@ -456,6 +456,8 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 }
 .trait.drive { border-color: transparent; background: var(--ink-3); color: var(--text); }
 .trait.drive span { color: var(--text-3); margin-right: 4px; }
+.trait.temper { border-style: dashed; border-color: #4a3d52; color: var(--text-2); cursor: help; }
+.trait.temper[data-temper="role"] { border-style: solid; border-color: rgba(244, 200, 74, 0.35); color: #f2dfae; }
 .persona-text { margin: 0; font-size: 12.5px; color: var(--text-2); }
 
 /* needs */

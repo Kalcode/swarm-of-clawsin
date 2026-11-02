@@ -295,7 +295,8 @@
       activity: null, thinking: false, asleep: i === 10 || i === 11, say: null,
       satiety: randint(45, 95), energy: randint(50, 100), health: i === 7 ? 24 : randint(80, 100), holding: null,
       // private demo state
-      persona: { name, traits, drive: pick(DRIVES) },
+      persona: { name, traits, drive: pick(DRIVES), initiative: pick(['proactive', 'reactive']),
+        role: pick(['leader', 'follower', 'follower', 'helper', 'loner']), novelty: pick(['routine', 'novelty']) },
       inv: { stick: randint(0, 3), plant_fiber: randint(0, 2), berries: randint(0, 3), wheat_seeds: randint(0, 4), egg: i % 3 === 0 ? 2 : 0, wool: i % 4 === 1 ? 1 : 0 },
       path: null, job: null, sayUntil: 0, thinkUntil: 0, nextThink: START_TICK + randint(1, 20),
       known: ['rope', 'campfire'], people: {}, memory: [], heard: [],
@@ -366,7 +367,7 @@
     for (const e of edges) { deg.set(e.a, (deg.get(e.a) || 0) + e.weight); deg.set(e.b, (deg.get(e.b) || 0) + e.weight); }
     const hubs = [...deg.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([id, w]) => ({ id, name: byId.get(id).name, weight: w }));
     return {
-      nodes: cres.map((c) => ({ id: c.id, name: c.name, model: c.model, color: c.color, asleep: c.asleep, drive: c.persona.drive })),
+      nodes: cres.map((c) => ({ id: c.id, name: c.name, model: c.model, color: c.color, asleep: c.asleep, drive: c.persona.drive, persona: c.persona })),
       edges, hubs, loners: cres.filter((c) => !deg.has(c.id)).map((c) => c.name),
     };
   }
@@ -488,6 +489,8 @@
 
   function intention(c, action, target, extra) {
     c.lastIntention = Object.assign({ thought: c.lastThought, action, target: target || '', items: [], text: '', count: 1, goal: c.goal }, extra || {});
+    // like the server, sometimes a compact string, with what was said while working
+    if (action === 'gather' && chance(0.5)) c.lastIntention = `gather ${target || ''}${chance(0.6) ? ` (saying "${pick(LINES).slice(0, 60)}")` : ''}`;
   }
 
   function finishThink(c) {
