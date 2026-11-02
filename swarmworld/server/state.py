@@ -686,10 +686,10 @@ class ServerState:
             out = {"creature": c.name, "x": x, "y": y}
         elif action == "weather":
             weather = str(body.get("weather") or "")
-            if weather not in ("rain", "clear"):
-                raise ValueError("weather is 'rain' or 'clear'")
-            w.weather = weather
-            w.weather_until = w.tick + max(1, min(2400, int(body.get("ticks") or 300)))
+            from ..world.packs.weather import KINDS, set_weather
+            if weather not in KINDS:
+                raise ValueError("weather is " + ", ".join(f"'{k}'" for k in KINDS))
+            set_weather(w, weather, w.tick + max(1, min(2400, int(body.get("ticks") or 300))))
             note = f"set the weather to {weather} for {w.weather_until - w.tick} ticks"
             out = {"weather": weather, "until": w.weather_until}
         else:
