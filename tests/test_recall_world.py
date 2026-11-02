@@ -483,3 +483,12 @@ def test_overheard_speech_counts_half_in_automatic_recall_only():
     auto = [t for _, t in st.auto_recall(c, mem, [])]
     assert asked.index('Mara says to you: "Clay! There is clay by the pond."') < asked.index("You saw clay at the bank.")
     assert auto[0] == "You saw clay at the bank."  # what others said counts half when recall comes unasked
+
+
+def test_multiline_memory_shown_in_recent_is_not_recalled_again():
+    st, _, c = setup()
+    mem = st.memory(c.id)
+    mem.goal = "find clay"
+    text = "You read the sign:\nCLAY is north of the pond"
+    st._remember(c, text, 2, kind="read")
+    assert not st.auto_recall(c, mem, [text])

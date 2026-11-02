@@ -63,7 +63,7 @@ class RecallIndex:
         self._tokens[doc.key] = tokenize(doc.text)
 
     def add(self, cid: str, kind: str, text: str, tick: int, importance: int = 1, skip_repeat: bool = False) -> None:
-        text = text.strip()
+        text = " ".join(text.split())  # one line: a recalled text must not spill across the prompt
         if not text:
             return
         docs = self._docs.setdefault(cid, [])
@@ -108,7 +108,7 @@ class RecallIndex:
         qtokens = tokenize(query)
         sem = query if semantic is None else semantic
         qnorm = " ".join(sem.lower().split())
-        skip = set(exclude)
+        skip = {" ".join(t.split()) for t in exclude}  # docs are stored whitespace-collapsed
         docs: list[Doc] = [*self._docs.get(cid, ()), *(self._lore if lore else ())]
         docs = [d for d in docs if d.key not in skip and d.text not in skip]
         extras = []

@@ -193,3 +193,11 @@ def test_max_lore_caps_shared_lore():
     assert sum(d.kind == "lore" for d in idx.search("a", "fire dry wood", k=5, now=2)) == 3
     hits = idx.search("a", "fire dry wood", k=5, now=2, max_lore=1)
     assert [d.kind for d in hits].count("lore") == 1 and any(d.kind == "memory" for d in hits)
+
+
+def test_add_collapses_whitespace():
+    idx = RecallIndex()
+    idx.add("a", "read", "  The sign reads:\n  CLAY   is\tnorth  ", tick=1)
+    assert idx.to_dict()["docs"]["a"] == [["read", "The sign reads: CLAY is north", 1, 1]]
+    idx.add("a", "read", "The sign reads: CLAY is\nnorth", tick=2, skip_repeat=True)
+    assert len(idx.to_dict()["docs"]["a"]) == 1  # the same text once collapsed
