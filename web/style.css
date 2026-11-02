@@ -41,6 +41,9 @@
   --k-voice: #a9dcff;
   --k-learn: #5fd6c4;
   --k-weather: #9fb3cc;
+  --k-store: #c9b8a6;
+  --k-take: #b8aeb9;
+  --k-tend: #ffab5e;
 
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Book Antiqua", serif;
 
@@ -775,6 +778,9 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 [data-kind="voice"] { --k: var(--k-voice); }
 [data-kind="learn"] { --k: var(--k-learn); }
 [data-kind="weather"] { --k: var(--k-weather); }
+[data-kind="store"] { --k: var(--k-store); }
+[data-kind="take"] { --k: var(--k-take); }
+[data-kind="tend"] { --k: var(--k-tend); }
 
 /* filters hide rows by kind (class on the feed) */
 .feed.hide-say .ev[data-kind="say"], .feed.hide-craft .ev[data-kind="craft"],
@@ -786,7 +792,9 @@ body.panel-collapsed .panel { width: 0; border-left-color: transparent; }
 .feed.hide-plant .ev[data-kind="plant"], .feed.hide-chronicle .ev[data-kind="chronicle"],
 .feed.hide-tame .ev[data-kind="tame"], .feed.hide-invent .ev[data-kind="invent"],
 .feed.hide-voice .ev[data-kind="voice"], .feed.hide-learn .ev[data-kind="learn"],
-.feed.hide-weather .ev[data-kind="weather"] { display: none; }
+.feed.hide-weather .ev[data-kind="weather"], .feed.hide-store .ev[data-kind="store"],
+.feed.hide-take .ev[data-kind="take"], .feed.hide-tend .ev[data-kind="tend"] { display: none; }
+.ev[data-kind="tend"] { color: #ffd9b0; background: linear-gradient(90deg, rgba(255, 140, 60, 0.1), transparent 70%); }
 .ev[data-kind="weather"] { color: #b9c7d8; font-style: italic; background: rgba(120, 150, 190, 0.06); }
 .ev[data-kind="weather"] .ico { color: var(--k-weather); }
 

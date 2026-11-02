@@ -60,6 +60,7 @@
     sheep: { name: 'sheep', s: [29, 7], tint: '#e8e2d6' },
     cow: { name: 'cow', s: [28, 7], tint: '#c9a27e' },
     creation: { name: 'invention', s: [27, 12], tint: '#f4b41b' },
+    basket: { name: 'basket', s: [46, 4], tint: '#c98a4e' },
   };
   const UNKNOWN_OBJECT = { name: 'thing', s: [38, 13], tint: '#9d8f9f' };
 
@@ -73,7 +74,7 @@
     sleep: [47, 19], eat: [33, 18], people: [44, 16], person: [43, 16], sun: [27, 11],
     night: [29, 12], plus: [36, 20], minus: [37, 20], right: [24, 20], left: [26, 20],
     book: [45, 5], bag: [46, 4], trophy: [40, 16], gear: [45, 16], heart: [39, 10],
-    target: [22, 14], dot: [21, 14], plant: [16, 6], chronicle: [45, 5], tame: [39, 10], invent: [29, 12], voice: [21, 6], rain: [22, 6],
+    target: [22, 14], dot: [21, 14], plant: [16, 6], chronicle: [45, 5], tame: [39, 10], invent: [29, 12], voice: [21, 6], rain: [22, 6], store: [46, 4], take: [45, 4], tend: [14, 10],
   };
 
   // Pixel font glyphs from the sheet (title text).

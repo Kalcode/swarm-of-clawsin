@@ -34,7 +34,8 @@ class Simulation:
         self.heard: dict[str, list[str]] = defaultdict(list)
         self.hunger_alert: dict[str, int] = {}
         self.recent_says: dict[str, deque] = defaultdict(deque)
-        self._event_cursor = len(world.events)
+        self._event_cursor = len(world.events)      # events already turned into hearing, learning and memories
+        self._returned_cursor = len(world.events)   # events already handed back to the caller of tick()
         self.on_result: Callable[[Creature, ActionResult], None] | None = None
         self.inspiration = True  # occasional vague hunches for curious minds; off = purely unassisted
 
@@ -96,12 +97,12 @@ class Simulation:
             from .terrain import spawn_animals
             spawn_animals(self.world, self.world.rng, limit=2)
         self._terminals(t)
-        new = w.events[self._event_cursor_out:] if hasattr(self, "_event_cursor_out") else list(w.events)
-        self._event_cursor_out = len(w.events)
+        new = w.events[self._returned_cursor:]
+        self._returned_cursor = len(w.events)
         if len(w.events) > 5000:
             del w.events[:4000]
             self._event_cursor = max(0, self._event_cursor - 4000)
-            self._event_cursor_out = max(0, self._event_cursor_out - 4000)
+            self._returned_cursor = max(0, self._returned_cursor - 4000)
         return new
 
     # ------------------------------------------------------------------

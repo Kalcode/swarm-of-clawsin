@@ -13,16 +13,18 @@
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
-  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'weather', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
+  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
     say: 'Speech', craft: 'Craft', discover: 'Discovery', gather: 'Gather', fail: 'Fail', place: 'Place',
     write: 'Write', program: 'Program', collapse: 'Collapse', join: 'Join', sleep: 'Sleep', eat: 'Eat',
     plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn', weather: 'Weather',
+    store: 'Store', take: 'Take', tend: 'Tend fire',
   };
   const KIND_ICON = {
     say: 'say', craft: 'craft', discover: 'discover', gather: 'gather', fail: 'fail', place: 'place',
     write: 'write', program: 'program', collapse: 'collapse', join: 'join', sleep: 'sleep', eat: 'eat',
     plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people', weather: 'rain',
+    store: 'store', take: 'take', tend: 'tend',
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
@@ -722,10 +724,12 @@
     const stats = d.stats && typeof d.stats === 'object' ? Object.entries(d.stats) : [];
     $('cre-stats-block').hidden = !stats.length;
     setHTML($('cre-stats'), stats.map(([k, v]) =>
-      `<dt>${esc(humanize(k))}</dt><dd>${esc(isNum(v) ? fmtNum(v) : (typeof v === 'object' ? JSON.stringify(v) : v))}</dd>`).join(''));
+      `<dt>${esc(STAT_LABEL[k] || humanize(k))}</dt><dd>${esc(isNum(v) ? fmtNum(v) : (typeof v === 'object' ? JSON.stringify(v) : v))}</dd>`).join(''));
 
     renderDetailFoot();
   }
+
+  const STAT_LABEL = { stored: 'put into stores', took_from_store: 'taken from stores', tended_fire: 'fires tended' };
 
   function emptyable(el, value, emptyText) {
     const has = value != null && String(value).trim() !== '';
@@ -2240,12 +2244,14 @@
     const code = (S.tiles[ty] || '')[tx] || 'g';
     const parts = [`<span class="hv-k">${tx},${ty}</span>`, `<span class="hv-v">${esc(T.terrainName(code))}</span>`];
     for (const o of S.objAt.get(tx + ',' + ty) || []) {
-      let s = o.label ? `${T.objectName(o.kind)} “${o.label}”` : T.objectName(o.kind);
+      const own = o.label && ![o.kind, T.objectName(o.kind)].includes(String(o.label).toLowerCase());
+      let s = own ? `${T.objectName(o.kind)} “${o.label}”` : T.objectName(o.kind);
       if (o.kind === 'campfire') s += o.lit === false ? ' (out)' : ' (lit)';
       if (o.kind === 'crop') s = `${o.crop || 'wheat'} (${['sprouting', 'growing', 'ripe'][clamp(o.stage | 0, 0, 2)]})`;
       if (o.tamed_by) s += ` · tamed by ${o.tamed_by}`;
       if (o.kind === 'creation') s = `“${o.label || 'an invention'}” (invention)${o.text ? ` · ${String(o.text).slice(0, 80)}` : ''}`;
       else if (o.text && CARVABLE.has(o.kind)) s += ` · carved: “${String(o.text).slice(0, 90)}”`;
+      else if (o.kind === 'basket' || o.kind === 'chest') s += ` · ${String(o.text || 'empty').slice(0, 90)}`;
       parts.push(`<span class="hv-v">${esc(s)}</span>`);
     }
     if (hoverCre) {

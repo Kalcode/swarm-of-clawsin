@@ -134,7 +134,9 @@
   addObj('workbench', CX + 3, CY - 1);
   addObj('sign', CX - 3, CY - 2, { label: 'camp', text: 'Fire here. Berries to the east. Flint in the grey hills.' });
   addObj('pile', CX - 2, CY + 3, { label: '3 sticks' });
-  addObj('chest', CX + 4, CY + 2);
+  const chestObj = addObj('chest', CX + 4, CY + 2, { text: '3 planks, 1 rope' });
+  const basket = addObj('basket', CX - 1, CY + 3, { label: 'basket', text: '4 berries, 2 stick' });
+  const store = { berries: 4, stick: 2 };
   // a first wheat field, a sapling and some new furniture
   const field = [];
   for (let fy = 0; fy < 2; fy++) for (let fx = 0; fx < 4; fx++) {
@@ -241,7 +243,7 @@
     book: 'book', copper_pickaxe: 'copper pickaxe', terminal: 'terminal',
     wheat_seeds: 'wheat seeds', wheat: 'wheat', flour: 'flour', bread: 'bread', hoe: 'hoe', millstone: 'millstone',
     bed: 'bed', door: 'door', fishing_rod: 'fishing rod', fish: 'fish', cooked_fish: 'cooked fish',
-    egg: 'egg', cooked_egg: 'cooked egg', milk: 'milk', wool: 'wool', cloth: 'cloth', carrot_seeds: 'carrot seeds', carrot: 'carrot',
+    egg: 'egg', cooked_egg: 'cooked egg', milk: 'milk', wool: 'wool', cloth: 'cloth', carrot_seeds: 'carrot seeds', carrot: 'carrot', basket: 'basket',
     inv_berry_cake: 'berry cake', inv_sun_totem: 'sun totem',
   };
   const DISCOVERABLE = ['stone_axe', 'stone_pickaxe', 'planks', 'roasted_berries', 'charcoal', 'brick', 'sign', 'wooden_wall', 'paper', 'chest'];
@@ -298,7 +300,7 @@
       path: null, job: null, sayUntil: 0, thinkUntil: 0, nextThink: START_TICK + randint(1, 20),
       known: ['rope', 'campfire'], people: {}, memory: [], heard: [],
       lastThought: '', lastIntention: null, lastResult: '', goal: '', summary: '',
-      stats: { thinks: 0, acts_ok: 0, acts_failed: 0, words_spoken: 0, discoveries: 0 },
+      stats: { thinks: 0, acts_ok: 0, acts_failed: 0, words_spoken: 0, discoveries: 0, stored: 0, took_from_store: 0, tended_fire: 0 },
     });
   });
   const byId = new Map(cres.map((c) => [c.id, c]));
@@ -413,7 +415,7 @@
     copper_vein: 'orange-streaked rock', iron_vein: 'dark-streaked rock', clay: 'clay bank', campfire: 'campfire',
     workbench: 'workbench', furnace: 'furnace', wall: 'wall', sign: 'sign', chest: 'chest', terminal: 'terminal',
     tablet: 'stone tablet', pile: 'pile of things', crop: 'wheat plant', sapling: 'sapling', millstone: 'millstone',
-    bed: 'bed', door: 'door', chicken: 'chicken', sheep: 'sheep', cow: 'cow', creation: 'carved creation',
+    bed: 'bed', door: 'door', chicken: 'chicken', sheep: 'sheep', cow: 'cow', creation: 'carved creation', basket: 'woven basket',
   };
   const TILE_WORD = { g: 'grass', d: 'bare dirt', s: 'sand', w: 'shallow water', W: 'deep water', r: 'rocky ground', f: 'the forest floor' };
 
@@ -853,6 +855,26 @@
       }
     }
     if (tick === START_TICK + 12) carvedEvent();
+    // the shared basket and the fire need looking after
+    if (chance(0.025)) {
+      const c = pick(cres.filter((x) => !x.asleep));
+      if (c) {
+        const r = rnd();
+        if (r < 0.4) {
+          const n = randint(1, 4); store.berries = (store.berries || 0) + n; c.stats.stored += n;
+          emitEvent('store', c, `${c.name} stored ${n} berries in the basket.`, basket.x, basket.y);
+        } else if (r < 0.7 && (store.berries || 0) > 0) {
+          const n = Math.min(store.berries, randint(1, 3)); store.berries -= n; c.stats.took_from_store += n;
+          emitEvent('take', c, `${c.name} took ${n} berr${n === 1 ? 'y' : 'ies'} from the basket.`, basket.x, basket.y);
+        } else {
+          c.stats.tended_fire++;
+          emitEvent('tend', c, `${c.name} fed the campfire with ${plural(randint(1, 2), 'stick')}.`, camp.x, camp.y);
+        }
+        const parts = Object.entries(store).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`);
+        basket.text = parts.length ? parts.join(', ') : 'empty';
+        upserts.set(basket.id, basket);
+      }
+    }
     if ((tick - START_TICK) % 130 === 0) {
       weather = weather === 'rain' ? 'clear' : 'rain';
       pendingEvents.push({ tick, kind: 'weather', actor: null, x: CX, y: CY,

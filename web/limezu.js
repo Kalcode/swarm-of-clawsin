@@ -231,7 +231,9 @@
         return;
       }
     }
-    const r = pickVariant(spec, obj.id).rect;
+    // a store with something in it (obj.text lists the contents) shows its full sprite
+    const full = spec.full && obj.text && !/^\s*(empty|nothing)/i.test(String(obj.text));
+    const r = full ? spec.full[hash(obj.id) % spec.full.length].rect : pickVariant(spec, obj.id).rect;
     const b = drawRect(ctx, img[spec.sheet], r, dx, dy, ts, spec.dy || 0);
     if (spec.sparkle) {
       // a slow glitter over inventions so they stand out from ordinary props

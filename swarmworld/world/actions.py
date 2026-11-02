@@ -15,7 +15,7 @@ from .perception import DIRS, dist, direction, sight_range, visible_creatures, v
 
 VERBS = [
     "walk_to", "explore", "gather", "combine", "craft", "eat", "drink", "say", "give",
-    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take",
+    "pick_up", "drop", "place", "write", "read", "program", "rest", "wait", "plant", "invent", "store", "take", "teach",
 ]
 VERB_ALIASES = {
     "walk": "walk_to", "go": "walk_to", "go_to": "walk_to", "goto": "walk_to", "move": "walk_to",
@@ -32,6 +32,7 @@ VERB_ALIASES = {
     "put": "place", "set_up": "place", "code": "program", "write_code": "program",
     "sow": "plant", "farm": "plant", "seed": "plant", "harvest_crop": "gather",
     "design": "invent", "innovate": "invent", "devise": "invent",
+    "show": "teach", "explain": "teach", "instruct": "teach",
 }
 FILLER = {"the", "a", "an", "nearest", "closest", "nearby", "near", "some", "to", "that", "this", "over", "there", "my"}
 VECTORS = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
@@ -1153,6 +1154,34 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f"You invent the {name}: {desc} It is {kind}. Recipe: {recipe}. Others can learn it if you share how.")
 
 
+def _teach(world: World, c: Creature, it: Intention) -> ActionResult:
+    """Show someone within earshot how to make something you know."""
+    other = find_creature(world, c, it.target)
+    if not other:
+        return ActionResult(False, f"You don't see '{it.target}' here to teach.")
+    if dist(c.x, c.y, other.x, other.y) > HEARING:
+        res = start_walk(world, c, _adjacent_goals(world, other.x, other.y), f"walking to {other.name}", f"You reach {other.name}.")
+        if c.activity:
+            c.activity["then"] = it
+        return res
+    what = it.items[0] if it.items else it.text
+    iid = world.catalog.resolve(what) if what else None
+    r = world.catalog.recipe_for(iid) if iid else None
+    if not r:
+        return ActionResult(False, "Teach what? Name something you know how to make (in items).")
+    if iid not in c.known_recipes:
+        return ActionResult(False, f"You don't know how to make {world.catalog.name(iid)} yourself.")
+    recipe = world.catalog.describe_recipe(r)
+    world.emit("say", c.id, c.x, c.y, f'{c.name} to {other.name}: "Here is how to make {world.catalog.name(iid)}: {recipe}."',
+               speaker=c.name, to=other.id, to_name=other.name, line=f"Here is how to make {world.catalog.name(iid)}: {recipe}.")
+    if other.asleep:
+        return ActionResult(True, f"You explain how to make {world.catalog.name(iid)}, but {other.name} is fast asleep.")
+    if iid in other.known_recipes:
+        return ActionResult(True, f"{other.name} already knows how to make {world.catalog.name(iid)}.")
+    c.stats["taught"] += 1
+    return ActionResult(True, f"You show {other.name} how to make {world.catalog.name(iid)}: {recipe}.")
+
+
 STORES = {"basket", "chest"}
 
 
@@ -1227,7 +1256,7 @@ HANDLERS = {
     "walk_to": _walk_to, "explore": _explore, "gather": _gather, "combine": _combine, "craft": _craft,
     "eat": _eat, "drink": _drink, "say": _say, "give": _give, "pick_up": _pick_up, "drop": _drop,
     "place": _place, "write": _write, "read": _read, "program": _program, "rest": _rest, "wait": _wait,
-    "plant": _plant, "invent": _invent, "store": _store, "take": _take,
+    "plant": _plant, "invent": _invent, "store": _store, "take": _take, "teach": _teach,
 }
 
 

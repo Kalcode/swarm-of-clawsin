@@ -26,6 +26,7 @@ Actions:
 - craft (target, count): make something whose recipe you already know.
 - eat (target): eat food you carry. drink: drink while beside water.
 - say (text, target): speak aloud; everyone within earshot hears. Put a name in target to address someone.
+- teach (target, items): show someone within earshot how to make a thing you know, e.g. target "Mara", items ["stone knife"].
 - give (target, items, count): hand something to the creature beside you, feed an animal, or feed sticks to a campfire to keep it burning.
 - store (target, items) / take (target, items): put things into a basket or chest for everyone, or take things out.
 - pick_up (target) / drop (target): take or leave items on the ground.

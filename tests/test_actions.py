@@ -422,3 +422,17 @@ def test_shared_basket_and_tending_fire(world):
     fire = world.add_object("campfire", 10, 11, lit=False, lit_until=0)
     res = act(world, a, action="give", target="campfire", items=["stick"])
     assert res.ok and fire.data["lit"] and "relight" in res.message
+
+
+def test_teach_passes_on_a_recipe(world):
+    from swarmworld.world.simulation import Simulation
+    sim = Simulation(world)
+    a = creature(world, "Tam", 10, 10)
+    b = creature(world, "Mara", 13, 10)
+    a.known_recipes.add("stone_knife")
+    assert not act(world, a, action="teach", target="Mara", items=["stone axe"]).ok  # doesn't know it
+    res = act(world, a, action="teach", target="Mara", items=["stone knife"])
+    assert res.ok
+    sim.tick()
+    assert "stone_knife" in b.known_recipes
+    assert any(e.kind == "learn" and e.data.get("how") == "listening" for e in world.events)

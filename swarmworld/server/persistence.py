@@ -110,6 +110,7 @@ def restore(st: "ServerState", path: Path) -> None:
     st.world = w
     st.sim.world = w
     st.sim._event_cursor = 0
+    st.sim._returned_cursor = 0
     st.memories = {}
     for cid, md in data.get("memories", {}).items():
         m = Memory(entries=[Entry(t, txt, imp) for t, txt, imp in md["entries"]], summary=md["summary"], goal=md["goal"],
