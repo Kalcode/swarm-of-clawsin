@@ -62,6 +62,18 @@ With learning by watching and listening, a slower clock and clearer senses, the 
 - **Ideas crossing between models.** Moss (Gemma) learned Lune's (Qwen) seed-bomb and then taught it to others by example.
 - **Camps.** "Tib's camp" and "Gale's camp" formed where structures clustered.
 
+## Talking while working (your idea, evening of 1 Nov)
+
+You noticed creatures standing around talking about food instead of fetching it. Every intention now carries an optional `speech` line said while acting, and the standalone `say` action is reserved for when talking is the whole point. In comparable runs before and after the change:
+
+| | before | after |
+|---|---|---|
+| thoughts spent only talking | 23% | 8% |
+| actions that also say something | 0% | 93% |
+| gathering | 13% | 18% |
+
+The talk got more useful too, e.g. Gale walking over: "Orla, hold on! I'll get us some dry wood and start a real fire right away, the rain's too cold..." Creatures also have temperaments now (proactive or reactive; leader, follower, helper or loner; routine-loving or novelty-seeking), shaping their prompts and reflections. Reactive creatures self-start less often, and novelty-seekers get more hunches.
+
 ## Turn-based benchmark (first run, 1 episode each, 4 creatures, 400 ticks)
 
 | | Gemma 4 E4B | Qwen3.5 4B |
