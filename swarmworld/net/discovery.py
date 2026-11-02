@@ -37,8 +37,8 @@ def advertise(port: int, ip: str, name: str | None = None) -> Advert:
     return Advert(zc, info)
 
 
-async def discover(timeout: float = 5.0) -> str | None:
-    """Return ws://host:port of the first Swarm World found on the LAN, or None."""
+async def discover(timeout: float = 5.0, host: str | None = None) -> str | None:
+    """Return ws://host:port of the first Swarm World found on the LAN (or the one advertised by host), or None."""
     found: asyncio.Queue[str] = asyncio.Queue()
     azc = AsyncZeroconf(ip_version=IPVersion.V4Only)
 
@@ -48,7 +48,8 @@ async def discover(timeout: float = 5.0) -> str | None:
             await found.put(f"ws://{info.parsed_addresses()[0]}:{info.port}")
 
     def on_change(zeroconf, service_type, name, state_change) -> None:  # noqa: ANN001
-        asyncio.ensure_future(resolve(name))
+        if host is None or name == f"Swarm World on {host}.{SERVICE}":
+            asyncio.ensure_future(resolve(name))
 
     browser = AsyncServiceBrowser(azc.zeroconf, SERVICE, handlers=[on_change])
     try:

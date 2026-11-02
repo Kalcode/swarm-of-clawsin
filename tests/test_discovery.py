@@ -15,7 +15,7 @@ async def test_discovery_roundtrip():
     except OSError as exc:
         pytest.skip(f"multicast unavailable: {exc}")
     try:
-        url = await discover(6.0)
+        url = await discover(6.0, host="swarmtest")  # not a live world on the LAN
     finally:
         await asyncio.to_thread(ad.close)
     if url is None:
