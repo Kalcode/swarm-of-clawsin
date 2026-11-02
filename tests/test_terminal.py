@@ -66,3 +66,15 @@ def test_terminal_find_oracle():
     for _ in range(3):
         sim.tick()
     assert any("copper 15 steps east" in n for n in notes.get("Mara", []) + notes.get("Tam", []))
+
+
+def test_a_single_expression_shows_its_value():
+    w, sim, term, coder, listener, notes = _setup()
+    w.add_object("clay", 14, 7)
+    apply_intention(w, coder, Intention("program", target="terminal", text="find('clay')"))
+    run_terminal(w, term)
+    shown = " ".join(term.data["screen"])
+    assert "clay bank" in shown and "steps=4" in shown and "northeast" in shown
+    term.data.update(code="scan(5)", screen=[])
+    run_terminal(w, term)
+    assert any("Tam" in line for line in term.data["screen"]) and len(term.data["screen"]) >= 2
