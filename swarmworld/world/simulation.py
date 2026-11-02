@@ -12,7 +12,7 @@ from .perception import visible_creatures
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
-ENERGY_EVERY = 40
+ENERGY_EVERY = 30  # about 40 energy a day: a creature needs a good rest roughly once a day
 STARVE_EVERY = 4
 IDLE_TICKS = 30
 MET_FORGET = 200
@@ -50,19 +50,7 @@ class Simulation:
         self.memory_sink(c, text, importance)
 
     def recipes_in_words(self, line: str) -> list:
-        """Recipes fully spelled out in a spoken line: the product and every ingredient are named."""
-        text = " " + line.lower().replace("-", " ") + " "
-        def named(item_id: str) -> bool:
-            it = self.world.catalog.items.get(item_id)
-            names = [it.name, *it.aliases] if it else [item_id.replace("_", " ")]
-            return any(f" {n.lower()}" in text for n in names if len(n) > 2)
-        out = []
-        for r in self.world.catalog.recipes:
-            if r.known_at_start:
-                continue
-            if named(r.output) and all(named(i) for i in r.inputs):
-                out.append(r)
-        return out
+        return self.world.catalog.recipes_in_words(line)
 
     def take_heard(self, c: Creature) -> list[str]:
         lines = self.heard.pop(c.id, [])
@@ -100,6 +88,8 @@ class Simulation:
             self._animals()
         if t % 10 == 5:
             self._separate()
+        if t % 60 == 0 or not hasattr(self.world, "landmarks"):
+            self._landmarks()
         if t % 600 == 0:
             from .terrain import spawn_animals
             spawn_animals(self.world, self.world.rng, limit=2)
@@ -231,6 +221,8 @@ class Simulation:
                         if r.output not in h.known_recipes:
                             h.known_recipes.add(r.output)
                             h.stats["learned_by_listening"] += 1
+                            w.emit("learn", h.id, h.x, h.y, f"{h.name} learned to make {w.catalog.name(r.output)} by listening to {speaker_name}.",
+                                   teacher=ev.actor, how="listening", item=r.output)
                             self.remember(h, f"From {speaker_name}'s words you understand how to make {w.catalog.name(r.output)}: "
                                              f"{w.catalog.describe_recipe(r)}.", 3)
                     said = self.recent_says[h.id]
@@ -255,6 +247,8 @@ class Simulation:
                     if r and item not in h.known_recipes:
                         h.known_recipes.add(item)  # seeing it done up close is how you learn
                         h.stats["learned_by_watching"] += 1
+                        w.emit("learn", h.id, h.x, h.y, f"{h.name} learned to make {w.catalog.name(item)} by watching {maker.name if maker else 'someone'}.",
+                               teacher=ev.actor, how="watching", item=item)
                         learned = " Now you know how to make it too."
                     self.remember(h, f"You watched {maker.name if maker else 'someone'} make {w.catalog.name(item)}{how}.{learned}", 3 if learned else 2)
             elif ev.kind == "place":
@@ -290,6 +284,37 @@ class Simulation:
                 o.data["lit"] = False
                 w.changed_objects.add(o.id)
                 w.emit("fire_out", None, o.x, o.y, "A campfire burned out.")
+
+    def _landmarks(self) -> None:
+        """Name the places that matter: clusters of things creatures built become someone's camp."""
+        from .perception import direction
+        w = self.world
+        built = [o for o in w.objects.values()
+                 if o.kind in ("campfire", "workbench", "furnace", "bed", "creation", "chest", "millstone", "sign", "wall")]
+        built.sort(key=lambda o: o.id)  # oldest first, so a camp keeps its founder's name
+        camps: list[dict] = []
+        for o in built:
+            home = next((cp for cp in camps if max(abs(cp["x"] - o.x), abs(cp["y"] - o.y)) <= 6), None)
+            if home:
+                home["size"] += 1
+            else:
+                founder = o.data.get("builder") or "someone"
+                camps.append({"name": f"{founder}'s camp", "x": o.x, "y": o.y, "kind": "camp", "size": 1})
+        names: dict[str, int] = {}
+        for cp in camps:  # two camps by the same founder
+            names[cp["name"]] = names.get(cp["name"], 0) + 1
+            if names[cp["name"]] > 1:
+                cp["name"] = cp["name"].replace("'s camp", f"'s {('second', 'third', 'fourth')[min(names[cp['name']] - 2, 2)]} camp")
+        cx, cy = w.center
+        fixed = [{"name": f"the {direction(o.x - cx, o.y - cy)} terminal", "x": o.x, "y": o.y, "kind": "terminal", "size": 1}
+                 for o in w.objects.values() if o.kind == "terminal" and o.data.get("builder") is None]
+        water = [(x, y) for y in range(w.height) for x in range(w.width) if w.tile(x, y) == "W"]
+        if water:
+            lx = sum(x for x, _ in water) // len(water)
+            ly = sum(y for _, y in water) // len(water)
+            fixed.append({"name": "the lake", "x": lx, "y": ly, "kind": "lake", "size": 1})
+        fixed.append({"name": "the meadow", "x": cx, "y": cy, "kind": "meadow", "size": 1})
+        w.landmarks = camps + fixed
 
     def _separate(self) -> None:
         """Nobody shares a tile: an idle creature standing on someone else's spot shuffles to a free neighbor."""

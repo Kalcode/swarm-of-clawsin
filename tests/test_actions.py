@@ -376,3 +376,16 @@ def test_speaking_to_a_sleeper(world):
 def test_animals_block_walking(world):
     world.add_object("cow", 11, 10)
     assert not world.walkable(11, 10)
+
+
+def test_carving_and_learning_by_reading(world):
+    a = creature(world, "Tam", 10, 10)
+    world.add_object("tree", 11, 10, wood=6)
+    res = act(world, a, action="write", text="Flint and a stick make a stone knife.")
+    assert res.ok and "oak tree" in res.message
+    b = creature(world, "Mara", 12, 11)
+    from swarmworld.world.perception import perceive
+    assert "words carved into it" in perceive(world, b)
+    res = act(world, b, action="read", target="carving")
+    assert res.ok and "stone knife" in res.message and "stone_knife" in b.known_recipes
+    assert any(e.kind == "learn" and e.data["how"] == "reading" for e in world.events)

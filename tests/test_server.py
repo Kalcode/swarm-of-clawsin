@@ -147,3 +147,22 @@ async def test_voice_from_the_sky(client):
     cid = welcome["creatures"][0]["id"]
     assert any("voice from the sky" in t for t in st.memory(cid).recent())
     await ws.close()
+
+
+async def test_society_graph(client):
+    ws, welcome = await _join(client, n=2)
+    st = client.app[STATE]
+    a, b = [c["id"] for c in welcome["creatures"]]
+    w = st.world
+    w.emit("say", a, 1, 1, "x", to=b, line="hi")
+    w.emit("give", a, 1, 1, "y", to=b, item="stick", n=1)
+    w.emit("learn", b, 1, 1, "z", teacher=a, how="watching", item="stone_knife")
+    for _ in range(50):
+        await asyncio.sleep(0.02)
+        if st.relations:
+            break
+    resp = await client.get("/api/society")
+    soc = await resp.json()
+    e = soc["edges"][0]
+    assert {e["a"], e["b"]} == {a, b} and e["talk"] == 1 and e["gift"] == 1 and e["teach"] == 1
+    await ws.close()

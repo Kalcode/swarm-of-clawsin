@@ -6,7 +6,7 @@ import json
 import random
 import re
 import time
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -80,6 +80,7 @@ class ServerState:
         self._job_seq = 0
         self.run_dir = run_dir
         self.world_path: Path | None = None
+        self.relations: dict[str, Counter] = {}  # "a|b" (sorted ids) -> counts of talk, gift, teach
         self.chronicle: list[dict] = []
         self.chronicle_due = self.world.tick + CHRONICLE_EVERY
         self.chronicle_from = self.world.tick
@@ -369,6 +370,39 @@ class ServerState:
             self._remember(c, "You notice you keep trying the same thing and failing. Try something different.", 3)
             dq.clear()
 
+    # ------------------------------------------------------------ society
+    def _note_relation(self, ev) -> None:
+        kind = {"say": "talk", "give": "gift", "learn": "teach"}.get(ev.kind)
+        if not kind:
+            return
+        if ev.kind == "learn":
+            a, b = ev.data.get("teacher"), ev.actor
+        else:
+            a, b = ev.actor, ev.data.get("to")
+        if not a or not b or a == b or a not in self.world.creatures or b not in self.world.creatures:
+            return
+        key = "|".join(sorted((a, b)))
+        self.relations.setdefault(key, Counter())[kind] += 1
+
+    def society(self) -> dict:
+        w = self.world
+        nodes = [{"id": c.id, "name": c.name, "model": c.model, "color": c.color, "asleep": c.asleep,
+                  "drive": (c.persona or {}).get("drive")} for c in w.creatures.values()]
+        edges = []
+        for key, cnt in self.relations.items():
+            a, b = key.split("|")
+            weight = cnt["talk"] + 3 * cnt["gift"] + 4 * cnt["teach"]
+            edges.append({"a": a, "b": b, "talk": cnt["talk"], "gift": cnt["gift"], "teach": cnt["teach"], "weight": weight})
+        edges.sort(key=lambda e: -e["weight"])
+        degree: Counter = Counter()
+        for e in edges:
+            degree[e["a"]] += e["weight"]
+            degree[e["b"]] += e["weight"]
+        name = {c.id: c.name for c in w.creatures.values()}
+        hubs = [{"id": cid, "name": name.get(cid, cid), "weight": wt} for cid, wt in degree.most_common(5)]
+        loners = [n["name"] for n in nodes if degree[n["id"]] == 0 and not n["asleep"]]
+        return {"nodes": nodes, "edges": edges, "hubs": hubs, "loners": loners}
+
     # ------------------------------------------------------------ the experimenter
     def voice_from_the_sky(self, text: str, x=None, y=None, radius=None) -> list[str]:
         w = self.world
@@ -418,12 +452,14 @@ class ServerState:
         for ev in new_events:
             if ev.kind in ("craft", "discover") and ev.actor in w.creatures:
                 self.metrics.item(w.creatures[ev.actor].model, ev.data.get("item", ""))
+            self._note_relation(ev)
             if self._events_fh:
                 self._events_fh.write(json.dumps(ev.to_dict()) + "\n")
         msg = {
             "type": "tick", "tick": w.tick, "clock": w.clock(),
             "creatures": [w.cre_dict(c) for c in w.creatures.values()],
             "objects_upsert": upsert, "objects_removed": removed,
+            "landmarks": getattr(w, "landmarks", []) if w.tick % 30 == 0 else None,
             "events": [e.to_dict() for e in new_events if e.kind != "fire_out" or True],
         }
         return json.dumps(msg)

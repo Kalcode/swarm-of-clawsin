@@ -91,6 +91,7 @@
         <button type="button" role="tab" class="tab" id="tabbtn-events" data-tab="events" aria-selected="false" aria-controls="tab-events">Events <span class="tab-count num" id="ev-unread" hidden></span></button>
         <button type="button" role="tab" class="tab" id="tabbtn-swarm" data-tab="swarm" aria-selected="false" aria-controls="tab-swarm">Swarm</button>
         <button type="button" role="tab" class="tab" id="tabbtn-chronicle" data-tab="chronicle" aria-selected="false" aria-controls="tab-chronicle">Chronicle <span class="tab-dot" id="chron-dot" hidden></span></button>
+        <button type="button" role="tab" class="tab" id="tabbtn-society" data-tab="society" aria-selected="false" aria-controls="tab-society">Society</button>
       </nav>
 
       <!-- Creature -->
@@ -209,6 +210,30 @@
         <div class="chron" id="chron"></div>
         <div class="empty small" id="chron-empty"><p class="empty-sub" id="chron-empty-text">Loading the chronicle…</p></div>
         <button type="button" class="chron-jump" id="chron-jump" hidden>New chapter below</button>
+      </section>
+
+      <!-- Society -->
+      <section class="tabpane society" id="tab-society" role="tabpanel" aria-labelledby="tabbtn-society" hidden>
+        <div class="empty small" id="soc-empty"><p class="empty-sub" id="soc-empty-text">Loading…</p></div>
+        <div id="soc-body" hidden>
+          <div class="soc-graph">
+            <canvas id="soc-canvas" aria-label="Who talks to, gives to and teaches whom"></canvas>
+            <div class="soc-tip" id="soc-tip" hidden></div>
+          </div>
+          <div class="soc-legend" id="soc-legend"></div>
+          <div class="block">
+            <h3>Most connected</h3>
+            <ol class="hubs" id="soc-hubs"></ol>
+          </div>
+          <div class="block">
+            <h3>Loners</h3>
+            <div class="chips" id="soc-loners"></div>
+          </div>
+        </div>
+        <div class="block">
+          <h3>Places</h3>
+          <ol class="places" id="soc-places"></ol>
+        </div>
       </section>
 
       <footer class="panel-foot" id="panel-foot"></footer>

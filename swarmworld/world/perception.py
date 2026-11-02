@@ -11,6 +11,7 @@ DAY_SIGHT = 6
 NIGHT_SIGHT = 2
 FIRE_SIGHT = 5
 FIRE_RADIUS = 3
+LANDMARK_RANGE = 14
 
 DIRS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]
 
@@ -116,8 +117,10 @@ def _feeling(c: Creature) -> str:
         bits.append("a bit hungry")
     else:
         bits.append("fed")
-    if c.energy < 20:
-        bits.append("exhausted")
+    if c.energy < 15:
+        bits.append("exhausted, your legs heavy (rest soon)")
+    elif c.energy < 25:
+        bits.append("very tired")
     elif c.energy < 50:
         bits.append("tired")
     if c.health < 40:
@@ -181,6 +184,8 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             label = "campfire (burning)" if o.data.get("lit") else "campfire (cold ashes)"
         if o.kind == "sign" and o.data.get("text"):
             label = "sign with writing"
+        elif o.data.get("text") and o.kind in ("tree", "pine", "rock", "stump"):
+            label = f"{o.name} with words carved into it"
         if o.kind == "terminal":
             label = "strange terminal (running a program)" if o.data.get("code") else "strange terminal (its screen glows, waiting)"
         groups[label].append((d, dirn))
@@ -221,6 +226,13 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             parts.append(desc)
         lines.append("Others: " + "; ".join(parts) + ".")
 
+    marks = []
+    for lm in getattr(world, "landmarks", []):
+        d = dist(c.x, c.y, lm["x"], lm["y"])
+        if d <= LANDMARK_RANGE:
+            marks.append((d, "you are at " + lm["name"] if d <= 3 else f"{lm['name']} {_where(d, direction(lm['x'] - c.x, lm['y'] - c.y))}"))
+    if marks:
+        lines.append("Places you know: " + "; ".join(t for _, t in sorted(marks)[:4]) + ".")
     far = _far_features(world, c, r)
     if far:
         lines.append("Around you: " + far + ".")

@@ -119,3 +119,17 @@ def test_overlapping_creatures_separate(world):
     for _ in range(12):
         sim.tick()
     assert (a.x, a.y) != (b.x, b.y)
+
+
+def test_camps_become_named_places(world):
+    from swarmworld.world.perception import perceive
+    sim = Simulation(world)
+    world.add_object("campfire", 10, 10, lit=True, builder="Bo")
+    world.add_object("workbench", 12, 11, builder="Mara")
+    c = creature(world, "Tam", 20, 10)
+    sim._landmarks()
+    camp = next(lm for lm in world.landmarks if lm["kind"] == "camp")
+    assert camp["name"] == "Bo's camp" and camp["size"] == 2
+    assert "Bo's camp 10 steps west" in perceive(world, c)
+    res = apply_intention(world, c, Intention("walk_to", target="Bo's camp"))
+    assert res.ok and "Bo's camp" in c.activity["label"]

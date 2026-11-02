@@ -11,7 +11,8 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .app import create_app
+from .app import STATE, create_app
+from .persistence import save
 
 
 def lan_ip() -> str:
@@ -48,7 +49,6 @@ def main() -> None:
     if world_path.exists():
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path)
-    from .app import STATE
     app[STATE].sim.inspiration = not args.no_inspiration
 
     advert = None
@@ -66,6 +66,10 @@ def main() -> None:
     try:
         web.run_app(app, host=host, port=args.port, print=None, access_log=None)
     finally:
+        try:
+            save(app[STATE], world_path)  # last word, even if shutdown was interrupted
+        except Exception as exc:
+            print(f"  (final save failed: {exc})")
         if advert:
             advert.close()
 

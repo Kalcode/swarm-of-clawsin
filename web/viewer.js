@@ -13,16 +13,16 @@
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
 
-  const EVENT_KINDS = ['say', 'voice', 'invent', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
+  const EVENT_KINDS = ['say', 'voice', 'invent', 'learn', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
     say: 'Speech', craft: 'Craft', discover: 'Discovery', gather: 'Gather', fail: 'Fail', place: 'Place',
     write: 'Write', program: 'Program', collapse: 'Collapse', join: 'Join', sleep: 'Sleep', eat: 'Eat',
-    plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice',
+    plant: 'Plant', chronicle: 'Chronicle', tame: 'Tame', invent: 'Invention', voice: 'Voice', learn: 'Learn',
   };
   const KIND_ICON = {
     say: 'say', craft: 'craft', discover: 'discover', gather: 'gather', fail: 'fail', place: 'place',
     write: 'write', program: 'program', collapse: 'collapse', join: 'join', sleep: 'sleep', eat: 'eat',
-    plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice',
+    plant: 'plant', chronicle: 'chronicle', tame: 'tame', invent: 'invent', voice: 'voice', learn: 'people',
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
@@ -85,7 +85,7 @@
     loaded: false,
     width: 64, height: 64, tiles: [], terrain: null,
     objects: new Map(), lit: [], objAt: new Map(), objAnim: new Map(),
-    inventions: new Map(), invByName: new Map(),
+    inventions: new Map(), invByName: new Map(), landmarks: [],
     voice: { open: false, target: null, radius: 6, disabled: false, busy: false, pulse: 0 },
     cres: new Map(),               // id -> { d: Cre, fx, fy, tx, ty, rx, ry, face }
     nameToId: new Map(),
@@ -253,6 +253,7 @@
     }
     indexNames();
     S.items = m.items || {};
+    S.landmarks = Array.isArray(m.landmarks) ? m.landmarks : [];
     S.tick = m.tick | 0;
     if (m.clock) S.clock = m.clock;
     S.tickAt = now;
@@ -333,6 +334,7 @@
 
     if (isNum(m.tick)) S.tick = m.tick;
     if (m.clock) S.clock = m.clock;
+    if (Array.isArray(m.landmarks)) { S.landmarks = m.landmarks; if (S.tab === 'society') renderPlaces(); }
 
     pushEvents(m.events);
     renderHeader();
@@ -883,6 +885,11 @@
     if (name === 'events') { S.unread = 0; $('ev-unread').hidden = true; }
     if (name === 'swarm') renderSwarm();
     if (name === 'creature') renderCreaturePanel();
+    if (name === 'society') {
+      sizeSociety();
+      if (!soc.data || performance.now() - soc.at > 10000) fetchSociety();
+      kickSociety();
+    }
     if (name === 'chronicle') {
       $('chron-dot').hidden = true;
       if (!chron.loaded) fetchChronicle();
@@ -922,6 +929,298 @@
     }
   }
 
+  /* =============================================================== society */
+  // Who talks to, gives to and teaches whom, as a small force-directed graph.
+  // Positions persist between refreshes so the picture settles instead of jumping.
+  const SOC_COLORS = { talk: '#8fc3ea', gift: '#ff9f6b', teach: '#ffd75e' };
+  const soc = {
+    data: null, err: null, busy: false, at: 0,
+    pos: new Map(), alpha: 0, raf: 0, w: 340, h: 300, dpr: 1,
+    hover: null, mouse: null, badges: new Map(), maxW: 1,
+  };
+
+  async function fetchSociety() {
+    if (soc.busy) return;
+    soc.busy = true;
+    try {
+      const d = await api('/api/society');
+      const nodes = Array.isArray(d && d.nodes) ? d.nodes.filter((n) => n && n.id) : [];
+      const ids = new Set(nodes.map((n) => n.id));
+      const edges = (Array.isArray(d && d.edges) ? d.edges : []).filter((e) => e && ids.has(e.a) && ids.has(e.b) && e.a !== e.b);
+      const prevSig = soc.data ? soc.data.sig : '';
+      const sig = nodes.map((n) => n.id).join() + '|' + edges.map((e) => e.a + e.b + e.weight).join();
+      soc.data = { nodes, edges, hubs: Array.isArray(d.hubs) ? d.hubs : [], loners: Array.isArray(d.loners) ? d.loners : [], sig };
+      soc.maxW = Math.max(1, ...edges.map((e) => +e.weight || 0));
+      soc.err = null;
+      seedSociety();
+      if (sig !== prevSig) soc.alpha = Math.max(soc.alpha, prevSig ? 0.35 : 1);
+    } catch (err) {
+      soc.err = (err && err.message) || String(err);
+    } finally {
+      soc.busy = false;
+      soc.at = performance.now();
+    }
+    renderSocietyLists();
+    renderPlaces();
+    kickSociety();
+  }
+
+  /** New creatures start next to someone they know (or on a ring); old ones keep their place. */
+  function seedSociety() {
+    const { nodes, edges } = soc.data;
+    const keep = new Set(nodes.map((n) => n.id));
+    for (const id of [...soc.pos.keys()]) if (!keep.has(id)) soc.pos.delete(id);
+    const cx = soc.w / 2, cy = soc.h / 2;
+    for (const n of nodes) {
+      if (soc.pos.has(n.id)) continue;
+      const friend = edges.map((e) => (e.a === n.id ? e.b : e.b === n.id ? e.a : null)).find((id) => id && soc.pos.has(id));
+      const a = (T.hashStr(n.id) % 360) * Math.PI / 180;
+      const base = friend ? soc.pos.get(friend) : { x: cx + Math.cos(a) * soc.w * 0.32, y: cy + Math.sin(a) * soc.h * 0.32 };
+      soc.pos.set(n.id, { x: base.x + Math.cos(a) * 18, y: base.y + Math.sin(a) * 18, vx: 0, vy: 0 });
+    }
+  }
+
+  function sizeSociety() {
+    const cv = $('soc-canvas');
+    const w = Math.max(240, cv.parentElement.clientWidth);
+    const h = Math.round(Math.min(360, Math.max(260, w * 0.9)));
+    soc.dpr = window.devicePixelRatio || 1;
+    if (soc.w !== w || soc.h !== h) {
+      for (const p of soc.pos.values()) { p.x *= w / soc.w; p.y *= h / soc.h; }
+      soc.w = w; soc.h = h;
+    }
+    cv.width = Math.round(w * soc.dpr); cv.height = Math.round(h * soc.dpr);
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
+
+  function stepSociety() {
+    const { nodes, edges } = soc.data;
+    const P = nodes.map((n) => soc.pos.get(n.id));
+    const cx = soc.w / 2, cy = soc.h / 2;
+    const rep = 1500 * Math.min(1, 14 / Math.max(6, nodes.length));
+    for (let i = 0; i < P.length; i++) {
+      for (let j = i + 1; j < P.length; j++) {
+        const a = P[i], b = P[j];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) { dx = (i - j) * 0.5; dy = 0.5; d2 = 1; }
+        const f = rep / Math.max(d2, 100);
+        const d = Math.sqrt(d2);
+        a.vx += dx / d * f; a.vy += dy / d * f;
+        b.vx -= dx / d * f; b.vy -= dy / d * f;
+      }
+    }
+    for (const e of edges) {
+      const a = soc.pos.get(e.a), b = soc.pos.get(e.b);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      const strength = 0.3 + 0.7 * Math.sqrt((+e.weight || 1) / soc.maxW);
+      const rest = 74 - 30 * strength;
+      const f = (d - rest) * 0.012 * strength;
+      a.vx += dx / d * f; a.vy += dy / d * f;
+      b.vx -= dx / d * f; b.vy -= dy / d * f;
+    }
+    const pad = 22;
+    for (const p of P) {
+      p.vx += (cx - p.x) * 0.006;
+      p.vy += (cy - p.y) * 0.008;
+      p.vx *= 0.82; p.vy *= 0.82;
+      p.x = clamp(p.x + p.vx * soc.alpha * 2, pad, soc.w - pad);
+      p.y = clamp(p.y + p.vy * soc.alpha * 2, pad, soc.h - pad - 10);
+    }
+    soc.alpha *= 0.985;
+  }
+
+  function kickSociety() {
+    if (soc.raf || S.tab !== 'society') return;
+    const loop = () => {
+      soc.raf = 0;
+      if (S.tab !== 'society' || !soc.data) return;
+      if (soc.alpha > 0.01) stepSociety();
+      drawSociety();
+      if (soc.alpha > 0.01 || soc.hover) soc.raf = requestAnimationFrame(loop);
+    };
+    soc.raf = requestAnimationFrame(loop);
+  }
+
+  function dominant(e) {
+    const t = +e.talk || 0, g = +e.gift || 0, k = +e.teach || 0;
+    return k >= g && k >= t && k > 0 ? 'teach' : g >= t && g > 0 ? 'gift' : 'talk';
+  }
+
+  function socBadge(n) {
+    const color = n.color || modelColor(n.model);
+    const key = n.id + '|' + SK.name + '|' + color;
+    let b = soc.badges.get(key);
+    if (!b) { b = SK.creatureBadge({ id: n.id, color }, 26); soc.badges.set(key, b); }
+    return b;
+  }
+
+  function drawSociety() {
+    const cv = $('soc-canvas');
+    const g = cv.getContext('2d');
+    g.setTransform(soc.dpr, 0, 0, soc.dpr, 0, 0);
+    g.clearRect(0, 0, soc.w, soc.h);
+    if (!soc.data) return;
+    const { nodes, edges } = soc.data;
+    const H = soc.hover;
+    const focus = H && H.node ? H.node.id : null;
+    // ties
+    for (const e of edges) {
+      const a = soc.pos.get(e.a), b = soc.pos.get(e.b);
+      const w = (+e.weight || 1) / soc.maxW;
+      const lit = (H && H.edge === e) || (focus && (e.a === focus || e.b === focus));
+      g.strokeStyle = T.rgba(SOC_COLORS[dominant(e)], lit ? 0.95 : focus ? 0.12 : 0.28 + 0.45 * w);
+      g.lineWidth = 1 + 4.5 * Math.sqrt(w) + (lit ? 1 : 0);
+      g.lineCap = 'round';
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    // creatures
+    g.textAlign = 'center';
+    g.textBaseline = 'top';
+    for (const n of nodes) {
+      const p = soc.pos.get(n.id);
+      const r = 13;
+      const dim = n.asleep || (focus && focus !== n.id && !edges.some((e) => (e.a === focus && e.b === n.id) || (e.b === focus && e.a === n.id)));
+      g.save();
+      g.globalAlpha = dim ? 0.4 : 1;
+      g.fillStyle = '#120e15';
+      g.beginPath(); g.arc(p.x, p.y, r, 0, Math.PI * 2); g.fill();
+      g.save();
+      g.beginPath(); g.arc(p.x, p.y, r - 1, 0, Math.PI * 2); g.clip();
+      g.imageSmoothingEnabled = false;
+      g.drawImage(socBadge(n), p.x - r, p.y - r, r * 2, r * 2);
+      g.restore();
+      g.lineWidth = 2;
+      g.strokeStyle = n.color || modelColor(n.model);
+      g.beginPath(); g.arc(p.x, p.y, r, 0, Math.PI * 2); g.stroke();
+      if (n.id === S.selected) {
+        g.strokeStyle = '#f2e9da';
+        g.setLineDash([3, 3]);
+        g.beginPath(); g.arc(p.x, p.y, r + 4, 0, Math.PI * 2); g.stroke();
+        g.setLineDash([]);
+      }
+      g.font = `${focus === n.id ? 700 : 600} 10.5px ${SANS}`;
+      g.fillStyle = 'rgba(12,9,15,0.85)';
+      g.fillText(n.name, p.x + 1, p.y + r + 3);
+      g.fillStyle = '#ebe3d5';
+      g.fillText(n.name, p.x, p.y + r + 2);
+      g.restore();
+    }
+  }
+
+  function societyAt(mx, my) {
+    if (!soc.data) return null;
+    for (const n of soc.data.nodes) {
+      const p = soc.pos.get(n.id);
+      if (Math.hypot(mx - p.x, my - p.y) <= 15) return { node: n };
+    }
+    let best = null, bestD = 6;
+    for (const e of soc.data.edges) {
+      const a = soc.pos.get(e.a), b = soc.pos.get(e.b);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = clamp(((mx - a.x) * dx + (my - a.y) * dy) / Math.max(1, dx * dx + dy * dy), 0, 1);
+      const d = Math.hypot(mx - (a.x + t * dx), my - (a.y + t * dy));
+      if (d < bestD) { bestD = d; best = { edge: e }; }
+    }
+    return best;
+  }
+
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  function societyTip(h) {
+    const byId = (id) => (soc.data.nodes.find((n) => n.id === id) || { name: id }).name;
+    if (h.edge) {
+      const e = h.edge;
+      const parts = [plural(+e.talk || 0, 'talk', 'talks')];
+      if (+e.gift) parts.push(plural(+e.gift, 'gift', 'gifts'));
+      if (+e.teach) parts.push(plural(+e.teach, 'teaching', 'teachings'));
+      return `<b>${esc(byId(e.a))}</b> ↔ <b>${esc(byId(e.b))}</b>: ${esc(parts.join(', '))}`;
+    }
+    const n = h.node;
+    const ties = soc.data.edges.filter((e) => e.a === n.id || e.b === n.id).length;
+    return `<b>${esc(n.name)}</b> · ${esc(n.model || '')}${n.drive ? ` · ${esc(n.drive)}` : ''} · ${plural(ties, 'tie', 'ties')}${n.asleep ? ' · asleep' : ''}<br><span>Click to follow on the map</span>`;
+  }
+
+  function renderSocietyLists() {
+    const d = soc.data;
+    renderPlaces();
+    $('soc-empty').hidden = !!(d && d.nodes.length && !soc.err);
+    setText($('soc-empty-text'), soc.err
+      ? `The society map isn’t available yet (${soc.err}). It appears once the server tracks who talks to whom.`
+      : d && !d.nodes.length ? 'No creatures yet.' : 'Loading…');
+    $('soc-body').hidden = !(d && d.nodes.length && !soc.err);
+    if (!d) return;
+    const maxHub = Math.max(1, ...d.hubs.map((h) => +h.weight || 0));
+    setHTML($('soc-hubs'), d.hubs.length ? d.hubs.map((h) => {
+      const n = d.nodes.find((x) => x.id === h.id) || { id: h.id, name: h.name };
+      const color = n.color || modelColor(n.model);
+      return `<li><button type="button" data-id="${esc(h.id)}"><img src="${badgeURL(h.id, color)}" width="22" height="22" alt="">` +
+        `<span class="h-name" style="color:${T.readable(color)}">${esc(h.name || n.name)}</span>` +
+        `<span class="h-bar"><i style="width:${Math.round(100 * (+h.weight || 0) / maxHub)}%;background:${esc(color)}"></i></span>` +
+        `<span class="h-w num">${esc(fmtNum(+h.weight || 0))}</span></button></li>`;
+    }).join('') : '<li class="empty-sub">No ties yet.</li>');
+    setHTML($('soc-loners'), d.loners.length ? d.loners.map((name) => {
+      const id = S.nameToId.get(String(name).toLowerCase());
+      return `<button type="button" class="chip loner"${id ? ` data-id="${esc(id)}"` : ''}>${esc(name)}</button>`;
+    }).join('') : '<span class="empty-sub">Everyone has someone.</span>');
+    const counts = { talk: 0, gift: 0, teach: 0 };
+    for (const e of d.edges) counts[dominant(e)]++;
+    setHTML($('soc-legend'), Object.entries(SOC_COLORS).map(([k, c]) =>
+      `<span><i style="background:${c}"></i>${k === 'talk' ? 'talk' : k === 'gift' ? 'gifts' : 'teaching'}</span>`).join('') +
+      `<span class="soc-count">${plural(d.nodes.length, 'creature', 'creatures')} · ${plural(d.edges.length, 'tie', 'ties')}</span>`);
+  }
+
+  const PLACE_KIND = { camp: 'camp', terminal: 'terminal', lake: 'lake', meadow: 'meadow' };
+  function renderPlaces() {
+    const L = S.landmarks || [];
+    setHTML($('soc-places'), L.length ? L.map((p, i) => {
+      const what = p.kind === 'camp' && +p.size ? `camp · ${plural(+p.size, 'structure', 'structures')}` : (PLACE_KIND[p.kind] || p.kind || 'place');
+      return `<li><button type="button" data-place="${i}"><span class="p-name">${esc(p.name)}</span><span class="p-kind">${esc(what)}</span><span class="p-at num">${esc(p.x)}, ${esc(p.y)}</span></button></li>`;
+    }).join('') : '<li class="empty-sub">No named places yet.</li>');
+  }
+
+  function bindSociety() {
+    $('soc-places').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-place]');
+      const p = b && S.landmarks[+b.dataset.place];
+      if (!p) return;
+      S.following = false;
+      renderFollow();
+      S.cam.x = p.x + 0.5;
+      S.cam.y = p.y + 0.5;
+    });
+    const cv = $('soc-canvas');
+    const tip = $('soc-tip');
+    cv.addEventListener('pointermove', (e) => {
+      const r = cv.getBoundingClientRect();
+      const h = societyAt(e.clientX - r.left, e.clientY - r.top);
+      const changed = (h && (h.node || h.edge)) !== (soc.hover && (soc.hover.node || soc.hover.edge));
+      soc.hover = h;
+      cv.style.cursor = h && h.node ? 'pointer' : 'default';
+      if (h) {
+        tip.innerHTML = societyTip(h);
+        tip.hidden = false;
+        const x = clamp(e.clientX - r.left + 12, 4, soc.w - tip.offsetWidth - 4);
+        const y = e.clientY - r.top + 14 + tip.offsetHeight > soc.h ? e.clientY - r.top - tip.offsetHeight - 10 : e.clientY - r.top + 14;
+        tip.style.transform = `translate(${x}px, ${y}px)`;
+      } else tip.hidden = true;
+      if (changed) { drawSociety(); kickSociety(); }
+    });
+    cv.addEventListener('pointerleave', () => { soc.hover = null; tip.hidden = true; drawSociety(); });
+    cv.addEventListener('click', (e) => {
+      const r = cv.getBoundingClientRect();
+      const h = societyAt(e.clientX - r.left, e.clientY - r.top);
+      if (h && h.node && S.cres.has(h.node.id)) { select(h.node.id, true); drawSociety(); }
+    });
+    for (const id of ['soc-hubs', 'soc-loners']) {
+      $(id).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-id]');
+        if (b && S.cres.has(b.dataset.id)) { select(b.dataset.id, true); drawSociety(); }
+      });
+    }
+    window.addEventListener('resize', () => { if (S.tab === 'society') { sizeSociety(); drawSociety(); } });
+  }
+
   /* ============================================================= chronicle */
   const chron = { list: [], loaded: false, err: null, busy: false };
 
@@ -954,10 +1253,11 @@
     const html = chron.list.map((ch) => {
       const phase = ch.phase ? `<span class="ph">${esc(ch.phase)}</span>` : '';
       return `<article class="chapter"><header><h3>Day ${esc(ch.day != null ? ch.day : '?')}${phase}</h3>` +
-        `<span class="t num">tick ${esc(fmtNum(ch.tick))}</span></header>${chapterParas(ch.text)}</article>`;
+        `<span class="t num" title="tick ${esc(fmtNum(ch.tick))}"><span class="ago" data-tick="${esc(ch.tick)}"></span></span></header>${chapterParas(ch.text)}</article>`;
     }).join('');
     const changed = box._html !== html;
     setHTML(box, html);
+    updateChronicleAges();
     const empty = $('chron-empty');
     empty.hidden = chron.list.length > 0;
     setText($('chron-empty-text'), chron.err
@@ -970,6 +1270,19 @@
     } else if (changed) {
       $('chron-jump').hidden = false;
     }
+  }
+
+  /** "12 min ago" from the tick difference and the measured tick length. */
+  function agoText(tick) {
+    if (!isNum(+tick)) return '';
+    const min = Math.max(0, (S.tick - tick) * S.tickMs / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return `${Math.round(min)} min ago`;
+    const h = Math.floor(min / 60), m = Math.round(min - h * 60);
+    return m ? `${h} h ${m} min ago` : `${h} h ago`;
+  }
+  function updateChronicleAges() {
+    for (const el of document.querySelectorAll('#chron .ago')) setText(el, agoText(+el.dataset.tick));
   }
 
   function renderCredit() {
@@ -1148,6 +1461,7 @@
         const ps = it.pos;
         SK.drawObject(ctx, it.o, ox + (ps ? ps.x : it.o.x) * ts, oy + (ps ? ps.y : it.o.y) * ts, ts, now, ps || undefined);
         if (it.o.tamed_by) tamed.push([ox + (ps ? ps.x : it.o.x) * ts, oy + (ps ? ps.y : it.o.y) * ts, it.o]);
+        if (it.o.text && CARVABLE.has(it.o.kind)) drawCarving(ox + it.o.x * ts, oy + it.o.y * ts, ts, it.o);
         continue;
       }
       const e = it.e, c = e.d;
@@ -1166,6 +1480,7 @@
     drawNight(list, ox, oy, ts, now);
     for (const [hx, hy, o] of tamed) drawHeart(hx + ts / 2, hy + ts - (ANIMAL_TOP[o.kind] || 1) * ts - 2, ts);
     drawVoice(ox, oy, ts, now);
+    drawLandmarks(ox, oy, ts);
     drawOverlays(list, ox, oy, ts, now);
   }
 
@@ -1202,6 +1517,66 @@
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, vw, vh);
       ctx.restore();
+    }
+  }
+
+  /** Named places as storybook labels: small caps with a faint ring, fading when zoomed in close. */
+  const LANDMARK_RING = { camp: 2, terminal: 1.4, lake: 3.5, meadow: 4.5 };
+  function drawLandmarks(ox, oy, ts) {
+    if (!S.landmarks.length) return;
+    const z = S.zoom.view;
+    const fade = z <= 2 ? 1 : z >= 4.5 ? 0.25 : 1 - (z - 2) / 2.5 * 0.75;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const L of S.landmarks) {
+      if (!L || !isNum(L.x) || !isNum(L.y) || !L.name) continue;
+      const kind = L.kind || 'camp';
+      const size = Math.max(0, +L.size || 0);
+      const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts;
+      const ring = ((LANDMARK_RING[kind] || 2) + (kind === 'camp' ? Math.min(size, 10) * 0.3 : 0)) * ts;
+      if (cx < -ring - 200 || cy < -ring - 60 || cx > vw + ring + 200 || cy > vh + ring + 60) continue;
+      ctx.globalAlpha = 0.5 * fade;
+      ctx.setLineDash([2, 6]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(243,230,204,0.7)';
+      ctx.beginPath(); ctx.arc(cx, cy, ring, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      const px = kind === 'camp' ? 12 + Math.min(size, 8) : kind === 'terminal' ? 12 : 15;
+      ctx.font = `italic small-caps 600 ${px}px ${getComputedStyle(document.documentElement).getPropertyValue('--serif') || 'serif'}`;
+      const ly = kind === 'lake' || kind === 'meadow' ? cy : cy - ring - px * 0.2;
+      const tw = ctx.measureText(L.name).width;
+      ctx.globalAlpha = 0.92 * fade;
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(24,14,8,0.62)';
+      ctx.strokeText(L.name, cx, ly);
+      ctx.fillStyle = kind === 'lake' ? '#dff1ff' : '#f6e9cf';
+      ctx.fillText(L.name, cx, ly);
+      // a little flourish either side
+      ctx.globalAlpha = 0.55 * fade;
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.lineWidth = 1;
+      for (const sgn of [-1, 1]) {
+        const x0 = cx + sgn * (tw / 2 + 6);
+        ctx.beginPath(); ctx.moveTo(x0, ly + 1); ctx.lineTo(x0 + sgn * 12, ly + 1); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Words carved into a tree, pine, rock or stump: a few pale scratch marks low on the sprite. */
+  const CARVABLE = new Set(['tree', 'pine', 'rock', 'stump']);
+  function drawCarving(dx, dy, ts, o) {
+    const p = Math.max(1, Math.round(ts / 16));
+    const x = Math.round(dx + ts / 2 - 3 * p), y = Math.round(dy + ts - (o.kind === 'rock' || o.kind === 'stump' ? 7 : 6) * p);
+    const h = T.hashStr(o.id);
+    const marks = [[0, 0, 2], [3, 1, 3], [1, 3, 4], [5, 3, 1]];
+    for (const [mx, my, len] of marks.slice(0, 3 + (h & 1))) {
+      ctx.fillStyle = 'rgba(40,22,10,0.75)';
+      ctx.fillRect(x + mx * p, y + (my + 1) * p, len * p, p);
+      ctx.fillStyle = 'rgba(255,236,200,0.9)';
+      ctx.fillRect(x + mx * p, y + my * p, len * p, p);
     }
   }
 
@@ -1540,6 +1915,7 @@
       if (o.kind === 'crop') s = `${o.crop || 'wheat'} (${['sprouting', 'growing', 'ripe'][clamp(o.stage | 0, 0, 2)]})`;
       if (o.tamed_by) s += ` · tamed by ${o.tamed_by}`;
       if (o.kind === 'creation') s = `“${o.label || 'an invention'}” (invention)${o.text ? ` · ${String(o.text).slice(0, 80)}` : ''}`;
+      else if (o.text && CARVABLE.has(o.kind)) s += ` · carved: “${String(o.text).slice(0, 90)}”`;
       parts.push(`<span class="hv-v">${esc(s)}</span>`);
     }
     if (hoverCre) {
@@ -1719,6 +2095,8 @@
     // once a second: connection label countdown, detail freshness
     setInterval(() => {
       if (S.loaded && performance.now() - invAt > 120000) fetchInventions();
+      if (S.loaded && S.tab === 'society' && !document.hidden && performance.now() - soc.at > 10000) fetchSociety();
+      if (S.tab === 'chronicle') updateChronicleAges();
       renderConn();
       if (S.selected) renderDetailFoot();
     }, 1000);
@@ -1817,6 +2195,7 @@
   async function boot() {
     buildFilters();
     bindUI();
+    bindSociety();
     if (window.innerWidth <= 900) setPanel(false);  // the panel would cover the map
     bindMap();
     resize();

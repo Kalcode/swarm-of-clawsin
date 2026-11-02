@@ -29,7 +29,7 @@ Actions:
 - give (target, items, count): hand something to the creature beside you, or feed an animal.
 - pick_up (target) / drop (target): take or leave items on the ground.
 - place (target): set down a structure you carry: campfire, workbench, sign, wooden wall, furnace, chest, terminal.
-- write (text): carve words onto a sign beside you. read (target): read a sign, tablet or terminal beside you.
+- write (text): carve words onto a sign, tree or boulder beside you; they stay for anyone to find. read (target): read a sign, carving, tablet or terminal.
 - program (text): enter Lua code into a terminal beside you.
 - plant (target, count): plant seeds or berries in the soil beside you (needs a tool to break the soil).
 - invent (target, items, text): create something brand new from 2-4 things you carry, even other inventions. target is its name, text says what it is or does. Once a day.

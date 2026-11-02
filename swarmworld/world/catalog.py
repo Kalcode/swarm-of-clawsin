@@ -143,6 +143,17 @@ class Catalog:
                 return r
         return None
 
+    def recipes_in_words(self, line: str) -> list[Recipe]:
+        """Recipes fully spelled out in some words: the product and every ingredient are named."""
+        text = " " + line.lower().replace("-", " ") + " "
+
+        def named(item_id: str) -> bool:
+            it = self.items.get(item_id)
+            names = [it.name, *it.aliases] if it else [item_id.replace("_", " ")]
+            return any(f" {n.lower()}" in text for n in names if len(n) > 2)
+
+        return [r for r in self.recipes if not r.known_at_start and named(r.output) and all(named(i) for i in r.inputs)]
+
     def recipe_for(self, output_id: str) -> Recipe | None:
         for r in self.recipes:
             if r.output == output_id:

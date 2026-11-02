@@ -46,6 +46,7 @@ def snapshot(st: "ServerState") -> dict:
         "owner": st.owner,
         "model_colors": st.model_colors,
         "chronicle": st.chronicle,
+        "relations": {k: dict(v) for k, v in st.relations.items()},
         "inventions": getattr(st.world.catalog, "inventions", []),
         "metrics": {m: dict(cnt) for m, cnt in st.metrics.models.items()},
         "metric_items": {m: sorted(v) for m, v in st.metrics.items.items()},
@@ -109,6 +110,7 @@ def restore(st: "ServerState", path: Path) -> None:
     st.owner = data.get("owner", {})
     st.model_colors = data.get("model_colors", {})
     st.chronicle = data.get("chronicle", [])
+    st.relations = {k: Counter(v) for k, v in data.get("relations", {}).items()}
     for m, cnt in data.get("metrics", {}).items():
         st.metrics.models[m].update(cnt)
     for m, items in data.get("metric_items", {}).items():

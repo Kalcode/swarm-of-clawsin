@@ -43,6 +43,7 @@ ITEM_SOURCES = {
 }
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
 EMPTY_KINDS = {"bush_empty", "stump"}
+CARVABLE = {"tree", "pine", "rock", "stump"}
 TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
 
 
@@ -167,6 +168,21 @@ def find_creature(world: World, c: Creature, target: str, max_dist: int | None =
                 if best is None or d < best[1]:
                     best = (other, d)
     return best[0] if best else None
+
+
+def find_landmark(world: World, c: Creature, target: str) -> dict | None:
+    """A named place the creature would know: within a long walk, matched by its name."""
+    t = " ".join(_words(target.replace("'", "'")))
+    if not t:
+        return None
+    best = None
+    for lm in getattr(world, "landmarks", []):
+        name = " ".join(_words(lm["name"]))
+        if name and (name == t or name in t or (t in name and len(t) > 3)):
+            d = dist(c.x, c.y, lm["x"], lm["y"])
+            if d <= 30 and (best is None or d < best[0]):
+                best = (d, lm)
+    return best[1] if best else None
 
 
 def find_object(world: World, c: Creature, target: str, max_dist: int | None = None,
@@ -404,6 +420,12 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
             if it.text and c.activity:
                 c.activity["say"] = (name, it.text)
             return res
+    lm = find_landmark(world, c, it.target)
+    if lm:
+        if dist(c.x, c.y, lm["x"], lm["y"]) <= 2:
+            return ActionResult(True, f"You are at {lm['name']}.")
+        goals = {(x, y) for x in range(lm["x"] - 2, lm["x"] + 3) for y in range(lm["y"] - 2, lm["y"] + 3) if world.walkable(x, y)}
+        return start_walk(world, c, goals, f"heading to {lm['name']}", f"You arrive at {lm['name']}.")
     obj = find_object(world, c, it.target)
     if obj:
         if dist(c.x, c.y, obj.x, obj.y) <= 1:
@@ -619,6 +641,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         got[best] += 1
     c.inventory.update(got)
     c.stats["gathered"] += sum(got.values())
+    c.energy = max(0.0, c.energy - 0.5 * sum(got.values()))  # gathering is work
     world.emit("gather", c.id, c.x, c.y, f"{c.name} gathered {_items_text(world, got)}.")
     bonus = f" Your {world.catalog.name(helper)} helps." if helper else ""
     return _busy(c, 2 * max(1, sum(got.values()) // 2 + 1), label, f"You gathered {_items_text(world, got)}.{bonus}")
@@ -903,21 +926,33 @@ def _write(world: World, c: Creature, it: Intention) -> ActionResult:
     text = it.text.strip()[:400]
     if not text:
         return ActionResult(False, "Write what? Put the words in text.")
-    sign = find_object(world, c, it.target or "sign", max_dist=1, kinds={"sign"})
-    if not sign:
-        return ActionResult(False, "There's no sign within reach to write on. Craft and place a sign first.")
-    sign.data["text"] = text
-    sign.data["author"] = c.name
-    world.changed_objects.add(sign.id)
+    surface = (find_object(world, c, it.target or "sign", max_dist=1, kinds={"sign"})
+               or find_object(world, c, it.target, max_dist=1, kinds=CARVABLE)
+               or find_object(world, c, "", max_dist=1, kinds={"sign"} | CARVABLE))
+    if not surface:
+        return ActionResult(False, "There's nothing beside you to write on. A sign, a tree trunk or a boulder would do.")
+    if surface.kind == "sign":
+        text = text[:400]
+    else:
+        text = text[:160]  # carving is slow work; keep it short
+    surface.data["text"] = text
+    surface.data["author"] = c.name
+    world.changed_objects.add(surface.id)
     c.stats["writing"] += 1
-    world.emit("write", c.id, sign.x, sign.y, f'{c.name} wrote on a sign: "{text[:120]}"')
-    return ActionResult(True, f'You carve onto the sign: "{text}"')
+    verb = "wrote on a sign" if surface.kind == "sign" else f"carved words into a {surface.name}"
+    world.emit("write", c.id, surface.x, surface.y, f'{c.name} {verb}: "{text[:120]}"')
+    return ActionResult(True, f'You carve into the {surface.name}: "{text}"')
 
 
 def _read(world: World, c: Creature, it: Intention) -> ActionResult:
-    obj = find_object(world, c, it.target or "sign", max_dist=1, kinds={"sign", "tablet", "terminal"})
+    readable = {"sign", "tablet", "terminal"}
+    obj = find_object(world, c, it.target or "sign", max_dist=1, kinds=readable)
+    if not obj:  # carvings on trees and boulders
+        obj = next((o for o, d, _ in visible_objects(world, c, 1) if o.kind in CARVABLE and o.data.get("text")), None)
     if not obj:
-        far = find_object(world, c, it.target or "sign", kinds={"sign", "tablet", "terminal"})
+        far = find_object(world, c, it.target or "sign", kinds=readable)
+        if far is None:
+            far = next((o for o, d, _ in visible_objects(world, c) if o.data.get("text") and o.kind in CARVABLE), None)
         if far:
             return _walk_then(world, c, far, it)
         return ActionResult(False, "There's nothing to read within reach.")
@@ -932,7 +967,16 @@ def _read(world: World, c: Creature, it: Intention) -> ActionResult:
     if not text:
         return ActionResult(True, f"The {obj.name} is blank.")
     author = obj.data.get("author")
-    return ActionResult(True, f"The {obj.name} reads{' (written by ' + author + ')' if author else ''}: \"{text}\"")
+    msg = f"The {obj.name} reads{' (written by ' + author + ')' if author else ''}: \"{text}\""
+    learned = [r for r in world.catalog.recipes_in_words(text) if r.output not in c.known_recipes]
+    for r in learned:
+        c.known_recipes.add(r.output)
+        c.stats["learned_by_reading"] += 1
+        world.emit("learn", c.id, c.x, c.y, f"{c.name} learned to make {world.catalog.name(r.output)} by reading {author or 'old writing'}'s words.",
+                   teacher=next((o.id for o in world.creatures.values() if o.name == author), None), how="reading", item=r.output)
+    if learned:
+        msg += " Now you understand how to make " + ", ".join(world.catalog.name(r.output) for r in learned) + "."
+    return ActionResult(True, msg)
 
 
 def _program(world: World, c: Creature, it: Intention) -> ActionResult:
@@ -1108,6 +1152,10 @@ def step_activity(world: World, c: Creature) -> ActionResult | None:
         if not act["path"]:
             c.activity = None
             return ActionResult(True, act["result"])
+        if c.energy < 15:  # exhausted: every other step is a stumble
+            act["stumble"] = not act.get("stumble")
+            if act["stumble"]:
+                return None
         nx, ny = act["path"][0]
         if not world.walkable(nx, ny):
             c.activity = None

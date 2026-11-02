@@ -294,6 +294,7 @@ class World:
             "tick": self.tick,
             "clock": self.clock(),
             "items": {i: it.name for i, it in self.catalog.items.items()},
+            "landmarks": getattr(self, "landmarks", []),
         }
 
     def take_object_changes(self) -> tuple[list[dict], list[str]]:

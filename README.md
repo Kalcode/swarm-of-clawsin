@@ -34,7 +34,7 @@ for m in gemma-4-e4b-it-4bit Qwen3.5-4B-MLX-4bit Qwen3.5-9B-MLX-4bit; do uvx --f
 MODEL=Qwen3.5-9B-MLX-4bit CREATURES=10 MODEL2= ./start-world.sh   # fewer, smarter creatures
 ```
 
-The world runs at 1 second per tick (a day lasts 20 minutes; `TICK=0.5` for faster). It saves itself to `worlds/default.json` every 4 minutes and when it stops, and resumes from there next time. For a brand-new world use `./start-world.sh --fresh` (or `uv run python -m swarmworld.server --fresh`). The old save is kept as `worlds/default.<time>.bak`; rename it back to `default.json` to return to it. Add `SEED=42` for a different map.
+The world runs at 1 second per tick (a day lasts 20 minutes; `TICK=0.5` for faster). The start script also watches oMLX and restarts it if it stops answering, so long unattended runs keep going. It saves itself to `worlds/default.json` every 4 minutes and when it stops, and resumes from there next time. For a brand-new world use `./start-world.sh --fresh` (or `uv run python -m swarmworld.server --fresh`). The old save is kept as `worlds/default.<time>.bak`; rename it back to `default.json` to return to it. Add `SEED=42` for a different map.
 
 Or by hand, in three terminals:
 
@@ -108,15 +108,21 @@ Knowledge spreads three ways:
 
 - **Watching**: creatures within 4 steps see what someone made and how, and learn the recipe.
 - **Talking**: speech carries 5 steps, so you have to walk over to share. A sentence that names a product and all its ingredients ("combine flint with a stick to make a stone knife") teaches the recipe to everyone who hears it.
-- **Writing**: signs persist in the world for anyone who finds them.
+- **Writing**: words carved into trees and boulders, or written on signs, stay in the world. Reading a carving that spells out a recipe teaches it, so knowledge can outlive whoever wrote it.
 
 The first creature to make each item is recorded in the Swarm tab, with the model that drives it.
 
 ## Bodies, reflexes and minds
 
-Following Project Sid's fast/slow split, some things happen without the model. Walking, gathering a handful, resting and fishing run as plain code over several ticks. A starving creature eats food it carries by reflex. Collapsing from hunger drops everything you carry and wakes you in the meadow. Small talk is capped in memory so it can't crowd out experience.
+Following Project Sid's fast/slow split, some things happen without the model. Energy drains through the day and with hard work; exhausted creatures stumble along at half speed until they rest, and resting by a bed or an invented shelter is much faster. Walking, gathering a handful, resting and fishing run as plain code over several ticks. A starving creature eats food it carries by reflex. Collapsing from hunger drops everything you carry and wakes you in the meadow. Small talk is capped in memory so it can't crowd out experience.
 
 Curious, tinkerer and builder creatures sometimes get a vague **hunch** about something they carry ("you get a hunch that your stick and flint belong together somehow"). Hunches never spell out a recipe. Start the server with `--no-inspiration` to watch purely unassisted culture.
+
+## Places and society
+
+The world names the places that matter. A cluster of things creatures built becomes someone's camp ("Bo's camp", named after its founder). The ancient terminals, the lake and the meadow are landmarks too. Creatures sense nearby places and can walk to them by name, so "meet me at Bo's camp" works.
+
+Every conversation, gift and teaching moment between two creatures is recorded. The viewer's Society tab draws it as a graph: who talks to whom, who teaches, who feeds whom, and who is left out (`GET /api/society`).
 
 ## The Chronicle
 

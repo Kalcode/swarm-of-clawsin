@@ -139,6 +139,10 @@ async def api_voice(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "heard_by": heard})
 
 
+async def api_society(request: web.Request) -> web.Response:
+    return web.json_response(request.app[STATE].society())
+
+
 async def api_nodes(request: web.Request) -> web.Response:
     st = request.app[STATE]
     return web.json_response([
@@ -174,18 +178,29 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_get("/api/chronicle", api_chronicle)
     app.router.add_get("/api/inventions", api_inventions)
     app.router.add_post("/api/voice", api_voice)
+    app.router.add_get("/api/society", api_society)
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)
+
+    async def _on_shutdown(app: web.Application) -> None:
+        st = app[STATE]
+        if st.world_path:
+            save(st, st.world_path)  # first thing, before anything can be interrupted
+        for ws in list(st.viewers) + [n.ws for n in st.nodes.values()]:
+            with contextlib.suppress(Exception):
+                await ws.close(code=1001, message=b"world is shutting down")
+
+    app.on_shutdown.append(_on_shutdown)
 
     if start_loop:
         async def _start(app: web.Application):
             task = asyncio.create_task(tick_loop(app))
             yield
+            if app[STATE].world_path:  # save first, synchronously, so a second signal can't cut it short
+                save(app[STATE], app[STATE].world_path)
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            if app[STATE].world_path:
-                save(app[STATE], app[STATE].world_path)
 
         app.cleanup_ctx.append(_start)
     return app
