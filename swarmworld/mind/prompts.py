@@ -155,7 +155,31 @@ def known_recipes_for_prompt(world: World, c: Creature) -> list[str]:
     return [cat.describe_recipe(r) for r in recipes[:MAX_RECIPES_IN_PROMPT]]
 
 
-def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None) -> list[dict]:
+INTENTION_SCHEMA_PLAN = {
+    **INTENTION_SCHEMA,
+    "properties": {
+        **INTENTION_SCHEMA["properties"],
+        "plan": {"type": "array", "items": {"type": "string", "maxLength": 80}, "maxItems": 5},
+        "step_done": {"type": "boolean"},
+    },
+    "required": [*INTENTION_SCHEMA["required"], "plan", "step_done"],
+}
+
+
+def plan_lines(memory: Memory) -> list[str]:
+    if not memory.plan:
+        return ["- No plan yet. If your goal takes several steps, write them in plan (up to 5 short steps)."]
+    steps = []
+    for i, s in enumerate(memory.plan):
+        mark = "done: " if i < memory.plan_step else "NOW: " if i == memory.plan_step else ""
+        steps.append(f"{i + 1}. {mark}{s.rstrip('.')}.")
+    return [f"- Your plan: {' '.join(steps)}",
+            "(Put up to 5 short steps in plan only when you make a new plan, otherwise []. "
+            "Set step_done to true when this action finishes the NOW step.)"]
+
+
+def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None,
+                       layers: set[str] = frozenset()) -> list[dict]:
     p = c.persona or {}
     traits = " and ".join(p.get("traits", [])) or "ordinary"
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
@@ -167,6 +191,8 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
     lines.append("")
     lines.append("What you know:")
     lines.append(f"- Your goal: {memory.goal or 'none yet'}")
+    if "plan" in layers:
+        lines += plan_lines(memory)
     if memory.summary:
         lines.append(f"- Your reflections: {memory.summary}")
     if known:

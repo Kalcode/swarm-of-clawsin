@@ -13,7 +13,7 @@ from pathlib import Path
 from aiohttp import web
 
 from ..mind.memory import Memory
-from ..mind.prompts import INTENTION_SCHEMA, build_act_messages, build_reflect_messages, make_persona
+from ..mind.prompts import INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages, make_persona
 from ..world.actions import ActionResult, apply_intention, parse_intention
 from ..world.model import Creature
 from ..world.perception import perceive
@@ -120,6 +120,14 @@ class ServerState:
     def _on_activity_result(self, c: Creature, res: ActionResult) -> None:
         self._remember(c, res.message if res.ok else f"{res.message}", 1)
         self.last.setdefault(c.id, {})["result"] = res.message
+        if res.ok and res.step_done:
+            self._advance_plan(c)
+
+    def _advance_plan(self, c: Creature) -> None:
+        mem = self.memory(c.id)
+        done = mem.advance()
+        if done and not mem.plan:
+            self._remember(c, f"You finished your plan: {done}", 2)
 
     # ------------------------------------------------------------ nodes
     def color_for(self, model: str) -> str:
@@ -324,13 +332,15 @@ class ServerState:
         mem = self.memory(c.id)
         jid = self._next_job_id()
         reason = c.wake_reason
+        layers = self.harness.layers_for(c)
         if mem.needs_reflection():
             kind, messages, schema, max_tokens = "reflect", build_reflect_messages(c, mem), None, 220
         else:
             self.sim.maybe_inspire(c)
             perception = perceive(self.world, c, heard=self.sim.take_heard(c))
             self.last.setdefault(c.id, {})["perception"] = perception
-            kind, messages, schema, max_tokens = "act", build_act_messages(self.world, c, mem, perception, reason), INTENTION_SCHEMA, 260
+            kind, messages, schema, max_tokens = "act", build_act_messages(self.world, c, mem, perception, reason, layers), \
+                (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), 260
         c.thinking = True
         c.last_think_tick = self.world.tick
         c.wake_reason = None
@@ -392,6 +402,9 @@ class ServerState:
         mem.thinks_since_reflect += 1
         if it.goal and it.goal.lower() not in ("", "none", "same", "keep"):
             mem.goal = it.goal
+        plan_on = "plan" in self.harness.layers_for(c)
+        if plan_on and it.plan:
+            mem.set_plan(it.plan)
         res = apply_intention(self.world, c, it)
         write_log({"ok": res.ok, "noop": res.noop, "message": res.message[:240]})
         info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick)
@@ -402,6 +415,11 @@ class ServerState:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1)
         elif not res.ok:
             self._remember(c, f"You tried to {it.summary()}, but: {res.message}", 1)
+        if plan_on and it.step_done and res.ok and mem.plan:
+            if res.instant:
+                self._advance_plan(c)
+            elif c.activity:
+                c.activity["step_done"] = True
         if it.action == "say" and res.ok and it.target:
             mem.note_person(it.target.split()[0].capitalize(), f'you told them: "{it.text[:60]}"')
         self._track_loop(c, it.action, it.target, res.ok, res.noop)
@@ -565,7 +583,7 @@ class ServerState:
             "last_error": info.get("error"), "reflection": info.get("reflection"),
             "inventory": {cat.name(i): n for i, n in c.inventory.items() if n > 0},
             "satiety": round(c.satiety), "energy": round(c.energy), "health": round(c.health),
-            "goal": mem.goal, "summary": mem.summary,
+            "goal": mem.goal, "plan": list(mem.plan), "plan_step": mem.plan_step, "summary": mem.summary,
             "known_recipes": [cat.describe_recipe(cat.recipe_for(r)) for r in sorted(c.known_recipes) if cat.recipe_for(r)],
             "people": [f"{n}: {v}" for n, v in mem.people.items()],
             "recent": mem.recent(15),

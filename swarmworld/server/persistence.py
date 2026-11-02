@@ -43,6 +43,7 @@ def snapshot(st: "ServerState") -> dict:
         },
         "memories": {
             cid: {"entries": [[e.tick, e.text, e.importance] for e in m.entries], "summary": m.summary, "goal": m.goal,
+                  "plan": m.plan, "plan_step": m.plan_step,
                   "people": m.people, "thinks_since_reflect": m.thinks_since_reflect,
                   "entries_since_reflect": m.entries_since_reflect}
             for cid, m in st.memories.items()
@@ -128,7 +129,8 @@ def restore(st: "ServerState", path: Path) -> None:
     for cid, md in data.get("memories", {}).items():
         m = Memory(entries=[Entry(t, txt, imp) for t, txt, imp in md["entries"]], summary=md["summary"], goal=md["goal"],
                    people=md["people"], thinks_since_reflect=md["thinks_since_reflect"],
-                   entries_since_reflect=md["entries_since_reflect"])
+                   entries_since_reflect=md["entries_since_reflect"],
+                   plan=list(md.get("plan", [])), plan_step=md.get("plan_step", 0))
         st.memories[cid] = m
     st.owner = data.get("owner", {})
     st.model_colors = data.get("model_colors", {})
