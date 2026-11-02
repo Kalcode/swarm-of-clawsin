@@ -115,6 +115,8 @@ class RecallIndex:
         qvec = self._qvecs.get(qnorm)
         if qvec is None and qnorm not in self._pending_q:
             self._pending_q[qnorm] = query.strip()
+            while len(self._pending_q) > MAX_QUERY_CACHE:  # embedder down: don't queue forever
+                self._pending_q.pop(next(iter(self._pending_q)))
 
         bm25 = self._bm25(qtokens, docs)
         top = bm25.max()
@@ -157,17 +159,16 @@ class RecallIndex:
     # -- embeddings ---------------------------------------------------------------------------
 
     def pending(self, limit: int = 128) -> list[tuple[str, str]]:
-        """(key, text) for docs, then queries (key "q:<normalized query>"), still lacking vectors."""
-        out: list[tuple[str, str]] = []
+        """(key, text) for queries (key "q:<normalized query>"), then docs, still lacking vectors.
+        Queries come first: they are few and cheap, and a restart shouldn't wait for every doc batch."""
+        out: list[tuple[str, str]] = [(f"q:{q}", t) for q, t in list(self._pending_q.items())[:limit]]
+        if len(out) >= limit:
+            return out
         for doc in [*self._lore, *(d for docs in self._docs.values() for d in docs)]:
             if doc.key not in self._vecs:
                 out.append((doc.key, doc.text))
                 if len(out) >= limit:
-                    return out
-        for qnorm, text in self._pending_q.items():
-            out.append((f"q:{qnorm}", text))
-            if len(out) >= limit:
-                break
+                    break
         return out
 
     def set_vectors(self, items: list[tuple[str, list[float]]]) -> None:

@@ -144,3 +144,21 @@ async def test_voyage_embedder_batches_and_parses():
     assert sent[0]["model"] == "voyage-3.5-lite" and sent[0]["output_dimension"] == 512
     assert sent[0]["input_type"] == "document"
     assert len(out) == 130 and out[0] == [0.0] and out[127] == [127.0]
+
+
+def test_pending_lists_queries_before_docs():
+    idx = make_index(200)
+    idx.search("a", "where is the clay", now=60)
+    keys = [k for k, _ in idx.pending(128)]
+    assert keys[0].startswith("q:")
+
+
+def test_pending_queries_are_capped():
+    from swarmworld.mind.recall import MAX_QUERY_CACHE
+
+    idx = make_index(3)
+    for i in range(MAX_QUERY_CACHE * 3):
+        idx.search("a", f"clay question number {i}", now=60)
+    queued = [k for k, _ in idx.pending(10_000) if k.startswith("q:")]
+    assert len(queued) == MAX_QUERY_CACHE
+    assert queued[-1] == f"q:clay question number {MAX_QUERY_CACHE * 3 - 1}"  # newest kept, oldest dropped
