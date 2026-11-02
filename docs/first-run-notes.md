@@ -62,6 +62,19 @@ With learning by watching and listening, a slower clock and clearer senses, the 
 - **Ideas crossing between models.** Moss (Gemma) learned Lune's (Qwen) seed-bomb and then taught it to others by example.
 - **Camps.** "Tib's camp" and "Gale's camp" formed where structures clustered.
 
+## Turn-based benchmark (first run, 1 episode each, 4 creatures, 400 ticks)
+
+| | Gemma 4 E4B | Qwen3.5 4B |
+|---|---|---|
+| intentions that worked | 93% | 77% |
+| things said | 52 | 6 |
+| items crafted | 11 | 59 |
+| rope / campfire placed | tick 152 / 320 | tick 152 / 183 |
+| first invention / stone knife / stone axe | none | tick 178 / 224 / 369 |
+| fishing rod | tick 268 | tick 456 |
+
+Under fair, turn-based conditions the live world's pattern holds: Qwen builds and invents, Gemma talks and plays it safe (though it found the fishing rod first). One episode each is a first data point, not a verdict; run `--episodes 3` or more for real comparisons, with the live world paused, since both compete for the GPU.
+
 ## The scripting arc so far
 
 No terminal has been programmed yet, but Pip (Qwen 4B) has made the terminal a personal quest: "the full recipe is hidden in the terminal code... Let's go deeper to solve it." Pip has read the tablet, walked to the terminal and tried `program` once with no code. Terminals now glow with "READY: awaiting a Lua program" and example code. When you used the voice from the sky ("Stone speak Lua"), Pip relayed it to Gale within a minute.

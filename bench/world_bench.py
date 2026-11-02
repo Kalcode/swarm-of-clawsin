@@ -38,6 +38,7 @@ async def episode(model: str, brain, seed: int, creatures: int, ticks: int, slot
                                                   "models": [{"tag": short_tag(model), "creatures": creatures}]})
     first: dict[str, int] = {}
     learned = speech = 0
+    start = st.world.tick
     t0 = time.time()
     for _ in range(ticks):
         events = st.sim.tick()
@@ -48,13 +49,13 @@ async def episode(model: str, brain, seed: int, creatures: int, ticks: int, slot
             elif e.kind == "say" and e.actor:
                 speech += 1
             elif e.kind == "place" and e.data.get("object_kind") == "campfire":
-                first.setdefault("campfire_placed", st.world.tick)
+                first.setdefault("campfire_placed", st.world.tick - start)
             elif e.kind == "invent":
-                first.setdefault("invention", st.world.tick)
+                first.setdefault("invention", st.world.tick - start)
         for c in st.world.creatures.values():
             for item in ("rope", "stone_knife", "stone_axe", "hoe", "fishing_rod", "planks"):
                 if c.inventory.get(item):
-                    first.setdefault(item, st.world.tick)
+                    first.setdefault(item, st.world.tick - start)
         jobs = [job for _, job in st.plan_dispatch()]
         if jobs:  # turn-based: everyone who is thinking gets an answer before time moves on
             results = await asyncio.gather(*(brain.think(j["messages"], j.get("schema"), j["max_tokens"]) for j in jobs))
