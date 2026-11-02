@@ -1,0 +1,155 @@
+"""Pack sound: creatures hear the world's noises as text, with cooldowns so it is never spammy."""
+from swarmworld.server.persistence import restore
+from swarmworld.server.state import ServerState
+from swarmworld.world import registry
+from swarmworld.world.actions import Intention, apply_intention, step_activity
+from swarmworld.world.model import DAY_TICKS, START_TICK, Creature, World
+from swarmworld.world.catalog import Catalog
+from swarmworld.world.simulation import Simulation
+
+NIGHT = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)
+DAY = DAY_TICKS * 2 + int(DAY_TICKS * 0.3)
+
+
+def grass_world(size=40):
+    w = World(size, size, [["g"] * size for _ in range(size)], Catalog.load())
+    w.tick = START_TICK
+    return w
+
+
+def creature(w, name, x, y):
+    c = Creature(f"c{len(w.creatures) + 1}", name, x, y, asleep=False, wake_reason=None, last_think_tick=w.tick)
+    c.known_recipes = {r.output for r in w.catalog.recipes if r.known_at_start}
+    w.creatures[c.id] = c
+    return c
+
+
+def act(w, c, **kw):
+    res = apply_intention(w, c, Intention(**kw))
+    while c.activity:
+        step_activity(w, c)
+    return res
+
+
+def sounds(w, kind=None):
+    return [e for e in w.events if e.kind == "sound" and (kind is None or e.data.get("sound") == kind)]
+
+
+def test_sound_pack_is_installed():
+    assert "sound" in {s.name for s in registry.SYSTEMS} or any("sound" in s.name for s in registry.SYSTEMS)
+
+
+def test_chopping_is_heard_nearby_not_far():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    w.add_object("tree", 10, 10, wood=6)
+    chopper = creature(w, "Tam", 10, 11)
+    near = creature(w, "Mara", 10, 16)
+    far = creature(w, "Pell", 10, 30)
+    assert act(w, chopper, action="gather", target="tree").ok
+    sim.tick()  # the system turns the gather event into a sound
+    assert sounds(w, "chop"), "no chop sound was made"
+    sim.tick()  # ...heard on the next tick
+    heard = sim.take_heard(near)
+    assert any(h.startswith("You hear") and ("chop" in h or "branch" in h) for h in heard), heard
+    assert sim.take_heard(far) == [] and sim.take_heard(chopper) == []
+
+
+def test_knocking_stone_and_fishing_splash():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    w.add_object("rock", 10, 10)
+    c = creature(w, "Tam", 10, 11)
+    act(w, c, action="gather", target="rock")
+    sim.tick()
+    assert sounds(w, "knock")
+    w.emit("gather", "c9", 20, 20, "Odo caught 2 fish.")
+    sim.tick()
+    assert sounds(w, "splash")
+
+
+def test_crickets_only_at_night():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    creature(w, "Tam", 10, 10)
+    for _ in range(300):
+        if w.clock()["phase"] != "day":
+            break
+        sim.tick()
+    assert not sounds(w, "crickets")
+    w.tick = NIGHT
+    for _ in range(150):
+        sim.tick()
+        w.creatures["c1"].asleep = False
+    assert sounds(w, "crickets")
+    assert len(sounds(w, "crickets")) <= 6  # sparse
+
+
+def test_sound_cooldowns():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    w.add_object("tree", 10, 10, wood=60)
+    chopper = creature(w, "Tam", 10, 11)
+    for _ in range(5):  # five gathers in five ticks
+        w.emit("gather", chopper.id, 10, 11, "Tam gathered 1 stick.")
+        sim.tick()
+    assert len(sounds(w, "chop")) == 1
+    w.tick += 60
+    w.emit("gather", chopper.id, 10, 11, "Tam gathered 1 stick.")
+    sim.tick()
+    assert len(sounds(w, "chop")) == 2
+
+
+def test_fire_river_crowd_and_animals_are_sparse():
+    w = grass_world()
+    w.tick = DAY
+    for x in range(0, 40):
+        w.tiles[20][x] = "w"
+    sim = Simulation(w)
+    fire = w.add_object("campfire", 5, 5, lit=True, lit_until=w.tick + 10_000)
+    for i, (x, y) in enumerate([(5, 6), (6, 6), (7, 6), (6, 7)]):
+        creature(w, f"C{i}", x, y)
+    creature(w, "River", 12, 19)
+    for _ in range(400):
+        sim.tick()
+    fire_n = len(sounds(w, "fire"))
+    assert 1 <= fire_n <= 400 // 20
+    assert 1 <= len(sounds(w, "river")) <= 400 // 30
+    assert 1 <= len(sounds(w, "crowd")) <= 400 // 30
+
+
+def test_unlit_fire_is_silent():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    w.add_object("campfire", 5, 5, lit=False)
+    creature(w, "Tam", 5, 6)
+    for _ in range(100):
+        sim.tick()
+    assert not sounds(w, "fire")
+
+
+def test_sound_old_save_loads(prepack_save):
+    st = ServerState(seed=1)
+    restore(st, prepack_save)
+    for c in st.world.creatures.values():
+        c.asleep = False
+    for _ in range(200):
+        st.tick_message(st.sim.tick())
+
+
+def test_animals_call_now_and_then():
+    w = grass_world()
+    w.tick = DAY
+    sim = Simulation(w)
+    kind = sorted(registry.ANIMALS)[0]
+    w.add_object(kind, 8, 8)
+    creature(w, "Tam", 8, 10)
+    for _ in range(600):
+        sim.tick()
+    calls = sounds(w, f"animal:{kind}")
+    assert 1 <= len(calls) <= 600 // 100
