@@ -81,3 +81,41 @@ def test_restoring_an_old_save_adds_the_wishing_stone(tmp_path):
     st2 = ServerState(seed=99)
     restore(st2, tmp_path / "old.json")
     assert sum(o.kind == "wishing_stone" for o in st2.world.objects.values()) == 1
+
+
+def test_wish_phrases_read_cleanly():
+    from swarmworld.server.wishes import thing_of
+    cases = {  # the raw wish text after "I wish" / "we need", as seen in the live world
+        "there were a place to store": "place to store",
+        "there were a reliable water source": "reliable water source",
+        "flint lay closer so we do": "flint lay closer",
+        "there were more varied tasks so": "varied tasks",
+        "firewood and berries to spare the": "firewood and berries to spare",
+        "a roof that keeps the rain off because it pours": "roof that keeps the rain off",
+    }
+    for raw, want in cases.items():
+        assert thing_of(raw) == want, (raw, thing_of(raw))
+
+
+def test_wishes_about_other_creatures_are_not_things():
+    w = Wishes(Catalog.load())
+    names = {"c1": "Gus", "c2": "Dree"}
+    w.observe(ev("say", "c1", "", line="I wish Dree would finally share the last berries.", speaker="Gus"), names)
+    assert not w.ranked()
+
+
+def test_saved_wishes_are_tidied_on_load():
+    w = Wishes(Catalog.load())
+    w.load({"seq": 2, "items": {
+        "there were a place to store": {"id": "w1", "thing": "there were a place to store", "kinds": {"said": 1, "failed": 0, "wished": 0, "reflected": 1},
+                                        "by": {"Vex": 1}, "quotes": [], "first_tick": 5, "last_tick": 9, "status": "open", "answer": "", "granted": ""},
+        "place to store": {"id": "w2", "thing": "place to store", "kinds": {"said": 1, "failed": 0, "wished": 0, "reflected": 0},
+                           "by": {"Ira": 1}, "quotes": [], "first_tick": 7, "last_tick": 8, "status": "open", "answer": "", "granted": ""}}})
+    ranked = w.ranked()
+    assert [x["thing"] for x in ranked] == ["place to store"] and ranked[0]["creatures"] == 2 and ranked[0]["total"] == 3
+    w2 = Wishes(Catalog.load())
+    w2.people = {"dree"}
+    w2.load({"seq": 1, "items": {"x": {"id": "w1", "thing": "dree would finally share the last", "kinds": {"said": 1},
+                                       "by": {"Gus": 1}, "quotes": [], "first_tick": 1, "last_tick": 1, "status": "open",
+                                       "answer": "", "granted": ""}}})
+    assert not w2.ranked()

@@ -156,6 +156,7 @@ def restore(st: "ServerState", path: Path) -> None:
     st.relations = {k: Counter(v) for k, v in data.get("relations", {}).items()}
     st.history = data.get("history", [])
     st.wishes = Wishes(w.catalog)
+    st.wishes.people = {c.name.lower() for c in w.creatures.values()}
     st.wishes.load(data.get("wishes"))
     for m, cnt in data.get("metrics", {}).items():
         st.metrics.models[m].update(cnt)

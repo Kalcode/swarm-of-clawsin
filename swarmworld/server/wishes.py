@@ -30,16 +30,30 @@ QUOTES = 4
 MAX_WISHES = 300
 
 
+OPENERS = (("there", "were"), ("there", "was"), ("there", "is"), ("there", "are"), ("there", "would", "be"),
+           ("we", "had"), ("i", "had"), ("we", "could", "have"), ("i", "could", "have"))
+CLAUSE_BREAKS = {"so", "because", "but", "since", "while", "though", "or", "if", "until", "when"}
+DANGLING = {"the", "a", "an", "to", "of", "for", "and", "or", "we", "i", "our", "my", "with", "in", "on", "at"}
+
+
 def thing_of(text: str) -> str:
-    """The thing a phrase asks for, as a short lowercase name: 'a proper roof over us' -> 'proper roof over us'."""
+    """The thing a phrase asks for, as a short lowercase name: 'there were a place to store' -> 'place to store'."""
     words = re.findall(r"[a-z][a-z'-]*", text.lower())
     if words and words[0] in ("to",) and len(words) > 1 and words[1] in ("have", "get", "make"):  # "to have a boat"
         words = words[2:]
+    for opener in OPENERS:  # "there were a ...", "we had a ..."
+        if tuple(words[:len(opener)]) == opener:
+            words = words[len(opener):]
+            break
+    cut = next((i for i, w in enumerate(words) if w in CLAUSE_BREAKS and i > 0), None)
+    if cut is not None:  # "flint lay closer so we do" -> "flint lay closer"
+        words = words[:cut]
     while words and words[0] in LEAD - {"to"}:
         words = words[1:]
-    while words and words[-1] in TRAIL:
+    words = words[:7]
+    while words and (words[-1] in TRAIL or words[-1] in DANGLING):
         words = words[:-1]
-    thing = " ".join(words[:6])
+    thing = " ".join(words)
     if len(thing) < 3 or NOT_A_THING.match(thing):
         return ""
     return thing
@@ -50,10 +64,12 @@ class Wishes:
         self.catalog = catalog
         self.items: dict[str, dict] = {}
         self.seq = 0
+        self.people: set[str] = set()  # creature names: a wish about someone isn't a wish for a thing
 
     # ------------------------------------------------------------ gathering
     def observe(self, ev: Event, names: dict[str, str]) -> None:
         """Pick wishes out of a world event (speech, failures, the wish action)."""
+        self.people |= {n.lower() for n in names.values()}
         who = names.get(ev.actor or "", "") or ev.data.get("speaker") or ""
         if not who or ev.data.get("terminal"):
             return
@@ -81,7 +97,7 @@ class Wishes:
         return found
 
     def add(self, who: str, thing: str, kind: str, quote: str, tick: int) -> bool:
-        if not thing:
+        if not thing or thing.split()[0] in self.people:
             return False
         key = re.sub(r"(?<=[a-z]{3})s\b", "", thing)  # roofs ~ roof
         w = self.items.get(key)
@@ -125,6 +141,24 @@ class Wishes:
         return {"seq": self.seq, "items": self.items}
 
     def load(self, data: dict | None) -> None:
-        if data:
-            self.seq = int(data.get("seq", 0))
-            self.items = dict(data.get("items", {}))
+        """Restore saved wishes, re-tidying their names with today's rules and merging any that now match."""
+        if not data:
+            return
+        self.seq = int(data.get("seq", 0))
+        self.items = {}
+        for w in data.get("items", {}).values():
+            thing = thing_of(w["thing"])
+            if not thing or thing.split()[0] in self.people:
+                continue
+            key = re.sub(r"(?<=[a-z]{3})s\b", "", thing)
+            have = self.items.get(key)
+            if have is None:
+                self.items[key] = {**w, "thing": thing}
+                continue
+            for k, n in w["kinds"].items():
+                have["kinds"][k] = have["kinds"].get(k, 0) + n
+            for who, n in w["by"].items():
+                have["by"][who] = have["by"].get(who, 0) + n
+            have["quotes"] = sorted(have["quotes"] + w["quotes"], key=lambda q: q["tick"])[-QUOTES:]
+            have["first_tick"] = min(have["first_tick"], w["first_tick"])
+            have["last_tick"] = max(have["last_tick"], w["last_tick"])
