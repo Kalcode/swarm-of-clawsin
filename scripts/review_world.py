@@ -42,24 +42,24 @@ def split_report(thinks: list[dict], events: list[dict]) -> dict:
     run_len: dict[str, int] = defaultdict(int)
     for t in thinks:
         key = (t["model"], "+".join(sorted(t.get("harness") or [])) or "none")
-        group_of[t["name"]] = key
+        group_of[t["creature"]] = key
         if t["kind"] != "act":
             continue
         g = rows.setdefault(key, defaultdict(float))
         g["replies"] += 1
         r = t.get("result") or {}
         g["noop" if r.get("noop") else "ok" if r.get("ok") else "failures"] += 1
-        g["recall_uses"] += bool(t.get("recalled"))
         g["uncached"] += (t.get("tokens_in") or 0) - (t.get("cached_tokens") or 0)
         g["out"] += t.get("tokens_out") or 0
         o = t.get("output")
         if isinstance(o, dict) and o.get("action"):
+            g["recall_uses"] += o["action"] == "recall"
             k = (o["action"], str(o.get("target", "")).lower())
-            run_len[t["name"]] = run_len[t["name"]] + 1 if last.get(t["name"]) == k else 1
-            last[t["name"]] = k
-            g["streaks"] += run_len[t["name"]] == 4
+            run_len[t["creature"]] = run_len[t["creature"]] + 1 if last.get(t["creature"]) == k else 1
+            last[t["creature"]] = k
+            g["streaks"] += run_len[t["creature"]] == 4
     for e in events:
-        key = group_of.get(e.get("actor") or e["text"].split(" ", 1)[0])
+        key = group_of.get(e.get("actor"))
         if key and e["kind"] in ("collapse", "craft"):
             rows.setdefault(key, defaultdict(float))["collapses" if e["kind"] == "collapse" else "crafted"] += 1
     out = {}
@@ -116,9 +116,9 @@ def main() -> None:
         if r:
             outcomes[t["model"]]["no-op" if r.get("noop") else "ok" if r.get("ok") else "failed"] += 1
         key = (o["action"], str(o.get("target", "")).lower())
-        run_len[t["name"]] = run_len[t["name"]] + 1 if last.get(t["name"]) == key else 1
-        last[t["name"]] = key
-        if run_len[t["name"]] == 4:
+        run_len[t["creature"]] = run_len[t["creature"]] + 1 if last.get(t["creature"]) == key else 1
+        last[t["creature"]] = key
+        if run_len[t["creature"]] == 4:
             streaks[t["model"]] += 1
     fails: dict[str, Counter] = defaultdict(Counter)
     fail_examples: dict[tuple, str] = {}

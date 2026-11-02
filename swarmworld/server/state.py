@@ -450,7 +450,7 @@ class ServerState:
         log = {"tick": self.world.tick, "creature": c.id, "name": c.name, "model": c.model, "kind": job.kind, "ok": ok,
                "output": output, "error": msg.get("error"), "latency_ms": msg.get("latency_ms"),
                "tokens_in": msg.get("tokens_in"), "cached_tokens": msg.get("cached_tokens"),
-               "harness": sorted(self.harness.layers_for(c))}
+               "tokens_out": msg.get("tokens_out"), "harness": sorted(self.harness.layers_for(c))}
         if job.kind == "act":
             log.update(shown=job.shown, recalled=job.recalled)
 
