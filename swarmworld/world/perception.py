@@ -160,7 +160,10 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     phase = world.clock()["phase"]
     light = "It is dark; you can only see a couple of steps." if r == NIGHT_SIGHT else (
         "It is night, but firelight lets you see around you." if phase == "night" else "")
-    lines.append(f"{world.time_text()}. {light}".strip())
+    weather = ""
+    if getattr(world, "weather", "clear") == "rain":
+        weather = "Rain is falling."
+    lines.append(f"{world.time_text()}. {weather} {light}".replace("  ", " ").strip())
 
     under = TILE_NAMES[world.tile(c.x, c.y)]
     here_obj = world.object_at(c.x, c.y)
@@ -247,6 +250,13 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     if sum(1 for n in c.inventory.values() if n > 0) >= 2:
         lines.append("Your hands itch to try combining some of what you carry.")
     lines.append(f"You feel {_feeling(c)}.")
+    phase = world.clock()["phase"]
+    if (phase == "night" or getattr(world, "weather", "clear") == "rain") and not near_lit_fire(world, c.x, c.y, 3):
+        sheltered = any(o.kind in ("bed",) or (o.kind == "creation" and "shelter" in o.data.get("effects", ()))
+                        for o, d, _ in visible_objects(world, c, 2))
+        if not sheltered:
+            lines.append("You are soaked and shivering; a fire or shelter would help." if getattr(world, "weather", "clear") == "rain"
+                         else "The night air is cold; you'd be better off by a fire or under shelter.")
     foods = [(i, n) for i, n in c.inventory.items() if n > 0 and world.catalog.items[i].food > 0]
     if c.satiety < 40 and foods:
         lines.append("Your stomach growls. You carry food you could eat right now: "

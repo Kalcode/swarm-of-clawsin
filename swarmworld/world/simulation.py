@@ -86,6 +86,8 @@ class Simulation:
             self._regrow(t)
         if t % 4 == 0:
             self._animals()
+        if t % 50 == 0:
+            self._weather(t)
         if t % 10 == 5:
             self._separate()
         if t % 60 == 0 or not hasattr(self.world, "landmarks"):
@@ -108,6 +110,9 @@ class Simulation:
             c.satiety = max(0.0, c.satiety - 1)
         if t % ENERGY_EVERY == 0 and not (c.activity or {}).get("rest"):
             c.energy = max(0.0, c.energy - 1)
+            exposed = self.exposure(c)
+            if exposed:  # cold nights and rain wear you down unless you're by a fire or under shelter
+                c.energy = max(0.0, c.energy - 1)
         if c.satiety <= 0 and t % STARVE_EVERY == 0:
             c.health = max(0.0, c.health - 1)
         elif c.satiety > 50 and c.health < 100 and t % 8 == 0:
@@ -259,7 +264,12 @@ class Simulation:
 
     def _regrow(self, t: int) -> None:
         w = self.world
+        raining = getattr(w, "weather", "clear") == "rain"
         for o in list(w.objects.values()):
+            if raining:  # rain makes everything grow faster
+                for key in ("grow_at", "regrow_at"):
+                    if o.data.get(key):
+                        o.data[key] -= 10
             ra = o.data.get("regrow_at")
             if ra and t >= ra:
                 if o.kind == "stump":
@@ -315,6 +325,30 @@ class Simulation:
             fixed.append({"name": "the lake", "x": lx, "y": ly, "kind": "lake", "size": 1})
         fixed.append({"name": "the meadow", "x": cx, "y": cy, "kind": "meadow", "size": 1})
         w.landmarks = camps + fixed
+
+    def _weather(self, t: int) -> None:
+        w = self.world
+        if getattr(w, "weather", "clear") == "rain":
+            if t >= getattr(w, "weather_until", 0):
+                w.weather = "clear"
+                w.emit("weather", None, *w.center, "The rain stops and the clouds drift apart.")
+        elif w.rng.random() < 0.05:
+            w.weather = "rain"
+            w.weather_until = t + w.rng.randint(200, 450)
+            w.emit("weather", None, *w.center, "Clouds gather, and rain begins to fall.")
+
+    def exposure(self, c: Creature) -> str | None:
+        """What the weather is doing to you right now, if you're out in it."""
+        from .actions import station_near
+        from .perception import near_lit_fire
+        w = self.world
+        night = w.clock()["phase"] == "night"
+        rain = getattr(w, "weather", "clear") == "rain"
+        if not (night or rain):
+            return None
+        if near_lit_fire(w, c.x, c.y, 3) or station_near(w, c, "bed"):
+            return None
+        return "rain" if rain else "cold"
 
     def _separate(self) -> None:
         """Nobody shares a tile: an idle creature standing on someone else's spot shuffles to a free neighbor."""

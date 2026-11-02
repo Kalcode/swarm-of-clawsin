@@ -32,6 +32,7 @@ def snapshot(st: "ServerState") -> dict:
         "version": VERSION,
         "world": {
             "width": w.width, "height": w.height, "tiles": ["".join(r) for r in w.tiles], "tick": w.tick,
+            "weather": getattr(w, "weather", "clear"), "weather_until": getattr(w, "weather_until", 0),
             "next_id": w._next_id, "discoveries": w.discoveries,
             "objects": [{"id": o.id, "kind": o.kind, "x": o.x, "y": o.y, "data": o.data} for o in w.objects.values()],
             "ground": [{"x": x, "y": y, "items": dict(p)} for (x, y), p in w.ground.items()],
@@ -75,6 +76,8 @@ def restore(st: "ServerState", path: Path) -> None:
                 inv["tool"], inv["placeable"] = True, False
         w.catalog.add_invention(inv)
     w.tick = wd["tick"]
+    w.weather = wd.get("weather", "clear")
+    w.weather_until = wd.get("weather_until", 0)
     w._next_id = wd["next_id"]
     w.discoveries = wd.get("discoveries", {})
     effects_by_item = {inv["id"]: inv.get("effects", []) for inv in data.get("inventions", [])}

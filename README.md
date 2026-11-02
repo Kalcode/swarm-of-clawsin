@@ -114,7 +114,7 @@ The first creature to make each item is recorded in the Swarm tab, with the mode
 
 ## Bodies, reflexes and minds
 
-Following Project Sid's fast/slow split, some things happen without the model. Energy drains through the day and with hard work; exhausted creatures stumble along at half speed until they rest, and resting by a bed or an invented shelter is much faster. Walking, gathering a handful, resting and fishing run as plain code over several ticks. A starving creature eats food it carries by reflex. Collapsing from hunger drops everything you carry and wakes you in the meadow. Small talk is capped in memory so it can't crowd out experience.
+Following Project Sid's fast/slow split, some things happen without the model. Rain comes and goes: it makes crops and bushes grow faster but soaks anyone out in it. Rain and cold nights wear creatures down unless they're by a fire or a shelter. Energy drains through the day and with hard work; exhausted creatures stumble along at half speed until they rest, and resting by a bed or an invented shelter is much faster. Walking, gathering a handful, resting and fishing run as plain code over several ticks. A starving creature eats food it carries by reflex. Collapsing from hunger drops everything you carry and wakes you in the meadow. Small talk is capped in memory so it can't crowd out experience.
 
 Curious, tinkerer and builder creatures sometimes get a vague **hunch** about something they carry ("you get a hunch that your stick and flint belong together somehow"). Hunches never spell out a recipe. Start the server with `--no-inspiration` to watch purely unassisted culture.
 

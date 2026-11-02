@@ -215,7 +215,10 @@ class World:
             phase, light = "dusk", 1.0 - 7.0 * (t - 0.55)
         else:
             phase, light = "night", 0.25
-        return {"day": day, "phase": phase, "light": round(min(1.0, light), 2)}
+        weather = getattr(self, "weather", "clear")
+        if weather == "rain":
+            light *= 0.75
+        return {"day": day, "phase": phase, "light": round(min(1.0, light), 2), "weather": weather}
 
     def time_text(self) -> str:
         c = self.clock()

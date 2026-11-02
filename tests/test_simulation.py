@@ -133,3 +133,17 @@ def test_camps_become_named_places(world):
     assert "Bo's camp 10 steps west" in perceive(world, c)
     res = apply_intention(world, c, Intention("walk_to", target="Bo's camp"))
     assert res.ok and "Bo's camp" in c.activity["label"]
+
+
+def test_rain_and_cold_wear_you_down_unless_warm(world):
+    from swarmworld.world.perception import perceive
+    sim = Simulation(world)
+    out = creature(world, "Tam", 5, 5)
+    warm = creature(world, "Mara", 20, 20)
+    world.add_object("campfire", 21, 20, lit=True, lit_until=10**9)
+    world.weather, world.weather_until = "rain", world.tick + 10**6
+    assert "soaked" in perceive(world, out) and "soaked" not in perceive(world, warm)
+    assert world.clock()["weather"] == "rain"
+    for _ in range(300):
+        sim.tick()
+    assert out.energy < warm.energy - 5
