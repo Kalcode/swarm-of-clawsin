@@ -1,0 +1,23 @@
+{
+  "flower_patch": {"name": "flower patch", "aliases": ["flowers", "flower", "flower patch", "wildflowers", "blossoms"],
+                   "look": "flowers",
+                   "yields": {"items": {"flower": [1, 2]}, "uses": 3, "becomes": "picked_flowers", "regrow": 600}},
+  "picked_flowers": {"name": "picked-over flower patch", "aliases": ["picked flowers", "flower stems"], "look": "flowers_picked"},
+  "reed_bed": {"name": "reed bed", "aliases": ["reeds", "reed", "reed bed", "rushes", "cattails", "bulrushes"],
+               "look": "reeds",
+               "yields": {"items": {"reed": [1, 3]}, "uses": 3, "becomes": "cut_reeds", "regrow": 700}},
+  "cut_reeds": {"name": "cut reed bed", "aliases": ["cut reeds", "reed stubble"], "look": "reeds_cut"},
+  "mushroom_patch": {"name": "mushroom patch", "aliases": ["mushrooms", "mushroom", "mushroom patch", "toadstools", "fungi"],
+                     "look": "mushrooms",
+                     "yields": {"items": {"mushroom": [1, 2]}, "uses": 2, "becomes": null, "regrow": null}},
+  "shell_bed": {"name": "shell", "aliases": ["shell", "shells", "seashell", "seashells"], "look": "shells",
+                "yields": {"items": {"shell": [1, 2]}, "uses": 2, "becomes": null, "regrow": null}},
+  "driftwood": {"name": "driftwood branch", "aliases": ["driftwood", "drift wood", "driftwood branch"],
+                "look": "driftwood",
+                "yields": {"items": {"stick": [1, 2]}, "uses": 2, "becomes": null, "regrow": null}},
+  "flint_outcrop": {"name": "flint outcrop", "aliases": ["flint", "flint outcrop", "outcrop", "flint rock"], "look": "flint",
+                    "yields": {"items": {"flint": [1, 2], "stone": [0, 1]}, "uses": 3, "becomes": null, "regrow": null}},
+  "honeybee": {"name": "honeybee", "aliases": ["bee", "bees", "honeybee", "honeybees", "insect", "insects"], "look": "bees"},
+  "butterfly": {"name": "butterfly", "aliases": ["butterfly", "butterflies", "insect", "insects"], "look": "butterfly"},
+  "firefly": {"name": "firefly", "aliases": ["firefly", "fireflies", "insect", "insects"], "look": "fireflies", "glow": 2}
+}

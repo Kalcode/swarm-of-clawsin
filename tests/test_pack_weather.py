@@ -106,9 +106,11 @@ def test_weather_rain_cycle_still_works_and_exposure():
 def test_weather_changes_over_time():
     st, w, c = _world()
     seen = set()
-    for _ in range(3000):
+    for _ in range(12000):  # a 5% roll every 50 ticks: 3000 ticks left this to seed luck
         st.sim.tick()
         seen.add(w.weather)
+        if len(seen) >= 3:
+            break
     assert len(seen) >= 3
 
 

@@ -111,7 +111,7 @@ async def test_node_disconnect_puts_creatures_to_sleep(client):
 async def test_view_stream(client):
     ws = await client.ws_connect("/ws/view")
     init = await _recv_type(ws, "init")
-    assert init["width"] == 64 and len(init["tiles"]) == 64 and init["objects"]
+    assert init["width"] == 128 and len(init["tiles"]) == 128 and init["objects"]  # a fresh world
     tick = await _recv_type(ws, "tick")
     assert "creatures" in tick and "clock" in tick
     metrics = await _recv_type(ws, "metrics")

@@ -1,13 +1,37 @@
-"""Seeded world generation: terrain, water, hills, forests and resources."""
+"""Seeded world generation: biomes, a lake with its beach and marsh, rivers that flow, hills, forests and resources.
+
+A fresh world is SIZE x SIZE. Its land is shaped by an elevation field: rocky hills rise on one side, ringed by pine
+forest; the lake lies low on the other, with a sandy beach on one shore and a marsh where a stream comes in; oak forest
+grows where it's moist, and open meadow (with the creatures' starting meadow at the center) fills the rest. Two streams
+run from the hills down to the lake and one river leaves it for the edge of the map.
+
+The generator leaves each tile's biome and each river tile's flow in world.land; the nature pack
+(swarmworld/world/packs/nature.py) keeps them in world.ext["nature"], saved with the world: "biomes" is rows of BIOMES
+codes, "flow" rows of flow codes ("0".."7" index perception.DIRS, "." where water is still or there is none). Following
+the flow always leads into the lake, into another river, or off the map. An older world gets both read from its tiles
+(derive_biomes, derive_flow)."""
 
 from __future__ import annotations
 
 import math
 import random
+from collections import deque
+
+import numpy as np
 
 from .catalog import Catalog
 from .model import World
+from .perception import DIRS
 from .registry import run_populate
+
+POOL = 0.76  # marsh ground with detail noise above this is a still pool
+SIZE = 128  # a fresh world's width and height (older saves keep theirs)
+BIOMES = {"m": "meadow", "o": "oak forest", "p": "pine forest", "k": "marsh", "h": "rocky hills", "b": "beach"}
+STILL = "."
+FLOW_STEP = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
+             "west": (-1, 0), "northwest": (-1, -1), "north": (0, -1), "northeast": (1, -1)}
+NEIGHBORS = tuple(FLOW_STEP.values())
+_CODE = {step: str(DIRS.index(d)) for d, step in FLOW_STEP.items()}
 
 TERMINAL_READY = (
     "THE TERMINAL HUMS. ITS SCREEN GLOWS GREEN.",
@@ -26,35 +50,186 @@ TABLET_TEXT = (
 )
 
 
-def _value_noise(rng: random.Random, w: int, h: int, cell: int) -> list[list[float]]:
+# ------------------------------------------------------------------ reading the land
+def biome_at(world: World, x: int, y: int) -> str | None:
+    """The biome's name ("meadow", "oak forest"...) at a tile, or None off the map or in a world without biomes."""
+    rows = (world.ext.get("nature") or {}).get("biomes")
+    if not rows or not world.in_bounds(x, y):
+        return None
+    return BIOMES.get(rows[y][x])
+
+
+def flow_at(world: World, x: int, y: int) -> str | None:
+    """Which way the water at a tile flows ("south"...), or None where it's still, dry or unknown."""
+    rows = (world.ext.get("nature") or {}).get("flow")
+    if not rows or not world.in_bounds(x, y):
+        return None
+    ch = rows[y][x]
+    return DIRS[int(ch)] if ch != STILL else None
+
+
+# ------------------------------------------------------------------ noise and masks
+def _value_noise(rng: random.Random, w: int, h: int, cell: int) -> np.ndarray:
+    """Smooth noise in [0, 1], an (h, w) array: a random lattice every `cell` tiles, eased between."""
     gw, gh = w // cell + 2, h // cell + 2
-    lattice = [[rng.random() for _ in range(gw)] for _ in range(gh)]
+    lattice = np.array([[rng.random() for _ in range(gw)] for _ in range(gh)])
 
-    def smooth(t: float) -> float:
-        return t * t * (3 - 2 * t)
+    def axis(n: int) -> tuple[np.ndarray, np.ndarray]:
+        t = np.arange(n) / cell
+        g = t.astype(int)
+        f = t - g
+        return g, f * f * (3 - 2 * f)
 
-    out = []
-    for y in range(h):
-        row = []
-        gy, fy = divmod(y / cell, 1)
-        gy = int(gy)
-        sy = smooth(fy)
-        for x in range(w):
-            gx, fx = divmod(x / cell, 1)
-            gx = int(gx)
-            sx = smooth(fx)
-            a = lattice[gy][gx] + (lattice[gy][gx + 1] - lattice[gy][gx]) * sx
-            b = lattice[gy + 1][gx] + (lattice[gy + 1][gx + 1] - lattice[gy + 1][gx]) * sx
-            row.append(a + (b - a) * sy)
-        out.append(row)
+    gx, sx = axis(w)
+    gy, sy = axis(h)
+    top, bot = lattice[gy], lattice[gy + 1]
+    a = top[:, gx] + (top[:, gx + 1] - top[:, gx]) * sx
+    b = bot[:, gx] + (bot[:, gx + 1] - bot[:, gx]) * sx
+    return a + (b - a) * sy[:, None]
+
+
+def _fractal(rng: random.Random, w: int, h: int, cells: tuple[int, int, int] = (16, 8, 4)) -> np.ndarray:
+    return sum(_value_noise(rng, w, h, c) * wgt for c, wgt in zip(cells, (0.55, 0.3, 0.15)))
+
+
+def near(mask: np.ndarray, r: int = 1) -> np.ndarray:
+    """Tiles with a True tile within r steps (in any of the 8 directions), not counting themselves."""
+    h, w = mask.shape
+    pad = np.pad(mask, r)
+    out = np.zeros_like(mask)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx or dy:
+                out |= pad[r + dy:r + dy + h, r + dx:r + dx + w]
     return out
 
 
-def _fractal(rng: random.Random, w: int, h: int) -> list[list[float]]:
-    layers = [(_value_noise(rng, w, h, 16), 0.55), (_value_noise(rng, w, h, 8), 0.3), (_value_noise(rng, w, h, 4), 0.15)]
-    return [[sum(l[y][x] * wgt for l, wgt in layers) for x in range(w)] for y in range(h)]
+def water_near(world: World, r: int = 1) -> np.ndarray:
+    """An (h, w) mask of the tiles with water (shallow or deep) within r steps."""
+    t = np.array(world.tiles)
+    return near((t == "w") | (t == "W"), r)
 
 
+def _cells(mask: np.ndarray) -> list[tuple[int, int]]:
+    ys, xs = np.nonzero(mask)
+    return list(zip(xs.tolist(), ys.tolist()))
+
+
+def _turn(a: float) -> float:
+    """An angle folded into [-pi, pi]."""
+    return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+# ------------------------------------------------------------------ flow
+def _flow_from_mouths(cells: set[tuple[int, int]], mouths: dict[tuple[int, int], tuple[int, int]],
+                      hint: dict[tuple[int, int], tuple[float, float]] | None = None) -> dict[tuple[int, int], str]:
+    """Flow codes for one river: its mouths flow out (into the lake, another river or off the map, as given); every
+    other cell flows to a neighbouring cell one step nearer a mouth, the one best along the river's course (hint),
+    so following the flow never loops and always ends at a mouth."""
+    dist = {m: 0 for m in mouths}
+    q = deque(sorted(mouths))
+    while q:
+        cur = q.popleft()
+        for dx, dy in NEIGHBORS:
+            nxt = (cur[0] + dx, cur[1] + dy)
+            if nxt in cells and nxt not in dist:
+                dist[nxt] = dist[cur] + 1
+                q.append(nxt)
+    out = {m: _CODE[step] for m, step in mouths.items()}
+    for (x, y), d in dist.items():
+        if d == 0:
+            continue
+        hx, hy = (hint or {}).get((x, y), (0.0, 0.0))
+        best = max(((dx, dy) for dx, dy in NEIGHBORS if dist.get((x + dx, y + dy)) == d - 1),
+                   key=lambda s: (s[0] * hx + s[1] * hy) / math.hypot(*s) - 0.01 * (abs(s[0]) + abs(s[1])))
+        out[(x, y)] = _CODE[best]
+    return out
+
+
+def _rows(width: int, height: int, cells: dict[tuple[int, int], str], fill: str = STILL) -> list[str]:
+    grid = [[fill] * width for _ in range(height)]
+    for (x, y), ch in cells.items():
+        grid[y][x] = ch
+    return ["".join(r) for r in grid]
+
+
+def _lake_tiles(world: World) -> set[tuple[int, int]]:
+    """Still water: deep water and the shallows within two steps of it."""
+    deep = {(x, y) for y in range(world.height) for x in range(world.width) if world.tile(x, y) == "W"}
+    near = {(x + dx, y + dy) for x, y in deep for dx in range(-2, 3) for dy in range(-2, 3)}
+    return deep | {p for p in near if world.in_bounds(*p) and world.tile(*p) == "w"}
+
+
+def _at_edge(x: int, y: int, width: int, height: int, margin: int = 0) -> bool:
+    return x <= margin or y <= margin or x >= width - 1 - margin or y >= height - 1 - margin
+
+
+def _off_map_step(x: int, y: int, width: int, height: int) -> tuple[int, int]:
+    """Toward the edge of the map from a tile at (or one step from) it."""
+    return (-1 if x <= 1 else 1 if x >= width - 2 else 0, -1 if y <= 1 else 1 if y >= height - 2 else 0)
+
+
+def derive_flow(world: World) -> list[str]:
+    """Flow for a world made before rivers flowed: shallow water away from the lake is river; a river that reaches the
+    edge of the map (or stops a step short of it, as they did) flows out there, one that doesn't flows into the lake.
+    The meadow cut the old river in two: each part flows its own way."""
+    lake = _lake_tiles(world)
+    river = {(x, y) for y in range(world.height) for x in range(world.width)
+             if world.tile(x, y) == "w" and (x, y) not in lake}
+    flows: dict[tuple[int, int], str] = {}
+    seen: set[tuple[int, int]] = set()
+    for start in sorted(river):
+        if start in seen:
+            continue
+        comp, q = {start}, deque([start])
+        while q:
+            cx, cy = q.popleft()
+            for dx, dy in NEIGHBORS:
+                n = (cx + dx, cy + dy)
+                if n in river and n not in comp:
+                    comp.add(n)
+                    q.append(n)
+        seen |= comp
+        edge = {p: _off_map_step(*p, world.width, world.height) for p in comp  # older rivers stop a step short
+                if _at_edge(*p, world.width, world.height, margin=1)}
+        mouths = edge or {p: next(s for s in NEIGHBORS if (p[0] + s[0], p[1] + s[1]) in lake) for p in comp
+                          if any((p[0] + dx, p[1] + dy) in lake for dx, dy in NEIGHBORS)}
+        if not mouths:
+            continue  # a pond: still
+        mx = sum(x for x, _ in mouths) / len(mouths)
+        my = sum(y for _, y in mouths) / len(mouths)
+        hint = {(x, y): (mx - x, my - y) for x, y in comp}
+        flows.update(_flow_from_mouths(comp, mouths, hint))
+    return _rows(world.width, world.height, flows)
+
+
+def derive_biomes(world: World) -> list[str]:
+    """Biomes for a world made before biomes, read from its tiles: rocky ground is hills, sand is beach, forest is oak
+    or pine forest by which trees grow nearest, the rest is meadow."""
+    pines, oaks = [], []
+    for o in world.objects.values():
+        if o.kind in ("pine", "tree", "stump"):
+            (pines if o.kind == "pine" else oaks).append((o.x, o.y))
+    rows = []
+    for y in range(world.height):
+        row = []
+        for x in range(world.width):
+            t = world.tile(x, y)
+            if t == "r":
+                row.append("h")
+            elif t == "s":
+                row.append("b")
+            elif t == "f":
+                p = sum(1 for px, py in pines if abs(px - x) <= 4 and abs(py - y) <= 4)
+                o = sum(1 for ox, oy in oaks if abs(ox - x) <= 4 and abs(oy - y) <= 4)
+                row.append("p" if p > o else "o")
+            else:
+                row.append("m")
+        rows.append("".join(row))
+    return rows
+
+
+# ------------------------------------------------------------------ placing things
 ANIMAL_POPULATION = {"chicken": 6, "sheep": 5, "cow": 4}
 
 
@@ -90,108 +265,250 @@ def spawn_animals(world: World, rng: random.Random, limit: int | None = None) ->
     return added
 
 
-def generate_world(seed: int = 7, width: int = 64, height: int = 64) -> World:
+# ------------------------------------------------------------------ the generator
+def generate_world(seed: int = 7, width: int = SIZE, height: int = SIZE) -> World:
     rng = random.Random(seed)
-    elev = _fractal(rng, width, height)
-    moist = _fractal(rng, width, height)
+    s = max(0.5, min(width, height) / SIZE)  # 1 on a fresh map: distances below are in tiles of a 128 map
+    cells = (max(4, round(32 * s)), max(4, round(16 * s)), max(2, round(8 * s)))
+    elev_n = _fractal(rng, width, height, cells)
+    moist_n = _fractal(rng, width, height, cells)
+    detail = _value_noise(rng, width, height, max(2, round(3 * s)))  # pools, mud and sandy patches
     cx, cy = width // 2, height // 2
+    meadow_r = 11 * s
+
+    # The lake low in one quarter, the hills high on the far side of the meadow.
+    lx = round(width * (rng.choice((0.27, 0.73)) + rng.uniform(-0.04, 0.04)))
+    ly = round(height * (rng.choice((0.27, 0.73)) + rng.uniform(-0.04, 0.04)))
+    lake_r = rng.uniform(9.0, 12.0) * s
+    hill_ang = math.atan2(ly - cy, lx - cx) + math.pi + rng.uniform(-1.0, 1.0)
+    hill_d = rng.uniform(0.30, 0.36) * min(width, height)
+    hx = min(max(cx + math.cos(hill_ang) * hill_d, 0.12 * width), 0.88 * width)
+    hy = min(max(cy + math.sin(hill_ang) * hill_d, 0.12 * height), 0.88 * height)
+
+    yy, xx = np.mgrid[0:height, 0:width]
+
+    def bump(px: float, py: float, r: float) -> np.ndarray:
+        return np.exp(-((xx - px) ** 2 + (yy - py) ** 2) / (r * r))
+
+    hill_w, lake_w, mid_w, wet_w = 0.2 * width, 0.18 * width, 0.12 * width, 0.3 * width
+    elev = elev_n + 0.45 * bump(hx, hy, hill_w) - 0.35 * bump(lx, ly, lake_w) - 0.25 * bump(cx, cy, mid_w)
+    moist = moist_n + 0.2 * bump(lx, ly, wet_w)
+
+    def quantile(a: np.ndarray, q: float) -> float:
+        flat = np.sort(a, axis=None)
+        return float(flat[min(flat.size - 1, int(q * flat.size))])
+
+    e_hill, e_pine = quantile(elev, 0.90), quantile(elev, 0.785)
+    m_oak, m_dry = quantile(moist, 0.60), quantile(moist, 0.10)
+    center_d = np.hypot(xx - cx, yy - cy)
+
+    biome = np.full((height, width), "m", dtype="<U1")
+    biome[moist >= m_oak] = "o"
+    biome[elev >= e_pine] = "p"
+    biome[elev >= e_hill] = "h"
+    biome[center_d <= meadow_r] = "m"
+    forest = (biome == "p") | (biome == "o")
+    tiles = np.where(biome == "h", "r", np.where(forest, "f", np.where(moist < m_dry, "d", "g")))
+
+    # The lake.
+    lake_d = np.hypot(xx - lx, yy - ly) + (elev_n - 0.5) * 8 * s
+    lake_m = lake_d < lake_r
+    tiles[lake_m] = "w"
+    tiles[lake_d < lake_r * 0.55] = "W"
+    lake = set(_cells(lake_m))
+
+    # Rivers: two streams from the hills down to the lake, and one river from the lake to the edge of the map.
+    river_of: dict[tuple[int, int], int] = {}  # tile -> which river carved it
+    flows: dict[tuple[int, int], str] = {}
+    mouths_at_lake: list[tuple[int, int]] = []
+
+    def walk(sx: float, sy: float, tx: float, ty: float, number: int, to_lake: bool) -> None:
+        """Carve one river from (sx, sy) toward (tx, ty), meandering and bending round the meadow. A stream ends where
+        it reaches the lake or joins an earlier river; the outflow (to_lake False) runs on to the edge of the map."""
+        x, y = sx, sy
+        ang = math.atan2(ty - y, tx - x)
+        wob = 0.0
+        path: list[tuple[int, int]] = []
+        heading: dict[tuple[int, int], tuple[float, float]] = {}
+        prev: tuple[int, int] | None = None
+        keep_out = meadow_r + 2
+        for _ in range(width * 4):
+            ix, iy = round(x), round(y)
+            if not (0 <= ix < width and 0 <= iy < height):
+                break
+            if to_lake and ((ix, iy) in lake or (ix, iy) in river_of):
+                break  # into the lake, or into the first stream
+            steps = [(ix, iy)]
+            if prev is not None and max(abs(ix - prev[0]), abs(iy - prev[1])) > 1:  # no gaps in a river
+                n = max(abs(ix - prev[0]), abs(iy - prev[1]))
+                steps = [(round(prev[0] + (ix - prev[0]) * k / n), round(prev[1] + (iy - prev[1]) * k / n))
+                         for k in range(1, n + 1)]
+            for here in steps:
+                if here in lake or here in river_of or math.hypot(here[0] - cx, here[1] - cy) <= meadow_r + 1:
+                    continue
+                path.append(here)
+                heading[here] = (math.cos(ang), math.sin(ang))
+                side = (0, 1) if abs(math.cos(ang)) > abs(math.sin(ang)) else (1, 0)
+                wide = (here[0] + side[0], here[1] + side[1])
+                if (0 <= wide[0] < width and 0 <= wide[1] < height and wide not in lake and wide not in river_of
+                        and math.hypot(wide[0] - cx, wide[1] - cy) > meadow_r + 1):
+                    path.append(wide)
+                    heading.setdefault(wide, heading[here])
+            prev = (ix, iy)
+            want = math.atan2(ty - y, tx - x)
+            dc = math.hypot(x - cx, y - cy)
+            reach = meadow_r + 12 * s
+            if dc < reach:  # bend around the meadow rather than through it
+                away = math.atan2(y - cy, x - cx)
+                off = _turn(want - away)
+                if abs(off) > math.pi / 2:
+                    tangent = away + math.copysign(math.pi / 2, off)
+                    want += _turn(tangent - want) * min(1.0, (reach - dc) / (6 * s))
+            wob = 0.8 * wob + rng.uniform(-0.35, 0.35)
+            ang += _turn(want - ang) * 0.3 + wob * 0.3
+            x += math.cos(ang)
+            y += math.sin(ang)
+            dc = math.hypot(x - cx, y - cy)
+            if dc < keep_out:  # never into the meadow: slide along its edge
+                away = math.atan2(y - cy, x - cx)
+                x, y = cx + math.cos(away) * keep_out, cy + math.sin(away) * keep_out
+        cells = set(path)
+        for p in cells:
+            tiles[p[1], p[0]] = "w"
+
+        def outlet(p: tuple[int, int], own: bool) -> tuple[int, int] | None:
+            """Where the water at p leaves the river: a stream into the lake or the river it joins, the outflow off the
+            edge of the map; a stretch cut off from its own mouth (own False) into whatever water it touches."""
+            edge = _at_edge(*p, width, height)
+            if edge and not (own and to_lake):
+                return _off_map_step(*p, width, height)
+            if own and not to_lake:
+                return None
+            for dx, dy in NEIGHBORS:
+                n = (p[0] + dx, p[1] + dy)
+                if n in lake or n in flows:
+                    return (dx, dy)
+            return None
+
+        mouths = {p: d for p in sorted(cells) if (d := outlet(p, True))}
+        mine = _flow_from_mouths(cells, mouths, heading) if mouths else {}
+        rest = cells - mine.keys()
+        while rest:  # a stretch cut off from the river's own mouth flows into whatever water it touches
+            more = {p: d for p in sorted(rest) if (d := outlet(p, False))}
+            if not more:
+                break  # a still backwater
+            part = _flow_from_mouths(rest, more, heading)
+            mine.update(part)
+            rest -= part.keys()
+        for p in cells:
+            river_of[p] = number
+        flows.update(mine)
+        if to_lake:
+            mouths_at_lake.extend(m for m in sorted(mouths)
+                                  if any((m[0] + dx, m[1] + dy) in lake for dx, dy in NEIGHBORS))
+
+    for number in (1, 2):
+        a = rng.uniform(0, 2 * math.pi)
+        r = rng.uniform(3, 9) * s
+        sx = min(max(hx + math.cos(a) * r, 2), width - 3)
+        sy = min(max(hy + math.sin(a) * r, 2), height - 3)
+        walk(sx, sy, lx, ly, number, to_lake=True)
+    if rng.random() < 0.5:  # the outflow leaves by the nearer side or the nearer top/bottom edge
+        tx, ty = (0 if lx < cx else width - 1), ly + rng.uniform(-0.15, 0.15) * height
+    else:
+        tx, ty = lx + rng.uniform(-0.15, 0.15) * width, (0 if ly < cy else height - 1)
+    walk(lx, ly, tx + (tx - lx) * 0.2, ty + (ty - ly) * 0.2, 3, to_lake=False)
+    river = set(river_of)
+
+    # The marsh where the first stream meets the lake; the beach on the far shore.
+    if mouths_at_lake:
+        mx0, my0 = mouths_at_lake[0]
+    else:
+        mx0, my0 = lx - (lx - cx) * 0.5, ly - (ly - cy) * 0.5
+    marsh_ang = math.atan2(my0 - ly, mx0 - lx)
+    mcx, mcy = lx + math.cos(marsh_ang) * (lake_r + 7 * s), ly + math.sin(marsh_ang) * (lake_r + 7 * s)
+    marsh_r = rng.uniform(9.5, 12.5) * s
+    beach_ang = marsh_ang + math.pi + rng.uniform(-0.5, 0.5)
+    beach_w = rng.uniform(3.0, 5.0) * s
+    river_m = np.zeros((height, width), dtype=bool)
+    for x, y in river:
+        river_m[y, x] = True
+    off = (np.arctan2(yy - ly, xx - lx) - beach_ang + math.pi) % (2 * math.pi) - math.pi
+    beach_m = (lake_d < lake_r + beach_w) & (np.abs(off) < 1.35) & (center_d > meadow_r + 1)
+    wet_d = np.hypot(xx - mcx, yy - mcy) + (moist_n - 0.5) * 10 * s
+    room = ~beach_m & (center_d > meadow_r + 1)
+    dry = room & ~lake_m & ~river_m & (detail <= POOL)
+    while np.count_nonzero(dry & (wet_d < marsh_r)) < 160 * s * s and marsh_r <= 18 * s:
+        marsh_r += 1.5 * s  # a marsh worth the name: grow it if the lake and the rivers took most of it
+    marsh_m = room & (wet_d < marsh_r)
+    biome[beach_m] = "b"
+    tiles[beach_m & ~lake_m & ~river_m] = "s"
+    biome[marsh_m] = "k"
+    ground = marsh_m & ~lake_m & ~river_m
+    tiles[ground] = np.where(detail[ground] > POOL, "w", np.where(detail[ground] < 0.3, "d", "g"))
+
+    # Shores: sandy edges round the rest of the lake, now and then along the rivers.
+    by_lake, by_river = near(lake_m), near(river_m)
+    shore = (tiles != "w") & (tiles != "W") & (biome != "b") & (biome != "k") & (by_lake | by_river)
+    for x, y in _cells(shore):
+        if rng.random() < (0.6 if by_lake[y, x] else 0.1):
+            tiles[y, x] = "s"
+
+    water = (tiles == "w") | (tiles == "W")
+    wet = near(water)
+    biome_rows = biome.tolist()
+    tiles = tiles.tolist()
+    world = World(width, height, tiles, Catalog.load(), seed)
+    world.land = {"biomes": ["".join(r) for r in biome_rows], "flow": _rows(width, height, flows)}  # nature keeps it
 
     def near_center(x: int, y: int, r: float) -> bool:
         return math.hypot(x - cx, y - cy) <= r
 
-    tiles = [["g"] * width for _ in range(height)]
-    for y in range(height):
-        for x in range(width):
-            e, m = elev[y][x], moist[y][x]
-            if e > 0.64:
-                tiles[y][x] = "r"
-            elif m > 0.56:
-                tiles[y][x] = "f"
-            elif m < 0.33:
-                tiles[y][x] = "d"
-
-    # Lake in a random quadrant, away from the meadow.
-    qx = rng.choice([width // 4, 3 * width // 4])
-    qy = rng.choice([height // 4, 3 * height // 4])
-    lake_r = rng.uniform(5.0, 7.5)
-    for y in range(height):
-        for x in range(width):
-            d = math.hypot(x - qx, y - qy) + (elev[y][x] - 0.5) * 6
-            if d < lake_r * 0.55:
-                tiles[y][x] = "W"
-            elif d < lake_r:
-                tiles[y][x] = "w"
-
-    # River: wander from the lake toward the farthest map edge, avoiding the meadow.
-    x, y = float(qx), float(qy)
-    tx = 0 if qx > cx else width - 1
-    ty = rng.randint(4, height - 5)
-    for _ in range(width * 3):
-        ix, iy = int(round(x)), int(round(y))
-        if not (0 <= ix < width and 0 <= iy < height):
-            break
-        for ox in (0, 1):
-            px, py = ix + ox, iy
-            if 0 <= px < width and 0 <= py < height and not near_center(px, py, 8) and tiles[py][px] != "W":
-                tiles[py][px] = "w"
-        ang = math.atan2(ty - y, tx - x) + rng.uniform(-0.9, 0.9)
-        x += math.cos(ang)
-        y += math.sin(ang)
-        if abs(ix - tx) <= 1:
-            break
-
-    # Shores.
-    for y in range(height):
-        for x in range(width):
-            if tiles[y][x] in "wW":
-                continue
-            if any(
-                0 <= x + dx < width and 0 <= y + dy < height and tiles[y + dy][x + dx] in "wW"
-                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-            ) and rng.random() < 0.75:
-                tiles[y][x] = "s"
-
-    # Meadow at the center.
-    for y in range(height):
-        for x in range(width):
-            if near_center(x, y, 5.5):
-                tiles[y][x] = "g"
-
-    world = World(width, height, tiles, Catalog.load(), seed)
-
     def free(x: int, y: int) -> bool:
         return world.in_bounds(x, y) and (x, y) not in world.grid and tiles[y][x] not in "wW" and not near_center(x, y, 4.5)
 
-    for y in range(height):
-        for x in range(width):
-            if not free(x, y):
-                continue
-            t, r = tiles[y][x], rng.random()
-            if t == "f":
-                if r < 0.33:
-                    world.add_object("pine" if elev[y][x] > 0.52 else "tree", x, y, wood=6)
-                elif r < 0.39:
-                    world.add_object("bush", x, y, berries=6)
-            elif t == "g":
-                if r < 0.04:
-                    world.add_object("tree", x, y, wood=6)
-                elif r < 0.07:
-                    world.add_object("bush", x, y, berries=6)
-            elif t == "d":
-                if r < 0.015:
-                    world.add_object("rock", x, y)
-                elif r < 0.03:
-                    world.add_object("bush", x, y, berries=6)
-            elif t == "r":
-                if r < 0.025:
-                    world.add_object("copper_vein", x, y, ore=8)
-                elif r < 0.04:
-                    world.add_object("iron_vein", x, y, ore=8)
-                elif r < 0.30:
-                    world.add_object("rock", x, y)
-            elif t == "s":
-                if r < 0.07:
-                    world.add_object("clay", x, y, clay=6)
+    for x, y in _cells(~water & (center_d > 4.5)):
+        t, b, r = tiles[y][x], biome_rows[y][x], rng.random()
+        if b == "o":
+            if r < 0.28:
+                world.add_object("tree", x, y, wood=6)
+            elif r < 0.33:
+                world.add_object("bush", x, y, berries=6)
+        elif b == "p":
+            if r < 0.30:
+                world.add_object("pine", x, y, wood=6)
+            elif r < 0.315:
+                world.add_object("bush", x, y, berries=6)
+            elif r < 0.325:
+                world.add_object("rock", x, y)
+        elif b == "h":
+            if r < 0.02:
+                world.add_object("copper_vein", x, y, ore=8)
+            elif r < 0.034:
+                world.add_object("iron_vein", x, y, ore=8)
+            elif r < 0.23:
+                world.add_object("rock", x, y)
+        elif b == "k":
+            if r < 0.04:
+                world.add_object("clay", x, y, clay=6)
+            elif r < 0.05:
+                world.add_object("bush", x, y, berries=6)
+        elif b == "b":
+            if r < 0.025:
+                world.add_object("clay", x, y, clay=6)
+        elif t == "s" and wet[y, x]:
+            if r < 0.08:
+                world.add_object("clay", x, y, clay=6)
+        elif t == "g":
+            if r < 0.02:
+                world.add_object("tree", x, y, wood=6)
+            elif r < 0.05:
+                world.add_object("bush", x, y, berries=6)
+        elif t == "d":
+            if r < 0.02:
+                world.add_object("rock", x, y)
+            elif r < 0.035:
+                world.add_object("bush", x, y, berries=6)
 
     # Guarantee minimum counts (and something useful within reach of the meadow).
     def ensure(kind: str, n: int, tile_ok: str, near: float | None = None, **data) -> None:
@@ -226,13 +543,14 @@ def generate_world(seed: int = 7, width: int = 64, height: int = 64) -> World:
 
     spawn_animals(world, rng)
 
-    # Two ancient terminals with tablets, far from the meadow.
+    # Two ancient terminals with tablets, away from the meadow but within a long walk of it.
     placed = 0
     tries = 0
+    far = max(24.0, 0.32 * max(width, height))
     while placed < 2 and tries < 5000:
         tries += 1
         x, y = rng.randrange(2, width - 2), rng.randrange(2, height - 2)
-        if math.hypot(x - cx, y - cy) < 15 or not free(x, y) or tiles[y][x] in "wW":
+        if not 15 <= math.hypot(x - cx, y - cy) <= far or not free(x, y) or tiles[y][x] in "wW":
             continue
         if any(o.kind == "terminal" and math.hypot(o.x - x, o.y - y) < 20 for o in world.objects.values()):
             continue

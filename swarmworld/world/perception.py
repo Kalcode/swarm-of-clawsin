@@ -6,13 +6,14 @@ import math
 from collections import defaultdict
 
 from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
-from .registry import YIELDS, extra_perception
+from .registry import KINDS, YIELDS, extra_perception
 
 DAY_SIGHT = 6
 NIGHT_SIGHT = 2
 FIRE_SIGHT = 5
 FIRE_RADIUS = 3
 GLOW_SIGHT = 8  # how far a fire's glow can be seen at night
+SOFT_SIGHT = 3  # at night beside a soft glow (a kind with "glow" in its data, like fireflies): a step more than dark
 LANDMARK_RANGE = 14
 
 DIRS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]
@@ -29,6 +30,20 @@ def direction(dx: int, dy: int) -> str:
 
 def dist(ax: int, ay: int, bx: int, by: int) -> int:
     return max(abs(ax - bx), abs(ay - by))
+
+
+def glows(o: WorldObject) -> bool:
+    """A soft light that warms no one: a kind whose data has "glow" (its reach in steps), like fireflies."""
+    return bool(KINDS.get(o.kind, {}).get("glow"))
+
+
+def near_glow(world: World, x: int, y: int) -> bool:
+    for yy in range(y - 2, y + 3):
+        for xx in range(x - 2, x + 3):
+            o = world.object_at(xx, yy)
+            if o and glows(o) and max(abs(xx - x), abs(yy - y)) <= KINDS[o.kind]["glow"]:
+                return True
+    return False
 
 
 def near_lit_fire(world: World, x: int, y: int, radius: int = FIRE_RADIUS) -> bool:
@@ -82,8 +97,10 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
 def sight_range(world: World, creature: Creature) -> int:
     if world.clock()["phase"] != "night":
         r = DAY_SIGHT
+    elif near_lit_fire(world, creature.x, creature.y):
+        r = FIRE_SIGHT
     else:
-        r = FIRE_SIGHT if near_lit_fire(world, creature.x, creature.y) else NIGHT_SIGHT
+        r = SOFT_SIGHT if near_glow(world, creature.x, creature.y) else NIGHT_SIGHT
     cap = world.ext.get("weather", {}).get("sight")  # fog: set by the weather pack
     return min(r, cap) if cap else r
 
@@ -102,7 +119,7 @@ def visible_objects(world: World, creature: Creature, rng: int | None = None) ->
         for y in range(creature.y - GLOW_SIGHT, creature.y + GLOW_SIGHT + 1):
             for x in range(creature.x - GLOW_SIGHT, creature.x + GLOW_SIGHT + 1):
                 o = world.object_at(x, y)
-                if o and o.id not in seen and ((o.kind == "campfire" and o.data.get("lit"))
+                if o and o.id not in seen and ((o.kind == "campfire" and o.data.get("lit")) or glows(o)
                                                or (o.kind == "creation" and "light" in o.data.get("effects", ()))):
                     dx, dy = o.x - creature.x, o.y - creature.y
                     out.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
@@ -225,6 +242,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     lines: list[str] = []
     phase = world.clock()["phase"]
     light = "It is dark; you can only see a couple of steps." if r == NIGHT_SIGHT else (
+        "It is dark, but a soft glow around you lets you see a few steps." if r == SOFT_SIGHT and phase == "night" else
         "It is night, but firelight lets you see around you." if phase == "night" else "")
     weather = ""
     if getattr(world, "weather", "clear") == "rain":  # a storm's own line says it
