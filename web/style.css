@@ -1101,3 +1101,9 @@ button.wwho:hover { text-decoration-color: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* sound: speaker button and volume (web/sound.js) */
+.sound-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.sound-ctl .icon-btn[aria-pressed="true"] { color: var(--text); border-color: #45394d; }
+.sound-vol { width: 64px; accent-color: var(--text-2); cursor: pointer; }
+@media (max-width: 720px) { .sound-vol { display: none; } }
