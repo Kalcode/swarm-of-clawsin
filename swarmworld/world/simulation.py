@@ -10,7 +10,7 @@ from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
 from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
-from .registry import SYSTEMS
+from .registry import SYSTEMS, call_safely
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -122,9 +122,9 @@ class Simulation:
             from .terrain import spawn_animals
             spawn_animals(self.world, self.world.rng, limit=2)
         self._terminals(t)
-        for system in SYSTEMS:  # the packs' world behaviour, in registration order
+        for system in SYSTEMS:  # the packs' world behaviour, in registration order; one that fails skips this tick
             if t % system.every == 0:
-                system.fn(self, t)
+                call_safely(f"system '{system.name}'", system.fn, self, t)
         new = w.events[self._returned_cursor:]
         self._returned_cursor = len(w.events)
         if len(w.events) > 5000:

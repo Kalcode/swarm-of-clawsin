@@ -7,6 +7,7 @@ import random
 
 from .catalog import Catalog
 from .model import World
+from .registry import run_populate
 
 TERMINAL_READY = (
     "THE TERMINAL HUMS. ITS SCREEN GLOWS GREEN.",
@@ -244,5 +245,6 @@ def generate_world(seed: int = 7, width: int = 64, height: int = 64) -> World:
         placed += 1
 
     place_wishing_stone(world)
+    run_populate(world, rng, fresh=True)  # the packs' own things (registry.register_populate)
     world.changed_objects.clear()
     return world

@@ -10,7 +10,7 @@ from ..world.model import ANIMALS, Creature, World
 from ..world.perception import dist, visible_creatures, visible_objects
 # Technique lives in the world's registry so packs can disclose their verbs; TECHNIQUES is the shared list: the core
 # techniques below first, then every pack's (register_technique).
-from ..world.registry import TECHNIQUES, Technique, register_core_techniques
+from ..world.registry import TECHNIQUES, Technique, call_safely, register_core_techniques
 
 CORE_VERBS = ["walk_to", "explore", "gather", "eat", "drink", "say", "give", "combine", "craft", "rest", "wait", "wish"]
 
@@ -121,8 +121,10 @@ LORE = [
 
 
 def relevant(world: World, c: Creature, limit: int = 5, packs_only: bool = False) -> list[str]:
-    """The lines of the techniques that fit now, best first; packs_only: only those packs registered."""
-    scored = [(s, t.line) for t in TECHNIQUES if (t.pack or not packs_only) and (s := t.trigger(world, c)) is not None]
+    """The lines of the techniques that fit now, best first; packs_only: only those packs registered. A trigger that
+    fails counts as not fitting."""
+    scored = [(s, t.line) for t in TECHNIQUES
+              if (t.pack or not packs_only) and (s := call_safely(f"technique '{t.name}'", t.trigger, world, c)) is not None]
     scored.sort(key=lambda p: -p[0])
     return [line for _, line in scored[:limit]]
 

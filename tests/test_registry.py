@@ -3,7 +3,8 @@ verbs, techniques, per-tick systems, perception lines and sounds."""
 
 import importlib
 import json
-import shutil
+import logging
+import random
 import subprocess
 import sys
 import textwrap
@@ -15,15 +16,16 @@ import pytest
 
 from swarmworld.mind.prompts import INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN
 from swarmworld.mind.techniques import CORE_VERBS, TECHNIQUES, relevant
-from swarmworld.server.persistence import restore
+from swarmworld.server.persistence import restore, save
 from swarmworld.server.state import ServerState
 from swarmworld.world import actions, model, registry
 from swarmworld.world.actions import Intention, apply_intention, parse_intention, step_activity
-from swarmworld.world.catalog import DATA, Catalog
+from swarmworld.world.catalog import DATA, Catalog, _norm
 from swarmworld.world.model import DAY_TICKS, START_TICK, Creature, World
 from swarmworld.world.perception import perceive
 from swarmworld.world.registry import Technique
 from swarmworld.world.simulation import Simulation
+from swarmworld.world.terrain import generate_world
 
 # The kind tables as they were written out in model.py and actions.py before they moved to objects.json.
 OLD_BLOCKING = {
@@ -135,26 +137,21 @@ def act(w, c, **kw):
     return res
 
 
-def data_dir(tmp_path, packs):
-    """A data folder like swarmworld/data: copies of the base files, plus packs/<pack>/<file>.json for each pack."""
-    root = tmp_path / "data"
-    root.mkdir(parents=True)
-    for name in ("items.json", "recipes.json", "objects.json"):
-        shutil.copy(DATA / name, root / name)
-    for pack, files in packs.items():
-        (root / "packs" / pack).mkdir(parents=True)
-        for name, content in files.items():
-            (root / "packs" / pack / f"{name}.json").write_text(json.dumps(content))
-    return root
-
-
 @contextmanager
 def only_this_test():
-    """A sandbox without the installed packs' systems and perception lines, so a test sees only its own."""
+    """A sandbox without the installed packs' systems, perception lines and populate hooks, so a test sees only its own."""
     with registry.sandbox():
         registry.SYSTEMS.clear()
         registry.PERCEPTIONS.clear()
+        registry.POPULATE.clear()
         yield
+
+
+class NullWS:
+    closed = False
+
+    async def send_json(self, _):
+        pass
 
 
 def core_alias() -> tuple[str, str]:
@@ -201,9 +198,9 @@ def test_kind_tables_unchanged_from_data():
             assert {k: v for k, v in live.items() if k in kinds} == OLD[name], name
 
 
-def test_pack_items_and_kinds_merge(tmp_path):
-    data = data_dir(tmp_path, {"reeds": REED_PACK, "tiny": {"items": {"probe_pebble": {"name": "probe pebble"}}}})
-    base, cat = Catalog.load(data_dir(tmp_path / "base", {})), Catalog.load(data)  # base: no packs at all
+def test_pack_items_and_kinds_merge(data_dir):
+    data = data_dir({"reeds": REED_PACK, "tiny": {"items": {"probe_pebble": {"name": "probe pebble"}}}})
+    base, cat = Catalog.load(data_dir({})), Catalog.load(data)  # base: no packs at all
     assert set(base.items) | {"probe_reed", "probe_mat", "probe_pebble"} == set(cat.items)
     assert cat.resolve("probe reeds") == "probe_reed" and cat.items["probe_reed"].desc == "A long hollow stem."
     assert [r.output for r in cat.recipes] == [r.output for r in base.recipes] + ["probe_mat"]  # packs after the base
@@ -224,7 +221,7 @@ def test_pack_items_and_kinds_merge(tmp_path):
     assert "probe_bed" not in registry.KINDS  # reading a data folder registers nothing
 
 
-def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
+def test_duplicate_registration_names_both_packs(data_dir, pack_modules):
     with registry.sandbox():
         with pytest.raises(ValueError) as err:
             pack_modules(alpha=HUM_PACK, beta=HUM_PACK)
@@ -233,13 +230,13 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
     assert f"{pack_modules.package}.alpha" in message and f"{pack_modules.package}.beta" in message
     assert "probe_hum" not in actions.VERBS  # the sandbox took alpha's verb back out
 
-    data = data_dir(tmp_path, {"a": {"objects": {"probe_bed": {"name": "probe bed"}}},
+    data = data_dir({"a": {"objects": {"probe_bed": {"name": "probe bed"}}},
                                "b": {"objects": {"probe_bed": {"name": "probe bed"}}, "items": {"stick": {"name": "stick"}}}})
     with pytest.raises(ValueError, match=r"'probe_bed'.*packs/a/objects\.json.*packs/b/objects\.json"):
         registry.load_objects(data)
     with pytest.raises(ValueError, match=r"'stick'.*in items\.json.*packs/b/items\.json"):
         Catalog.load(data)
-    data = data_dir(tmp_path / "again", {"c": {"recipes": [{"output": "rope", "inputs": {"stick": 2}}]}})
+    data = data_dir({"c": {"recipes": [{"output": "rope", "inputs": {"stick": 2}}]}})
     with pytest.raises(ValueError, match=r"'rope'.*in recipes\.json.*packs/c/recipes\.json"):
         Catalog.load(data)
 
@@ -266,8 +263,8 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
     assert "probe_fell" not in actions.VERBS and not any(s.name == "probe tides" for s in registry.SYSTEMS)
 
 
-def test_generic_yields_gather_deplete_regrow(tmp_path):
-    w = grass_world(Catalog.load(data_dir(tmp_path, {"reeds": REED_PACK})))
+def test_generic_yields_gather_deplete_regrow(data_dir):
+    w = grass_world(Catalog.load(data_dir({"reeds": REED_PACK})))
     c = creature(w, "Tam", 5, 5)
     with only_this_test():
         registry.register_kinds(REED_PACK["objects"], "packs/reeds/objects.json")  # only data: no code for these
@@ -330,13 +327,28 @@ def test_registered_verb_works_and_is_in_the_schema(pack_modules):
     assert parse_intention({"action": "probe_hum"}) is None
 
 
+def test_pack_verb_takes_a_core_alias_only_when_it_says_so():
+    """A word that so far only meant a core verb (as "build" means craft) becomes a pack's verb only with
+    replaces_alias=True; otherwise it's a clash like any other, naming both."""
+    alias, verb = core_alias()
+    with registry.sandbox():
+        with pytest.raises(ValueError, match=rf"'{alias}'.*swarmworld\.world\.actions.*test_registry.*replaces_alias"):
+            registry.register_verb(alias, lambda world, cr, it: None)
+        assert parse_intention({"action": alias}).action == verb and alias not in actions.VERBS
+        with pytest.raises(ValueError, match="isn't an alias of a core verb"):
+            registry.register_verb("probe_new", lambda world, cr, it: None, replaces_alias=True)
+        registry.register_verb("probe_owner", lambda world, cr, it: None, aliases=("probe_word",))
+        with pytest.raises(ValueError, match=r"'probe_word'.*test_registry.*test_registry"):  # a pack's word stays its own
+            registry.register_verb("probe_word", lambda world, cr, it: None, replaces_alias=True)
+
+
 def test_pack_verb_can_take_over_a_core_alias():
-    """A word that so far only meant a core verb (as "build" meant craft) can become a pack's own verb."""
     w = grass_world()
     c = creature(w, "Tam", 5, 5)
     alias, verb = core_alias()
     with registry.sandbox():
-        registry.register_verb(alias, lambda world, cr, it: actions.ActionResult(True, f"You start a {it.target}."))
+        registry.register_verb(alias, lambda world, cr, it: actions.ActionResult(True, f"You start a {it.target}."),
+                               replaces_alias=True)
         assert parse_intention({"action": alias}).action == alias and alias not in actions.VERB_ALIASES
         assert registry.owner("verb", alias).endswith("test_registry")
         assert act(w, c, action=alias, target="hut").message == "You start a hut."
@@ -403,6 +415,20 @@ def test_extra_perception_lines_are_capped():
     assert registry.PERCEPTIONS == installed
 
 
+def test_perception_priority_keeps_the_best_lines():
+    w = grass_world()
+    c = creature(w, "Tam", 5, 5)
+    with only_this_test():
+        for text, priority in (("Line A.", None), ("Line B.", 10), ("Line C.", 50), ("Line D.", 90)):
+            def fn(world, cr, text=text):
+                return text
+            registry.register_perception(fn) if priority is None else registry.register_perception(fn, priority=priority)
+        lines = perceive(w, c).splitlines()
+    carry = next(i for i, line in enumerate(lines) if line.startswith("You carry"))
+    assert lines[carry - 2:carry] == ["Line B.", "Line A."]  # lower priority first; then first registered first
+    assert "Line C." not in lines and "Line D." not in lines
+
+
 # ------------------------------------------------------------------ sound
 def test_sound_reaches_listeners_with_direction():
     w = grass_world()
@@ -412,6 +438,7 @@ def test_sound_reaches_listeners_with_direction():
     beside = creature(w, "Odo", 11, 10)
     far = creature(w, "Pell", 10, 19)  # 9 steps: out of earshot
     with only_this_test():  # no pack's own sounds or lines in the way
+        assert {"chop", "splash", "thunder", "crickets", "animal:<kind>"} <= set(registry.SOUND_KINDS)  # advisory names
         ev = w.sound(10, 10, "chopping", radius=8, kind="chop", source=chopper.id)
         assert ev.kind == "sound" and ev.actor == chopper.id
         assert ev.to_dict()["sound"] == "chop" and ev.to_dict()["radius"] == 8 and ev.to_dict()["loud"] is False
@@ -461,6 +488,93 @@ def test_sound_skips_source_and_sleepers():
         assert sim.take_heard(source) == ["You hear thunder crashing, right here."]  # no source: everyone awake hears it
 
 
+# ------------------------------------------------------------------ robustness, state and placement
+def test_failing_pack_callbacks_never_stop_the_world(caplog):
+    ran = []
+
+    def broken_system(sim, t):
+        raise RuntimeError("the system broke")
+
+    def broken_line(world, c):
+        raise RuntimeError("the line broke")
+
+    def broken_trigger(world, c):
+        raise RuntimeError("the trigger broke")
+
+    with only_this_test(), caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
+        registry.register_system("probe broken", 1, broken_system)
+        registry.register_system("probe fine", 1, lambda sim, t: ran.append(t))  # still runs after the broken one
+        registry.register_perception(broken_line)
+        registry.register_perception(lambda world, c: "Still here.")
+        registry.register_verb("probe_x", lambda world, c, it: None)
+        registry.register_technique(Technique("probe_x", "probe_x: do x.", broken_trigger))
+        st = ServerState(seed=7)
+        node, cs = st.register_node(NullWS(), {"node": "t", "slots": 2, "models": [{"tag": "mock", "creatures": 1}]})
+        for _ in range(3):
+            st.sim.tick()
+        jobs = st.plan_dispatch()
+        assert relevant(st.world, cs[0]) == [line for line in relevant(st.world, cs[0]) if "probe_x" not in line]
+    assert len(ran) == 3 and jobs and "Still here." in jobs[0][1]["messages"][1]["content"]
+    for name in ("broken_system", "broken_line", "broken_trigger"):
+        logged = [r for r in caplog.records if name in r.getMessage()]
+        assert len(logged) == 1, name  # three failures (or more) in a minute: logged once
+        assert "test_registry" in logged[0].getMessage() and logged[0].exc_info
+
+
+def test_pack_state_is_saved_and_old_saves_start_empty(tmp_path, prepack_save):
+    with only_this_test():
+        st = ServerState(seed=7)
+        c = st.new_creature("mock")
+        assert c.ext == {} and st.world.ext == {}
+        c.ext["probe"] = {"joy": 70, "played_with": ["Mara"]}
+        st.world.ext["probe"] = {"seeded": True, "spots": [[1, 2]]}
+        save(st, tmp_path / "w.json")
+        st2 = ServerState(seed=99)
+        restore(st2, tmp_path / "w.json")
+        assert st2.world.creatures[c.id].ext == {"probe": {"joy": 70, "played_with": ["Mara"]}}
+        assert st2.world.ext == {"probe": {"seeded": True, "spots": [[1, 2]]}}
+        st3 = ServerState(seed=1)
+        restore(st3, prepack_save)
+        assert st3.world.ext == {} and all(cr.ext == {} for cr in st3.world.creatures.values())
+
+
+def test_populate_runs_on_generation_and_after_restore(tmp_path, prepack_save):
+    calls = []
+
+    def populate(world, rng, fresh):
+        calls.append((fresh, isinstance(rng, random.Random), len(world.creatures)))
+        mine = world.ext.setdefault("probe", {})
+        if not mine.get("placed"):  # idempotent: a restored world already has its sign
+            x, y = world.spawn_point()
+            world.add_object("sign", x, y, text="probe sign")
+            mine["placed"] = True
+
+    def probe_signs(world):
+        return sum(1 for o in world.objects.values() if o.data.get("text") == "probe sign")
+
+    with only_this_test():
+        registry.register_populate("probe", populate)
+        with pytest.raises(ValueError, match=r"'probe'.*test_registry.*test_registry"):
+            registry.register_populate("probe", populate)
+        w = generate_world(5)
+        assert calls == [(True, True, 0)] and probe_signs(w) == 1 and w.ext["probe"]["placed"]
+        st = ServerState(seed=5)
+        save(st, tmp_path / "w.json")
+        st2 = ServerState(seed=6)
+        restore(st2, tmp_path / "w.json")
+        assert calls[-1] == (False, True, 0) and probe_signs(st2.world) == 1
+        restore(st2, prepack_save)  # a save from before the pack: placed now, once
+        assert calls[-1] == (False, True, 6) and probe_signs(st2.world) == 1
+
+
+def test_pack_item_names_that_shadow_others_warn(data_dir, caplog):
+    data = data_dir({"a": {"items": {"probe_twig": {"name": "probe twig", "aliases": ["stick"]}}}})
+    with caplog.at_level(logging.WARNING, logger="swarmworld.packs"):
+        cat = Catalog.load(data)
+    assert cat.resolve("stick") == "stick" and cat.resolve("probe twig") == "probe_twig"  # the first item keeps a name
+    assert "'stick'" in caplog.text and "probe_twig" in caplog.text and "packs/a/items.json" in caplog.text
+
+
 # ------------------------------------------------------------------ the packs and data that are installed
 FIRST_IMPORTS = ["swarmworld.world.simulation", "swarmworld.mind.techniques", "swarmworld.mind.prompts",
                  "swarmworld.world.model", "swarmworld.world.registry", "swarmworld.world.packs", "swarmworld.server.state"]
@@ -503,6 +617,10 @@ def test_installed_data_is_consistent():
     for r in cat.recipes:
         assert r.output in items and set(r.inputs) <= items and set(r.tools) <= items, r
         assert r.station is None or r.station in items or r.station in registry.KINDS, r
+    names: dict[str, str] = {}
+    for it in cat.items.values():  # no item's name or alias is already another item's
+        for name in {_norm(n) for n in (it.id, it.name, *it.aliases)}:
+            assert names.setdefault(name, it.id) == it.id, f"'{name}' names both {names[name]} and {it.id}"
     for kind, spec in registry.KINDS.items():
         assert set(spec["gives"]) <= items, kind
         y = spec["yields"]

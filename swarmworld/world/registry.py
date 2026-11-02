@@ -8,14 +8,19 @@ what it adds:
     register_verb(name, handler, aliases)       a new action; handler(world, creature, intention) -> ActionResult
     register_technique(Technique(...))          how a verb is disclosed to creatures, and when it fits
     register_system(name, every, fn)            world behaviour: fn(simulation, tick) every `every` ticks
-    register_perception(fn)                     an extra perception line: fn(world, creature) -> str | None
+    register_perception(fn, priority)           an extra perception line: fn(world, creature) -> str | None
+    register_populate(name, fn)                 place the pack's things: fn(world, rng, fresh) on a new or restored world
+
+A pack keeps its state in Creature.ext[<pack>] and World.ext[<pack>] (JSON-able; saved with the world). Callbacks
+(systems, perception lines, triggers, populate) that raise are logged and skipped: one broken pack never stops the
+world.
 
 Object kinds come from swarmworld/data/objects.json and the packs' objects.json. Each kind is
 {"name", "aliases", "blocking", "animal", "gatherable", "carvable", "store", "gives", "yields", "look"}; the tables
 built from them (OBJECT_NAMES, BLOCKING, GATHERABLE...) are shared objects, re-exported by model.py and actions.py
 and updated in place. A name registered twice (a verb, an alias, a kind, a technique, a system), and an item, recipe
-or kind defined in two data files, raises ValueError naming both places. (One exception: a pack's verb may take
-over a word that so far was only an alias of a core verb, as "build" is of craft.)
+or kind defined in two data files, raises ValueError naming both places. A word that is an alias of a core verb (as
+"build" is of craft) becomes a pack's verb only with register_verb(..., replaces_alias=True).
 
 Pack modules import, at their top, from swarmworld.world (actions, model, perception, catalog, events, registry,
 terrain), but never swarmworld.world.simulation, swarmworld.mind or swarmworld.server: those import actions, and so
@@ -24,11 +29,14 @@ TYPE_CHECKING or inside a function. tests/test_registry.py::test_packs_import_wh
 
 from __future__ import annotations
 
+import bisect
 import importlib
 import json
+import logging
 import pkgutil
 import re
 import sys
+import time
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -44,6 +52,13 @@ if TYPE_CHECKING:
 
 CORE_VERBS_MODULE = "swarmworld.world.actions"
 PERCEPTION_LINES = 2  # extra perception lines a turn, from all packs together
+log = logging.getLogger("swarmworld.packs")
+
+# World.sound's kind: an advisory shared vocabulary, so the viewer's audio can match sounds from any pack.
+# "animal:<kind>" means one per animal kind (animal:cow, animal:deer). Every sound is an event, logged and sent to
+# viewers: emit ambient sounds from systems sparingly (cooldowns, a few at a time).
+SOUND_KINDS = ("chop", "knock", "splash", "fire", "thunder", "rain", "river", "crickets", "bird", "animal:<kind>",
+               "crowd", "footsteps", "build", "music", "dance", "hunt")
 
 # (what, name) -> the module or data file that registered it
 _OWNERS: dict[tuple[str, object], str] = {}
@@ -56,8 +71,26 @@ def _caller() -> str:
 
 def owner(what: str, name: object) -> str | None:
     """Who registered a name: owner("verb", "gather") is "swarmworld.world.actions"; what is "verb" (verbs and their
-    aliases), "object kind", "technique" or "system"."""
+    aliases), "object kind", "technique", "system" or "populate"."""
     return _OWNERS.get((what, name))
+
+
+LOG_EVERY = 60.0  # seconds: how often the same failing callback is reported
+_failed_at: dict[int, float] = {}
+
+
+def call_safely(what: str, fn: Callable, *args, default=None):
+    """Run a pack's callback. If it raises, log it (once a minute per callback, naming its module and function) and
+    return default: a failing perception line or trigger counts as nothing, a failing system skips that tick."""
+    try:
+        return fn(*args)
+    except Exception:
+        now, last = time.monotonic(), _failed_at.get(id(fn))
+        if last is None or now - last >= LOG_EVERY:
+            _failed_at[id(fn)] = now
+            log.error("%s %s.%s failed (reported at most once a minute)", what, getattr(fn, "__module__", "?"),
+                      getattr(fn, "__qualname__", repr(fn)), exc_info=True)
+        return default
 
 
 def _check_free(what: str, key: object, source: str, shown: str | None = None, note: str = "") -> None:
@@ -187,14 +220,20 @@ HANDLERS: dict[str, Handler] = {}
 VERB_WORD = re.compile(r"[a-z][a-z0-9_]*")
 
 
-def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source: str) -> None:
+def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source: str, replaces_alias: bool) -> None:
     aliases = (aliases,) if isinstance(aliases, str) else tuple(aliases)
     for word in (name, *aliases):
         if not VERB_WORD.fullmatch(word):
             raise ValueError(f"'{word}' (from {source}) isn't a verb word: lower_snake_case, like 'go_fishing'")
-    core_alias = _OWNERS.get(("verb", name)) == CORE_VERBS_MODULE and name in VERB_ALIASES and source != CORE_VERBS_MODULE
-    if not core_alias:  # a pack's verb may take over a word that so far only meant a core verb ("build" -> craft)
+    core_alias = _OWNERS.get(("verb", name)) == CORE_VERBS_MODULE and name in VERB_ALIASES
+    if core_alias and not replaces_alias:
+        raise ValueError(f"verb '{name}' is registered twice: by {CORE_VERBS_MODULE} (an alias of "
+                         f"'{VERB_ALIASES[name]}') and by {source}; pass replaces_alias=True to make it this verb")
+    if not core_alias:
         _check_free("verb", name, source)
+        if replaces_alias:
+            raise ValueError(f"verb '{name}' from {source} has replaces_alias=True, but '{name}' isn't an alias "
+                             f"of a core verb")
     for a in aliases:
         _check_free("verb", a, source, note=f" (an alias of '{name}')")
     if len(set(aliases) | {name}) != len(aliases) + 1:
@@ -208,10 +247,12 @@ def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source
     VERB_ALIASES.update({a: name for a in aliases})
 
 
-def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = ()) -> None:
+def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = (), *, replaces_alias: bool = False) -> None:
     """A new action, valid in every intention (it joins the schema's enum). Disclose it with a Technique: the system
-    prompts only describe the core verbs."""
-    _register_verb(name, handler, aliases, _caller())
+    prompts only describe the core verbs. A name that is an alias of a core verb ("build" -> craft) needs
+    replaces_alias=True; the word then means this verb, so hand the cases it doesn't cover to the core verb
+    (HANDLERS["craft"])."""
+    _register_verb(name, handler, aliases, _caller(), replaces_alias)
 
 
 def pack_verbs() -> list[str]:
@@ -280,28 +321,62 @@ def register_system(name: str, every: int, fn: Callable[["Simulation", int], Non
 
 
 # ------------------------------------------------------------------ perception
-PERCEPTIONS: list[Callable[["World", "Creature"], str | None]] = []
+@dataclass(frozen=True)
+class Perception:
+    fn: Callable[["World", "Creature"], str | None]
+    priority: int
 
 
-def register_perception(fn: Callable[["World", "Creature"], str | None]) -> None:
-    """An extra line for a creature's perception: fn(world, creature) returns a short sentence, or None when there's
-    nothing worth saying. Lines appear just before "You carry"; all packs together get PERCEPTION_LINES a turn, the
-    first registered first, and once they're full the later functions aren't called that turn."""
+PERCEPTIONS: list[Perception] = []  # lowest priority first; equal priorities in registration order
+
+
+def register_perception(fn: Callable[["World", "Creature"], str | None], priority: int = 50) -> None:
+    """An extra line for a creature's perception: fn(world, creature) returns one short sentence, or None. The rule:
+    say something only when it's relevant right now or has changed (not the same line every turn). Lines appear just
+    before "You carry"; all packs together get PERCEPTION_LINES a turn, so the best are kept: lower priority first
+    (urgent things, like danger, below 50; ambience above), then the first registered. Once the lines are full the
+    remaining functions aren't called that turn, so an "only when it changed" line isn't used up unseen."""
     source = _caller()
     _check_free("perception", id(fn), source, shown=getattr(fn, "__qualname__", repr(fn)))
     _OWNERS[("perception", id(fn))] = source
-    PERCEPTIONS.append(fn)
+    bisect.insort(PERCEPTIONS, Perception(fn, priority), key=lambda p: p.priority)
 
 
 def extra_perception(world: "World", c: "Creature") -> list[str]:
     lines: list[str] = []
-    for fn in PERCEPTIONS:
+    for p in PERCEPTIONS:
         if len(lines) >= PERCEPTION_LINES:
             break
-        line = fn(world, c)
+        line = call_safely("perception line", p.fn, world, c)
         if line:
             lines.append(line)
     return lines
+
+
+# ------------------------------------------------------------------ placing a pack's things
+@dataclass(frozen=True)
+class Populate:
+    name: str
+    fn: Callable[["World", object, bool], None]
+
+
+POPULATE: list[Populate] = []
+
+
+def register_populate(name: str, fn: Callable[["World", object, bool], None]) -> None:
+    """fn(world, rng, fresh) places a pack's things in the world: at the end of world generation (fresh=True, rng the
+    generator's) and after a save is restored (fresh=False, rng the world's), so older worlds get them too. Make it
+    idempotent, e.g. with a flag in world.ext[<pack>]."""
+    source = _caller()
+    _check_free("populate", name, source)
+    _OWNERS[("populate", name)] = source
+    POPULATE.append(Populate(name, fn))
+
+
+def run_populate(world: "World", rng, fresh: bool) -> None:
+    importlib.import_module("swarmworld.world.packs")  # every pack has registered, whatever was imported first
+    for p in POPULATE:
+        call_safely(f"populate '{p.name}'", p.fn, world, rng, fresh)
 
 
 # ------------------------------------------------------------------ loading packs, and tests
@@ -317,7 +392,7 @@ def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
 @contextmanager
 def sandbox():
     """Everything registered inside the block is undone when it ends (for tests)."""
-    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS)
+    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE)
     saved = [list(x) if isinstance(x, list) else dict(x) for x in live]
     try:
         yield

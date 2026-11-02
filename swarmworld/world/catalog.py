@@ -4,6 +4,7 @@ swarmworld/data/packs/<pack>/*.json."""
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -91,6 +92,13 @@ class Catalog:
                     tags=tuple(d.get("tags", [])),
                     desc=d.get("desc", ""),
                 )
+        named: dict[str, str] = {}
+        for iid, item in items.items():  # a name that already means another item keeps meaning that one
+            for n in {_norm(n) for n in (iid, item.name, *item.aliases)}:
+                if named.setdefault(n, iid) != iid:
+                    logging.getLogger("swarmworld.packs").warning(
+                        "item '%s' (%s) is called '%s', which already names '%s' (%s); the name keeps meaning '%s'",
+                        iid, item_from[iid], n, named[n], item_from[named[n]], named[n])
         recipes: list[Recipe] = []
         recipe_from: dict[str, str] = {}
         for source, path in data_files("recipes.json", data_dir):

@@ -69,6 +69,7 @@ class Creature:
     landmarks_seen: set = field(default_factory=set)  # names of landmarks it has been near
     last_recall: tuple[str, int, str] | None = None  # (query lowercased, tick, answer) of the last recall action
     harness: dict = field(default_factory=dict)  # layer -> decided on/off for this creature (the trial split)
+    ext: dict = field(default_factory=dict)  # packs' state, by pack name: ext["play"]["joy"] (JSON-able; saved)
 
     @property
     def collapsed(self) -> bool:
@@ -94,6 +95,7 @@ class World:
         self.changed_objects: set[str] = set()
         self.removed_objects: set[str] = set()
         self.recall_hook: Callable[[Creature, str], list[tuple[str, str]]] | None = None  # set by the server: (creature, query) -> [(kind, text)]
+        self.ext: dict = {}  # packs' world state, by pack name: ext["nature"]["rivers"] (JSON-able; saved)
 
     # --- ids / objects -------------------------------------------------
     def new_id(self, prefix: str) -> str:
@@ -293,5 +295,6 @@ class World:
               source: str | None = None) -> Event:
         """Something makes a noise at (x, y), e.g. text "chopping". The simulation tells awake creatures within
         radius, except the source (a creature id), "You hear chopping, about 6 steps north." Creatures asleep for
-        the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio."""
+        the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio (see
+        registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
         return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source)
