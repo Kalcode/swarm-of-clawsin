@@ -8,6 +8,7 @@
 # Settings (environment variables): MODEL, CREATURES, SLOTS, SEED, TICK, PORT, WORLD, MODEL2 ("NAME:N" second model; MODEL2= for one model only)
 #   MODEL_SERVER: think on another machine's model server instead of this Mac's oMLX, e.g. the gaming PC:
 #   MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
+#   A model can name its own server: MODEL2="Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1" keeps it on this Mac.
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
@@ -34,9 +35,12 @@ start_omlx() {
   omlx serve --model-dir ~/models --max-concurrent-requests 16 --memory-guard-gb 20 --paged-ssd-cache-dir ~/.omlx/cache --paged-ssd-cache-max-size 10GB >> runs/omlx.log 2>&1 &
   for _ in $(seq 90); do curl -sf http://127.0.0.1:8000/v1/models >/dev/null && break; sleep 1; done
 }
+# This Mac's oMLX is needed unless every model thinks elsewhere (MODEL_SERVER, or MODEL...@URL)
+uses_omlx() { [[ -z "${MODEL_SERVER:-}" || "${MODEL:-}${MODEL2:-}" == *"127.0.0.1:8000"* ]]; }
 if [[ -n "${MODEL_SERVER:-}" ]]; then
   curl -sf --max-time 5 "$MODEL_SERVER/models" >/dev/null || { echo "No model server answering at $MODEL_SERVER"; exit 1; }
-else
+fi
+if uses_omlx; then
   curl -sf http://127.0.0.1:8000/v1/models >/dev/null || start_omlx
 fi
 
@@ -77,7 +81,7 @@ NODE_PID=$!
 misses=0
 while kill -0 "$WORLD_PID" 2>/dev/null; do
   sleep 60 & wait $!  # interruptible, so Ctrl-C or a kill stops everything at once
-  [[ -n "${MODEL_SERVER:-}" ]] && continue  # another machine's model server looks after itself
+  uses_omlx || continue  # another machine's model server looks after itself
   if curl -sf --max-time 20 http://127.0.0.1:8000/v1/models >/dev/null; then
     misses=0
   else

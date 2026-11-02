@@ -58,6 +58,18 @@ def suggest_creatures(ram_gb: float | None) -> int:
     return 4 if ram_gb < 12 else 8 if ram_gb < 24 else 12 if ram_gb < 48 else 20
 
 
+MODEL_ARG = re.compile(r"^(?P<name>[^@]+?)(?::(?P<n>\d+))?(?:@(?P<url>https?://.+?))?(?::(?P<n2>\d+))?$")
+
+
+def parse_model_arg(arg: str) -> tuple[str, int | None, str | None]:
+    """MODEL[:CREATURES][@SERVER]: e.g. gpt-oss:20b:12@http://192.168.50.42:11434/v1 (a trailing :N is the count)."""
+    m = MODEL_ARG.match(arg.strip())
+    if not m:
+        return arg, None, None
+    n = m.group("n") or m.group("n2")
+    return m.group("name"), int(n) if n else None, m.group("url")
+
+
 def apply_adopts(specs: list[ModelSpec], adopts: list[str]) -> None:
     """--adopt gemma-4-e4b (to the first model) or --adopt qwen3.5-4b=qwen3.5:9b (to a named one)."""
     for a in adopts:
@@ -75,7 +87,8 @@ def main() -> None:
     ap.add_argument("--token", default=None, help="join token printed by the world server")
     ap.add_argument("--model-server", default=None, help="OpenAI-compatible base URL (default: auto-detect oMLX/Ollama/LM Studio)")
     ap.add_argument("--api-key", default=None)
-    ap.add_argument("--model", action="append", default=[], help="MODEL[:CREATURES], repeatable for a mixed population")
+    ap.add_argument("--model", action="append", default=[],
+                    help="MODEL[:CREATURES][@SERVER], repeatable for a mixed population; @SERVER thinks on another machine")
     ap.add_argument("--mock", type=int, default=0, metavar="N", help="add N rule-based creatures (no LLM)")
     ap.add_argument("--adopt", action="append", default=[], metavar="OLD[=NEW]",
                     help="give sleeping creatures of model OLD a new mind (they keep their memories); "
@@ -89,22 +102,24 @@ def main() -> None:
     hw = hardware()
     specs: list[ModelSpec] = []
     if args.model:
+        parsed = [parse_model_arg(m) for m in args.model]
         base = args.model_server
-        if not base:
+        if not base and any(url is None for _, _, url in parsed):
             base = next((u for u in CANDIDATE_SERVERS if list_models(u, args.api_key) is not None), None)
             if not base:
                 sys.exit("No model server found. Start oMLX (omlx serve --model-dir ~/models) or Ollama, or pass --model-server.")
-        available = list_models(base, args.api_key) or []
-        for m in args.model:
-            name, _, n = m.rpartition(":") if re.search(r":\d+$", m) else (m, "", "")
-            n = int(n) if n else suggest_creatures(hw.get("ram_gb"))
+        listed: dict[str, list[str]] = {}
+        for name, n, url in parsed:
+            server = url or base
+            available = listed.setdefault(server, list_models(server, args.api_key) or [])
+            n = n or suggest_creatures(hw.get("ram_gb"))
             if available and name not in available:
                 alt = next((a for a in available if a in (f"{name}:latest", f"mlx-community/{name}")), None)
                 if not alt:
-                    sys.exit(f"Model '{name}' isn't on {base}. Available: {', '.join(available)}")
+                    sys.exit(f"Model '{name}' isn't on {server}. Available: {', '.join(available)}")
                 name = alt
-            specs.append(ModelSpec(short_tag(name), LLMBrain(base, name, args.api_key, temperature=args.temperature), n))
-        print(f"  Model server: {base}")
+            specs.append(ModelSpec(short_tag(name), LLMBrain(server, name, args.api_key, temperature=args.temperature), n))
+            print(f"  {name}: {n} creatures, thinking on {server}")
     if args.mock:
         specs.append(ModelSpec("mock", MockBrain(), args.mock))
     if not specs:

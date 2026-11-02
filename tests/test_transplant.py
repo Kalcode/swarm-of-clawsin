@@ -68,3 +68,11 @@ def test_adopt_flags_map_old_models_to_this_nodes_models():
     specs = [ModelSpec("gpt-oss:20b", None, 12), ModelSpec("qwen3.5:9b", None, 8)]
     apply_adopts(specs, ["gemma-4-e4b", "qwen3.5-4b=qwen3.5:9b"])
     assert specs[0].adopt == ["gemma-4-e4b"] and specs[1].adopt == ["qwen3.5-4b"]
+
+
+def test_the_same_machine_can_rejoin_with_new_minds():
+    st = ServerState(seed=7)
+    old_node, olds = join(st, "mac", [{"tag": "gemma", "creatures": 2}])
+    st.unregister_node(old_node.id)
+    _, got = join(st, "mac", [{"tag": "gpt-oss", "creatures": 2, "adopt": ["gemma"]}])
+    assert {c.id for c in got} == {c.id for c in olds} and all(c.model == "gpt-oss" for c in olds)

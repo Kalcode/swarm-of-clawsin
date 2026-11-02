@@ -67,3 +67,11 @@ def test_brain_turns_thinking_off_for_omlx_and_ollama():
     g = LLMBrain("http://pc:11434/v1", "gpt-oss:20b").body([], None, 260)
     assert g["reasoning_effort"] == "low"  # gpt-oss can't stop reasoning, only shorten it
     assert g["max_tokens"] >= 260 + 400  # room for that reasoning before the answer
+
+
+def test_model_args_can_name_their_own_server():
+    from swarmworld.node.__main__ import parse_model_arg
+    assert parse_model_arg("gpt-oss:20b:12") == ("gpt-oss:20b", 12, None)
+    assert parse_model_arg("qwen3.5:9b") == ("qwen3.5:9b", None, None)
+    assert parse_model_arg("Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1") == ("Qwen3.5-4B-MLX-4bit", 8, "http://127.0.0.1:8000/v1")
+    assert parse_model_arg("gpt-oss:20b@http://192.168.50.42:11434/v1:12") == ("gpt-oss:20b", 12, "http://192.168.50.42:11434/v1")

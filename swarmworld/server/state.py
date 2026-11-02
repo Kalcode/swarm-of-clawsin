@@ -158,8 +158,9 @@ class ServerState:
                        if c.model == tag and c.node_id is None and self.owner.get(c.id) not in {n.name for n in self.nodes.values()}
                        and c not in mine]
             adopt = {str(t)[:60] for t in spec.get("adopt") or []} - {tag}
+            others = {n.name for n in self.nodes.values() if n is not node}  # creatures of a node still connected stay with it
             adoptees = [c for c in self.world.creatures.values()
-                        if c.model in adopt and c.node_id is None and self.owner.get(c.id) not in {n.name for n in self.nodes.values()}]
+                        if c.model in adopt and c.node_id is None and self.owner.get(c.id) not in others]
             picked = (mine + orphans + adoptees)[:want]
             for c in picked:
                 if c.model != tag:

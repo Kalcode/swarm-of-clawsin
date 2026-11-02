@@ -7,6 +7,8 @@
   new file and `mv` it over the old one.
 - Work on `main` and push to `origin` (the user's private Forgejo, code.clausens.cloud, via `tea`/ssh). Backlog: `issues/`.
 - The gaming PC lends its GPU through Ollama on the home network: [docs/gaming-pc.md](docs/gaming-pc.md).
+- Trying a model means switching the live world's minds (`ADOPT`, `MODEL_SERVER`, `MODEL...@URL`) and watching how it plays
+  out. Only check response times fit the world's pace; no full benchmark or regression runs unless the user asks.
 - Never commit `inbox/`, `web/assets/limezu/` or `docs/media/`: licensed LimeZu art (see .gitignore).
 - `worlds/` holds the living world's save; `--fresh` keeps the old one as `worlds/default.<time>.bak`.
 - Tests: `uv run pytest`.
