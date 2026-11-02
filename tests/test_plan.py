@@ -53,6 +53,17 @@ def test_parse_limits():
     assert parse_intention({"action": "say"}).plan == []
 
 
+def test_echoed_plan_markers_are_stripped():
+    echoed = ["1. done: get 3 plant fiber.", "2. NOW: make rope.", "3) get 2 stone", "Done: 4. rest", "NOW:", "- 5 sticks"]
+    assert parse_intention({"action": "wait", "plan": echoed}).plan == \
+        ["get 3 plant fiber.", "make rope.", "get 2 stone", "rest", "5 sticks"]
+    m = Memory()
+    m.set_plan(STEPS)
+    m.advance()
+    assert not m.set_plan(parse_intention({"action": "wait", "plan": echoed[:3]}).plan)  # same plan: progress kept
+    assert m.plan_step == 1
+
+
 def test_goal_change_keeps_the_plan():
     st, node, c = setup()
     mem = st.memory(c.id)
