@@ -471,3 +471,15 @@ def test_voyage_key_from_env_or_dotenv(tmp_path, monkeypatch):
     assert make_embedder(None) is None
     with pytest.raises(SystemExit):
         make_embedder("voyage")
+
+
+def test_overheard_speech_counts_half_in_automatic_recall_only():
+    st, _, c = setup()
+    mem = st.memory(c.id)
+    mem.goal = "find clay"
+    st._remember(c, "You saw clay at the bank.", 1)
+    st._remember(c, 'Mara says to you: "Clay! There is clay by the pond."', 3)
+    asked = [t for _, t in st._recall_hook(c, "find clay") if "clay" in t.lower()]
+    auto = [t for _, t in st.auto_recall(c, mem, [])]
+    assert asked.index('Mara says to you: "Clay! There is clay by the pond."') < asked.index("You saw clay at the bank.")
+    assert auto[0] == "You saw clay at the bank."  # what others said counts half when recall comes unasked

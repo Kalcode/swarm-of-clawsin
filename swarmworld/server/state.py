@@ -13,8 +13,8 @@ from pathlib import Path
 from aiohttp import web
 
 from ..mind.memory import Memory
-from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages,
-                            curated_recent, make_persona, recent_limit, tip_limit)
+from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, build_act_messages,
+                            build_reflect_messages, curated_recent, make_persona, recent_limit, tip_limit)
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore, relevant
 from ..world.actions import ActionResult, apply_intention, parse_intention
@@ -30,6 +30,7 @@ ACT_TOKENS = 260
 ACT_TOKENS_PLAN = 360  # a reply may carry a 5-step plan
 AUTO_RECALL = 2
 AUTO_LINE = 140
+AUTO_HEARD = 0.5  # what others said to or near the creature counts half when recall comes unasked
 HUNGRY = 40
 RECALL_ASKED = 5
 RECALL_LORE = 1  # of those, at most this many from shared lore, so places, recipes and memories get room
@@ -48,6 +49,10 @@ PALETTE = ["#f2c14e", "#5bc0eb", "#9bc53d", "#fa7921", "#e55934", "#c879ff", "#4
 WAKE_PRIORITY = {"heard": 0, "hungry": 1, "woke": 2, "result": 2, "met": 3, "idle": 4}
 SAYS_RE = re.compile(r'^(\w+) says(?: to (?:you|\w+))?: "(.*)"$')
 GAVE_RE = re.compile(r"^(\w+) gave you (.*)\.$")
+
+
+def _heard_counts_less(doc) -> float:
+    return AUTO_HEARD if doc.kind == "memory" and SPEECH_RE.match(doc.text) else 1.0
 
 
 @dataclass
@@ -397,7 +402,8 @@ class ServerState:
             words.append("food eat berries")
         query = " ".join(dict.fromkeys(w for w in words if w))
         hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent,
-                                  semantic=stable, lore=False)  # lore is already shown as techniques
+                                  semantic=stable, lore=False,  # lore is already shown as techniques
+                                  weight=_heard_counts_less)
         return [(d.kind, d.text[:AUTO_LINE]) for d in hits]
 
     def make_job(self, node: Node, c: Creature) -> dict:

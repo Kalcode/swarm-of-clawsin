@@ -100,10 +100,11 @@ class RecallIndex:
         semantic: str | None = None,
         lore: bool = True,
         max_lore: int | None = None,
+        weight: Callable[[Doc], float] | None = None,
     ) -> list[Doc]:
         """`query` drives keywords; `semantic` (default: the same text) is what gets embedded, so a caller can
         keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out;
-        `max_lore` caps how many of the results may be lore."""
+        `max_lore` caps how many of the results may be lore; `weight` scales each doc's score."""
         qtokens = tokenize(query)
         sem = query if semantic is None else semantic
         qnorm = " ".join(sem.lower().split())
@@ -139,6 +140,8 @@ class RecallIndex:
         age = np.array([0 if d.kind == "lore" or d.key.startswith("extra:") else max(0, now - d.tick) for d in docs])
         imp = np.array([d.importance for d in docs])
         score = score * (1 + 0.15 * imp) * 0.5 ** (age / HALF_LIFE)
+        if weight is not None:
+            score = score * np.array([weight(d) for d in docs])
 
         order = np.argsort(-score, kind="stable")
         out: list[Doc] = []
