@@ -22,7 +22,10 @@ class Event:
     data: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"tick": self.tick, "kind": self.kind, "actor": self.actor, "x": self.x, "y": self.y, "text": self.text}
+        d = {"tick": self.tick, "kind": self.kind, "actor": self.actor, "x": self.x, "y": self.y, "text": self.text}
+        if self.kind == "sound":  # World.sound: what kind of sound it is, for the viewer's audio
+            d.update(sound=self.data.get("sound", ""), radius=self.data.get("radius"), loud=bool(self.data.get("loud")))
+        return d
 
 
 def hearers(world: "World", x: int, y: int, radius: int = HEARING) -> list["Creature"]:

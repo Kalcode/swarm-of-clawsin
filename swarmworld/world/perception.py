@@ -6,6 +6,7 @@ import math
 from collections import defaultdict
 
 from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
+from .registry import YIELDS, extra_perception
 
 DAY_SIGHT = 6
 NIGHT_SIGHT = 2
@@ -15,6 +16,8 @@ GLOW_SIGHT = 8  # how far a fire's glow can be seen at night
 LANDMARK_RANGE = 14
 
 DIRS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]
+SOUND_PREFIX = "You hear "  # a heard line that is a sound (World.sound), not words
+SOUND_LINES = 2  # sounds shown a turn: the latest of each kind
 
 
 def direction(dx: int, dy: int) -> str:
@@ -55,7 +58,7 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
     r = sight_range(world, c)
     nearest: dict[str, tuple[int, int, int]] = {}
     for o, d, _ in visible_objects(world, c):
-        if o.kind in REMEMBERED_KINDS and (o.kind not in nearest or d < nearest[o.kind][0]):
+        if (o.kind in REMEMBERED_KINDS or o.kind in YIELDS) and (o.kind not in nearest or d < nearest[o.kind][0]):
             nearest[o.kind] = (d, o.x, o.y)
     for y in range(c.y - r, c.y + r + 1):
         for x in range(c.x - r, c.x + r + 1):
@@ -137,6 +140,12 @@ def _where(d: int, dirn: str) -> str:
     if d == 1:
         return f"right beside you to the {dirn}"
     return f"{_steps(d)} {dirn}"
+
+
+def sound_line(text: str, d: int, dirn: str) -> str:
+    """How a creature hears a sound: "You hear chopping, about 6 steps north." """
+    where = "right here" if d == 0 else (f"right beside you to the {dirn}" if d == 1 else f"about {d} steps {dirn}")
+    return f"{SOUND_PREFIX}{text}, {where}."
 
 
 def article(word: str) -> str:
@@ -307,7 +316,11 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
                                                   for d, k, x, y in recalled[:RECALL_SHOWN]) + ".")
 
     if heard:
-        lines.append("You hear: " + " ".join(heard[-6:]))
+        speech = [h for h in heard if not h.startswith(SOUND_PREFIX)]
+        if speech:
+            lines.append("You hear: " + " ".join(speech[-6:]))
+        lines += [h for h in heard if h.startswith(SOUND_PREFIX)][-SOUND_LINES:]
+    lines += extra_perception(world, c)  # what packs add, at most a couple of lines
 
     lines.append(f"You carry: {inventory_text(world, c)}.")
     placeable = [world.catalog.name(i) for i, n in c.inventory.items() if n > 0 and world.catalog.items[i].placeable]

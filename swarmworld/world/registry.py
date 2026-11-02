@@ -1,0 +1,319 @@
+"""Plug-in points for content packs, so each pack adds to the world without editing the same core lists.
+
+A pack is one module, swarmworld/world/packs/<pack>.py (its behaviour), plus data files in
+swarmworld/data/packs/<pack>/ (items.json, recipes.json, objects.json, any of them). The data is merged after the
+base files; the module is imported, sorted by name, when swarmworld.world.actions is first imported, and registers
+what it adds:
+
+    register_verb(name, handler, aliases)       a new action; handler(world, creature, intention) -> ActionResult
+    register_technique(Technique(...))          how a verb is disclosed to creatures, and when it fits
+    register_system(name, every, fn)            world behaviour: fn(simulation, tick) every `every` ticks
+    register_perception(fn)                     an extra perception line: fn(world, creature) -> str | None
+
+Object kinds come from swarmworld/data/objects.json and the packs' objects.json. Each kind is
+{"name", "aliases", "blocking", "animal", "gatherable", "carvable", "store", "gives", "yields", "look"}; the tables
+built from them (OBJECT_NAMES, BLOCKING, GATHERABLE...) are shared objects, re-exported by model.py and actions.py
+and updated in place. A name registered twice (a verb, an alias, a kind, a technique, a system), and an item, recipe
+or kind defined in two data files, raises ValueError naming both places. (One exception: a pack's verb may take
+over a word that so far was only an alias of a core verb, as "build" is of craft.)
+
+Pack modules import, at their top, from swarmworld.world (actions, model, perception, catalog, events, registry,
+terrain), but never swarmworld.world.simulation, swarmworld.mind or swarmworld.server: those import actions, and so
+the packs, before they are done, so whichever is imported first would find the pack half-loaded. Import them under
+TYPE_CHECKING or inside a function. tests/test_registry.py::test_packs_import_whichever_module_comes_first checks."""
+
+from __future__ import annotations
+
+import importlib
+import json
+import pkgutil
+import re
+import sys
+from collections.abc import Callable, Iterable
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from .catalog import DATA, data_files, defined_twice
+
+if TYPE_CHECKING:
+    from .actions import ActionResult, Intention
+    from .model import Creature, World
+    from .simulation import Simulation
+
+CORE_VERBS_MODULE = "swarmworld.world.actions"
+PERCEPTION_LINES = 2  # extra perception lines a turn, from all packs together
+
+# (what, name) -> the module or data file that registered it
+_OWNERS: dict[tuple[str, object], str] = {}
+
+
+def _caller() -> str:
+    """The module that called the register_* function that called this."""
+    return sys._getframe(2).f_globals.get("__name__", "?")
+
+
+def _check_free(what: str, key: object, source: str, shown: str | None = None, note: str = "") -> None:
+    first = _OWNERS.get((what, key))
+    if first is not None:
+        raise ValueError(f"{what} '{shown or key}'{note} is registered twice: by {first} and by {source}")
+
+
+# ------------------------------------------------------------------ object kinds
+KINDS: dict[str, dict] = {}  # kind -> its full spec (extra fields a pack adds are kept, for its own code)
+
+OBJECT_NAMES: dict[str, str] = {}
+OBJECT_ALIASES: dict[str, list[str]] = {}  # only kinds that have aliases
+BLOCKING: set[str] = set()
+ANIMALS: set[str] = set()
+GATHERABLE: set[str] = set()
+CARVABLE: set[str] = set()
+STORES: set[str] = set()
+ITEM_SOURCES: dict[str, set[str]] = {}  # item -> the kinds that give it
+SOURCE_PRODUCTS: dict[str, list[str]] = {}  # kind -> the items it gives, sorted
+YIELDS: dict[str, dict] = {}  # kind -> its generic yields
+DEPLETED: set[str] = set()  # what a kind with yields turns into while it regrows, when that has nothing to give
+LOOKS: dict[str, str] = {}  # kind -> a hint for the viewer's art
+TABLES = ("OBJECT_NAMES", "OBJECT_ALIASES", "BLOCKING", "ANIMALS", "GATHERABLE", "CARVABLE", "STORES",
+          "ITEM_SOURCES", "SOURCE_PRODUCTS", "YIELDS", "DEPLETED", "LOOKS")
+
+
+def _yields(kind: str, y: dict | None, where: str) -> dict | None:
+    if y is None:
+        return None
+    try:
+        items = {i: [int(lo), int(hi)] for i, (lo, hi) in (y.get("items") or {}).items()}
+        out = {"items": items, "tool": y.get("tool"), "uses": int(y.get("uses", 1)), "becomes": y.get("becomes"),
+               "regrow": None if y.get("regrow") is None else int(y["regrow"])}
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"kind '{kind}' in {where}: yields is {{\"items\": {{item: [min, max]}}, \"tool\": item or null, "
+                         f"\"uses\": n, \"becomes\": kind or null, \"regrow\": ticks or null}} ({exc})") from None
+    if not items or any(not 0 <= lo <= hi for lo, hi in items.values()):
+        raise ValueError(f"kind '{kind}' in {where}: yields needs items, each with [min, max] amounts, 0 <= min <= max")
+    if out["uses"] < 1 or (out["regrow"] is not None and out["regrow"] < 1) or not isinstance(out["tool"], str | None):
+        raise ValueError(f"kind '{kind}' in {where}: yields needs uses >= 1, regrow (ticks) >= 1 or null, "
+                         f"and tool an item id or null")
+    return out
+
+
+def normal_kind(kind: str, spec: dict, where: str = "?") -> dict:
+    """A kind's spec with every field filled in. gatherable defaults to having yields; gives to what it yields."""
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", kind) or not isinstance(spec, dict) or not spec.get("name"):
+        raise ValueError(f"kind '{kind}' in {where}: kinds are lower_snake_case and need a name")
+    y = _yields(kind, spec.get("yields"), where)
+    gives = spec.get("gives")
+    return {**spec, "name": spec["name"], "aliases": list(spec.get("aliases") or []),
+            "blocking": bool(spec.get("blocking")), "animal": bool(spec.get("animal")),
+            "gatherable": bool(spec.get("gatherable", y is not None)), "carvable": bool(spec.get("carvable")),
+            "store": bool(spec.get("store")), "gives": list(gives) if gives is not None else list(y["items"] if y else []),
+            "yields": y, "look": spec.get("look")}
+
+
+def build_tables(kinds: dict[str, dict]) -> dict[str, dict | set]:
+    """The kind tables for a set of (normalized) kinds."""
+    t: dict[str, dict | set] = {name: set() if name in ("BLOCKING", "ANIMALS", "GATHERABLE", "CARVABLE", "STORES",
+                                                       "DEPLETED") else {} for name in TABLES}
+    flags = {"BLOCKING": "blocking", "ANIMALS": "animal", "GATHERABLE": "gatherable", "CARVABLE": "carvable",
+             "STORES": "store"}
+    for kind, spec in kinds.items():
+        t["OBJECT_NAMES"][kind] = spec["name"]
+        if spec["aliases"]:
+            t["OBJECT_ALIASES"][kind] = list(spec["aliases"])
+        for table, flag in flags.items():
+            if spec[flag]:
+                t[table].add(kind)
+        for item in spec["gives"]:
+            t["ITEM_SOURCES"].setdefault(item, set()).add(kind)
+        if spec["gives"]:
+            t["SOURCE_PRODUCTS"][kind] = sorted(spec["gives"])
+        if spec["yields"]:
+            t["YIELDS"][kind] = spec["yields"]
+        if spec["look"]:
+            t["LOOKS"][kind] = spec["look"]
+    for y in t["YIELDS"].values():
+        if y["becomes"] and y["regrow"] and y["becomes"] not in t["GATHERABLE"]:
+            t["DEPLETED"].add(y["becomes"])
+    return t
+
+
+def _rebuild() -> None:
+    for name, value in build_tables(KINDS).items():
+        table = globals()[name]
+        table.clear()
+        table.update(value)
+
+
+def kind_files(data_dir: Path = DATA, packs: bool = True) -> list[tuple[str, dict]]:
+    return [(source, json.loads(path.read_text())) for source, path in data_files("objects.json", data_dir, packs)]
+
+
+def load_objects(data_dir: Path = DATA, packs: bool = True) -> dict[str, dict]:
+    """Every kind in a data folder (objects.json, then the packs'), normalized; registers nothing."""
+    kinds: dict[str, dict] = {}
+    found_in: dict[str, str] = {}
+    for source, raw in kind_files(data_dir, packs):
+        for kind, spec in raw.items():
+            if kind in found_in:
+                raise defined_twice("object kind", kind, found_in[kind], source)
+            found_in[kind] = source
+            kinds[kind] = normal_kind(kind, spec, source)
+    return kinds
+
+
+def register_kinds(kinds: dict[str, dict], source: str | None = None) -> None:
+    """Add object kinds (as in objects.json) to the world's tables. The world's own data files register at import."""
+    source = source or _caller()
+    for kind in kinds:
+        _check_free("object kind", kind, source)
+    normal = {kind: normal_kind(kind, spec, source) for kind, spec in kinds.items()}
+    for kind, spec in normal.items():
+        _OWNERS[("object kind", kind)] = source
+        KINDS[kind] = spec
+    _rebuild()
+
+
+# ------------------------------------------------------------------ verbs
+Handler = Callable[["World", "Creature", "Intention"], "ActionResult"]
+VERBS: list[str] = []  # every action a mind may choose, in schema order: the core verbs, then the packs'
+VERB_ALIASES: dict[str, str] = {}  # other words minds use -> the verb
+HANDLERS: dict[str, Handler] = {}
+VERB_WORD = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source: str) -> None:
+    aliases = (aliases,) if isinstance(aliases, str) else tuple(aliases)
+    for word in (name, *aliases):
+        if not VERB_WORD.fullmatch(word):
+            raise ValueError(f"'{word}' (from {source}) isn't a verb word: lower_snake_case, like 'go_fishing'")
+    core_alias = _OWNERS.get(("verb", name)) == CORE_VERBS_MODULE and name in VERB_ALIASES and source != CORE_VERBS_MODULE
+    if not core_alias:  # a pack's verb may take over a word that so far only meant a core verb ("build" -> craft)
+        _check_free("verb", name, source)
+    for a in aliases:
+        _check_free("verb", a, source, note=f" (an alias of '{name}')")
+    if len(set(aliases) | {name}) != len(aliases) + 1:
+        raise ValueError(f"verb '{name}' from {source} lists a word twice")
+    if core_alias:
+        del VERB_ALIASES[name]
+    for word in (name, *aliases):
+        _OWNERS[("verb", word)] = source
+    VERBS.append(name)
+    HANDLERS[name] = handler
+    VERB_ALIASES.update({a: name for a in aliases})
+
+
+def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = ()) -> None:
+    """A new action, valid in every intention (it joins the schema's enum). Disclose it with a Technique."""
+    _register_verb(name, handler, aliases, _caller())
+
+
+# ------------------------------------------------------------------ techniques
+@dataclass
+class Technique:
+    """A verb (or a use of one) shown to a creature only when it fits: trigger scores how relevant it is now."""
+    name: str
+    line: str
+    trigger: Callable[["World", "Creature"], float | None]  # higher is more relevant; None means not now
+    verbs: tuple[str, ...] | None = None  # None means the verb is the name; () means a use of a core verb
+
+    def __post_init__(self):
+        if self.verbs is None:
+            self.verbs = (self.name,)
+
+
+TECHNIQUES: list[Technique] = []  # the core techniques first (swarmworld.mind.techniques), then the packs'
+
+
+def register_technique(t: Technique) -> None:
+    source = _caller()
+    _check_free("technique", t.name, source)
+    _OWNERS[("technique", t.name)] = source
+    TECHNIQUES.append(t)
+
+
+def register_core_techniques(techniques: Iterable[Technique]) -> None:
+    """For swarmworld.mind.techniques: the built-in techniques, kept ahead of the packs' whatever the import order."""
+    source = _caller()
+    techniques = list(techniques)
+    for t in techniques:
+        _check_free("technique", t.name, source)
+        _OWNERS[("technique", t.name)] = source
+    TECHNIQUES[:0] = techniques
+
+
+# ------------------------------------------------------------------ systems
+@dataclass(frozen=True)
+class System:
+    name: str
+    every: int
+    fn: Callable[["Simulation", int], None]
+
+
+SYSTEMS: list[System] = []
+
+
+def register_system(name: str, every: int, fn: Callable[["Simulation", int], None]) -> None:
+    """World behaviour that runs on its own: the simulation calls fn(simulation, tick) on every tick divisible by
+    `every`, after the world's own steps, in registration order. A system never chooses actions for creatures."""
+    source = _caller()
+    if not isinstance(every, int) or every < 1:
+        raise ValueError(f"system '{name}' from {source}: every is a whole number of ticks, at least 1")
+    _check_free("system", name, source)
+    _OWNERS[("system", name)] = source
+    SYSTEMS.append(System(name, every, fn))
+
+
+# ------------------------------------------------------------------ perception
+PERCEPTIONS: list[Callable[["World", "Creature"], str | None]] = []
+
+
+def register_perception(fn: Callable[["World", "Creature"], str | None]) -> None:
+    """An extra line for a creature's perception: fn(world, creature) returns a short sentence, or None when there's
+    nothing worth saying. Lines appear just before "You carry"; all packs together get PERCEPTION_LINES a turn, the
+    first registered first, and once they're full the later functions aren't called that turn."""
+    source = _caller()
+    _check_free("perception", id(fn), source, shown=getattr(fn, "__qualname__", repr(fn)))
+    _OWNERS[("perception", id(fn))] = source
+    PERCEPTIONS.append(fn)
+
+
+def extra_perception(world: "World", c: "Creature") -> list[str]:
+    lines: list[str] = []
+    for fn in PERCEPTIONS:
+        if len(lines) >= PERCEPTION_LINES:
+            break
+        line = fn(world, c)
+        if line:
+            lines.append(line)
+    return lines
+
+
+# ------------------------------------------------------------------ loading packs, and tests
+def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
+    """Import every module in these folders as package.<name>, sorted by name (names starting with _ are skipped),
+    so each one's registrations run. Returns the names imported."""
+    names = sorted(m.name for m in pkgutil.iter_modules([str(p) for p in paths]) if not m.name.startswith("_"))
+    for name in names:
+        importlib.import_module(f"{package}.{name}")
+    return names
+
+
+@contextmanager
+def sandbox():
+    """Everything registered inside the block is undone when it ends (for tests)."""
+    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS)
+    saved = [list(x) if isinstance(x, list) else dict(x) for x in live]
+    try:
+        yield
+    finally:
+        for table, old in zip(live, saved):
+            if isinstance(table, list):
+                table[:] = old
+            else:
+                table.clear()
+                table.update(old)
+        _rebuild()
+
+
+for _source, _raw in kind_files():  # the world's own kinds, then every pack's
+    register_kinds(_raw, _source)

@@ -4,27 +4,15 @@ This only shows. It never picks an action, and every verb stays valid whether sh
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable
-
 from ..world.actions import ANIMAL_FOOD, CARVABLE, STORES
 from ..world.events import HEARING
 from ..world.model import ANIMALS, Creature, World
 from ..world.perception import dist, visible_creatures, visible_objects
+# Technique lives in the world's registry so packs can disclose their verbs; TECHNIQUES is the shared list: the core
+# techniques below first, then every pack's (register_technique).
+from ..world.registry import TECHNIQUES, Technique, register_core_techniques
 
 CORE_VERBS = ["walk_to", "explore", "gather", "eat", "drink", "say", "give", "combine", "craft", "rest", "wait", "wish"]
-
-
-@dataclass
-class Technique:
-    name: str
-    line: str
-    trigger: Callable[[World, Creature], float | None]  # higher is more relevant; None means not now
-    verbs: tuple[str, ...] | None = None  # None means the verb is the name; () means a use of a core verb
-
-    def __post_init__(self):
-        if self.verbs is None:
-            self.verbs = (self.name,)
 
 
 def _seen(world: World, c: Creature, kinds=None):
@@ -106,7 +94,7 @@ def _animal(world, c):
     return None
 
 
-TECHNIQUES: list[Technique] = [
+register_core_techniques([
     Technique("read", "read (target): read a sign, carving, tablet or terminal.", _read),
     Technique("program", "program (text): enter Lua code into a terminal beside you.", _program),
     Technique("write", "write (text): carve words onto a sign, tree or boulder beside you; they stay for anyone to find.", _write),
@@ -120,7 +108,7 @@ TECHNIQUES: list[Technique] = [
     Technique("pick_up", "pick_up (target) / drop (target): take or leave items on the ground.", _ground, ("pick_up", "drop")),
     Technique("fire", "give (target, items): feed sticks to a campfire to keep it burning.", _fire, ()),
     Technique("feed", "give (target, items): feed an animal food it eats; fed often, it may come to trust you.", _animal, ()),
-]
+])
 
 # Facts that left the core prompt's "Good to know"; kept for recall.
 LORE = [

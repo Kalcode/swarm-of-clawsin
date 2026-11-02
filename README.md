@@ -208,12 +208,13 @@ uv run python bench/world_bench.py --model gemma-4-e4b-it-4bit --model Qwen3.5-4
 
 ```
 swarmworld/world/      catalog (items, recipes), terrain, perception (world→text), actions (text→world), simulation
+swarmworld/world/packs/ content packs: one module each, registering verbs, systems, perception lines (registry.py)
 swarmworld/mind/       memory, prompts
 swarmworld/server/     world server: tick loop, scheduler, metrics, WebSockets, REST
 swarmworld/node/       brain node: LLM + mock brains, join client, CLI
 swarmworld/scripting/  Lua sandbox + terminals
 swarmworld/net/        LAN discovery
-swarmworld/data/       items.json, recipes.json  ← edit these to grow the world
+swarmworld/data/       items.json, recipes.json, objects.json (kinds), packs/<pack>/  ← edit these to grow the world
 web/                   the viewer (plain JS + Canvas; LimeZu art, Kenney CC0 fallback)
 bench/                 model concurrency benchmark
 scripts/               analyze_run.py: compare models across runs

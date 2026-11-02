@@ -1,4 +1,5 @@
-"""The world clock: needs, activities, regrowth, fire, terminals, and deciding who should wake up and think."""
+"""The world clock: needs, activities, regrowth, fire, terminals, sounds, the packs' systems, and deciding who should
+wake up and think."""
 
 from __future__ import annotations
 
@@ -8,7 +9,8 @@ from typing import Callable
 from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
-from .perception import DAY_SIGHT, note_spots, visible_creatures
+from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
+from .registry import SYSTEMS
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -42,6 +44,7 @@ class Simulation:
         self.heard: dict[str, list[str]] = defaultdict(list)
         self.hunger_alert: dict[str, int] = {}
         self.recent_says: dict[str, deque] = defaultdict(deque)
+        self.sounds: dict[str, dict[str, str]] = defaultdict(dict)  # creature -> sound kind -> what it heard, latest last
         self._event_cursor = len(world.events)      # events already turned into hearing, learning and memories
         self._returned_cursor = len(world.events)   # events already handed back to the caller of tick()
         self.on_result: Callable[[Creature, ActionResult], None] | None = None
@@ -64,8 +67,9 @@ class Simulation:
         return self.world.catalog.recipes_in_words(line)
 
     def take_heard(self, c: Creature) -> list[str]:
+        """What a creature heard since its last turn: words (the last six), then sounds (perception shows them apart)."""
         lines = self.heard.pop(c.id, [])
-        return lines[-6:]
+        return lines[-6:] + list(self.sounds.pop(c.id, {}).values())
 
     # ------------------------------------------------------------------
     def tick(self) -> list:
@@ -118,6 +122,9 @@ class Simulation:
             from .terrain import spawn_animals
             spawn_animals(self.world, self.world.rng, limit=2)
         self._terminals(t)
+        for system in SYSTEMS:  # the packs' world behaviour, in registration order
+            if t % system.every == 0:
+                system.fn(self, t)
         new = w.events[self._returned_cursor:]
         self._returned_cursor = len(w.events)
         if len(w.events) > 5000:
@@ -328,7 +335,32 @@ class Simulation:
                 for h in hearers(w, ev.x, ev.y, WITNESS_RADIUS):
                     if h.id != ev.actor:
                         self.remember(h, ev.text, 1)
+            elif ev.kind == "sound":
+                self._hear_sound(ev)
         self._event_cursor = len(w.events)
+
+    def _hear_sound(self, ev) -> None:
+        """A sound (World.sound) reaches awake creatures in range, not its source. Sleepers only hear a loud one, and
+        it wakes them. It isn't a memory and doesn't make anyone think; it's in their next perception."""
+        w = self.world
+        loud = bool(ev.data.get("loud"))
+        for h in hearers(w, ev.x, ev.y, ev.data.get("radius", 8)):
+            if h.id == ev.data.get("source") or h.asleep:  # asleep: its mind is away
+                continue
+            sleeping = bool((h.activity or {}).get("sleep"))
+            if sleeping and not loud:
+                continue
+            line = sound_line(ev.text, dist(h.x, h.y, ev.x, ev.y), direction(ev.x - h.x, ev.y - h.y))
+            heard = self.sounds[h.id]
+            key = ev.data.get("sound") or ev.text
+            heard.pop(key, None)  # the latest of each kind of sound
+            heard[key] = line
+            while len(heard) > SOUND_LINES:
+                del heard[next(iter(heard))]
+            if sleeping:
+                h.activity = None
+                self.remember(h, f"{line} It wakes you.", 2)
+                self.wake(h, "woke")
 
     def _regrow(self, t: int) -> None:
         w = self.world
@@ -340,7 +372,10 @@ class Simulation:
                         o.data[key] -= 10
             ra = o.data.get("regrow_at")
             if ra and t >= ra:
-                if o.kind == "stump":
+                if o.data.get("regrows"):  # a kind with yields from data, used up and now grown back
+                    w.change_kind(o, o.data.pop("regrows"))
+                    o.data.pop("uses", None)
+                elif o.kind == "stump":
                     w.change_kind(o, "tree")
                     o.data["wood"] = 6
                 elif o.kind == "bush_empty":
