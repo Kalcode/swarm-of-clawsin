@@ -13,16 +13,24 @@ from pathlib import Path
 from aiohttp import web
 
 from ..mind.memory import Memory
-from ..mind.prompts import INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages, make_persona
+from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages,
+                            curated_recent, make_persona, recent_limit, tip_limit)
+from ..mind.recall import RecallIndex
+from ..mind.techniques import TECHNIQUES, lore, relevant
 from ..world.actions import ActionResult, apply_intention, parse_intention
 from ..world.model import Creature
-from ..world.perception import perceive
+from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
 from ..world.simulation import Simulation
 from ..world.terrain import generate_world
 from .harness import Harness
 from .metrics import Metrics
 from .wishes import Wishes
 
+AUTO_RECALL = 3
+AUTO_LINE = 140
+HUNGRY = 40
+RECALL_ASKED = 5
+RECALL_LINE = 160
 MIN_GAP_TICKS = 4
 CHRONICLE_EVERY = 600
 HISTORY_EVERY = 60
@@ -60,6 +68,8 @@ class Job:
     model: str
     sent: float
     wake_reason: str | None
+    shown: list[str] = field(default_factory=list)  # techniques disclosed in this act's prompt
+    recalled: list[str] = field(default_factory=list)  # "kind: first 60 chars" of the lines recalled for it
 
 
 class ServerState:
@@ -68,12 +78,16 @@ class ServerState:
         self.world = generate_world(seed)
         self.harness = harness or Harness()
         self.memories: dict[str, Memory] = {}
+        self.recall = RecallIndex()
+        self.load_lore()
+        self.embedder = None  # a recall.VoyageEmbedder (or anything with async embed) when embeddings are on
         try:
             from ..scripting.terminal import run_terminal
         except ImportError:  # sandbox unavailable: terminals stay inert
             run_terminal = None
         self.sim = Simulation(self.world, memory_sink=self._remember, terminal_runner=run_terminal)
         self.sim.on_result = self._on_activity_result
+        self.world.recall_hook = self._recall_hook
         self.token = token
         self.tick_seconds = tick_seconds
         self.nodes: dict[str, Node] = {}
@@ -107,9 +121,15 @@ class ServerState:
     def memory(self, cid: str) -> Memory:
         return self.memories.setdefault(cid, Memory())
 
-    def _remember(self, c: Creature, text: str, importance: int = 1) -> None:
+    def load_lore(self) -> None:
+        for name, text in lore():
+            self.recall.add_lore(name, text)
+
+    def _remember(self, c: Creature, text: str, importance: int = 1, kind: str = "memory", index: bool = True) -> None:
         mem = self.memory(c.id)
         mem.add(self.world.tick, text, importance)
+        if index:
+            self.recall.add(c.id, kind, text, self.world.tick, importance, skip_repeat=True)
         m = SAYS_RE.match(text)
         if m:
             mem.note_person(m.group(1), f'last said: "{m.group(2)[:70]}"')
@@ -144,7 +164,7 @@ class ServerState:
         c.known_recipes = {r.output for r in self.world.catalog.recipes if r.known_at_start}
         self.world.creatures[cid] = c
         mem = self.memory(cid)
-        mem.add(self.world.tick, "You wake in a sunny meadow with empty hands. You remember nothing before this moment.", 2)
+        self._remember(c, "You wake in a sunny meadow with empty hands. You remember nothing before this moment.", 2)
         self.world.emit("join", cid, x, y, f"{c.name} appeared in the meadow ({model}).")
         return c
 
@@ -328,10 +348,62 @@ class ServerState:
             with open(self.run_dir / "chronicle.md", "a") as fh:
                 fh.write(f"## Day {clock['day']}, {clock['phase']} (tick {self.world.tick})\n\n{text}\n\n")
 
+    def _places(self, c: Creature) -> list[tuple[str, str]]:
+        """Where this creature remembers things being: its map memory and the landmarks it can name."""
+        out = []
+        for kind, (x, y, t) in c.spots.items():
+            d = dist(c.x, c.y, x, y)
+            where = "right here" if d == 0 else f"about {d} steps {direction(x - c.x, y - c.y)}"
+            out.append(("place", f"{spot_name(kind)}, {where} of you (last seen {max(0, self.world.tick - t)} ticks ago)"))
+        for lm in getattr(self.world, "landmarks", []):
+            if lm["name"] not in c.landmarks_seen:  # only what it has been near
+                continue
+            d = dist(c.x, c.y, lm["x"], lm["y"])
+            out.append(("place", f"{lm['name']}, about {d} steps {direction(lm['x'] - c.x, lm['y'] - c.y)} of you"))
+        return out
+
+    def _recipes(self, c: Creature) -> list[tuple[str, str]]:
+        cat = self.world.catalog
+        return [("recipe", cat.describe_recipe(r)) for name in sorted(c.known_recipes) if (r := cat.recipe_for(name))]
+
+    def _recall_hook(self, c: Creature, query: str) -> list[tuple[str, str]]:
+        """What the `recall` action finds: memories, places, recipes, texts read and shared lore."""
+        hits = self.recall.search(c.id, query, k=RECALL_ASKED, now=self.world.tick,
+                                  extra=[*self._places(c), *self._recipes(c)])
+        return [(d.kind, d.text[:RECALL_LINE]) for d in hits]
+
+    @staticmethod
+    def _recall_note(it, message: str) -> str:
+        """What a creature keeps of a recall: one short line, not the whole answer."""
+        found = message.splitlines()[1:]
+        query = (it.target or it.text)[:40]
+        if not found:
+            return f'You tried to think back about "{query}", but nothing came.'
+        more = f"; and {len(found) - 1} more" if len(found) > 1 else ""
+        return f'You thought back about "{query}": {found[0][:90]}{more}.'[:160]
+
+    def auto_recall(self, c: Creature, mem: Memory, recent: list[str]) -> list[tuple[str, str]]:
+        """Up to 3 things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
+        aim = [mem.goal]
+        if mem.plan and mem.plan_step < len(mem.plan):
+            aim.append(mem.plan[mem.plan_step])
+        stable = " ".join(w for w in aim if w)  # steady across turns, so its embedding is reused
+        words = [stable]
+        words += [o.name for o, _, _ in visible_objects(self.world, c)]
+        words += [o.name for o, _, _ in visible_creatures(self.world, c)]
+        if c.satiety < HUNGRY:
+            words.append("food eat berries")
+        query = " ".join(dict.fromkeys(w for w in words if w))
+        hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent,
+                                  semantic=stable, lore=False)  # lore is already shown as techniques
+        return [(d.kind, d.text[:AUTO_LINE]) for d in hits]
+
     def make_job(self, node: Node, c: Creature) -> dict:
         mem = self.memory(c.id)
         jid = self._next_job_id()
         reason = c.wake_reason
+        shown: list[str] = []
+        shown_recalled: list[str] = []
         layers = self.harness.layers_for(c)
         if mem.needs_reflection():
             kind, messages, schema, max_tokens = "reflect", build_reflect_messages(c, mem, layers), None, 220
@@ -339,12 +411,20 @@ class ServerState:
             self.sim.maybe_inspire(c)
             perception = perceive(self.world, c, heard=self.sim.take_heard(c))
             self.last.setdefault(c.id, {})["perception"] = perception
-            kind, messages, schema, max_tokens = "act", build_act_messages(self.world, c, mem, perception, reason, layers), \
+            recalled: list[tuple[str, str]] = []
+            if "recall" in layers:
+                recalled = self.auto_recall(c, mem, curated_recent(mem, recent_limit(layers)))
+            if "disclose" in layers:
+                tips = set(relevant(self.world, c, tip_limit(layers)))
+                shown = [t.name for t in TECHNIQUES if t.line in tips]
+            kind, messages, schema, max_tokens = "act", build_act_messages(
+                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled]), \
                 (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), 260
+            shown_recalled = [f"{k}: {t[:60]}" for k, t in recalled]
         c.thinking = True
         c.last_think_tick = self.world.tick
         c.wake_reason = None
-        self.jobs[jid] = Job(jid, c.id, node.id, kind, c.model, time.time(), reason)
+        self.jobs[jid] = Job(jid, c.id, node.id, kind, c.model, time.time(), reason, shown, shown_recalled)
         node.inflight[jid] = c.id
         return {"type": "think", "job": jid, "creature": c.id, "model": c.model, "kind": kind,
                 "messages": messages, "schema": schema, "max_tokens": max_tokens}
@@ -371,6 +451,8 @@ class ServerState:
                "output": output, "error": msg.get("error"), "latency_ms": msg.get("latency_ms"),
                "tokens_in": msg.get("tokens_in"), "cached_tokens": msg.get("cached_tokens"),
                "harness": sorted(self.harness.layers_for(c))}
+        if job.kind == "act":
+            log.update(shown=job.shown, recalled=job.recalled)
 
         def write_log(result: dict | None = None) -> None:
             if self._thinks_fh:
@@ -386,6 +468,8 @@ class ServerState:
         if job.kind == "reflect":
             text = output if isinstance(output, str) else json.dumps(output)
             mem.apply_reflection(text)
+            if mem.summary:
+                self.recall.add(c.id, "memory", f"You reflected: {mem.summary}", self.world.tick, 3)
             self.wishes.observe_reflection(c.name, text, self.world.tick)
             self.last.setdefault(c.id, {})["reflection"] = mem.summary
             c.wake_reason = job.wake_reason or "woke"
@@ -411,8 +495,11 @@ class ServerState:
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
         if res.noop:
             self.metrics.bump(c.model, "noops")
-        if res.ok and res.instant:
-            self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1)
+        if res.ok and res.instant and it.action == "recall":
+            self._remember(c, self._recall_note(it, res.message), 1, index=False)
+        elif res.ok and res.instant:
+            self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1,
+                           kind="read" if it.action == "read" else "memory")
         elif not res.ok:
             self._remember(c, f"You tried to {it.summary()}, but: {res.message}", 1)
         if plan_on and it.step_done and res.ok and not res.noop and mem.plan:

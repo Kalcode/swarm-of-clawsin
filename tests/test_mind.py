@@ -19,7 +19,7 @@ def test_system_prompt_static():
     mb = build_act_messages(w, b, Memory(), "You see a tree.")
     assert ma[0] == mb[0] and ma[0]["content"] == SYSTEM_PROMPT
     for v in VERBS:
-        assert v in SYSTEM_PROMPT
+        assert v in SYSTEM_PROMPT or v == "recall"  # recall is introduced in the per-turn message of the recall layer
     assert set(INTENTION_SCHEMA["required"]) == set(INTENTION_SCHEMA["properties"])
 
 

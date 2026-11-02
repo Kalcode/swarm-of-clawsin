@@ -63,6 +63,9 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
                 d = dist(c.x, c.y, x, y)
                 if "water" not in nearest or d < nearest["water"][0]:
                     nearest["water"] = (d, x, y)
+    for lm in getattr(world, "landmarks", []):
+        if dist(c.x, c.y, lm["x"], lm["y"]) <= LANDMARK_RANGE:
+            c.landmarks_seen.add(lm["name"])
     for kind, (x, y, _t) in list(c.spots.items()):
         if kind not in nearest and dist(c.x, c.y, x, y) <= r:  # should be in view, isn't: it's gone
             del c.spots[kind]
