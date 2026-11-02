@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import hashlib
 import json
 import random
 import re
@@ -253,12 +254,12 @@ def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: i
     found = episodes(run_dirs)
     names = Counter(p.name for p in found)
     unique: list[Decision] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[bytes] = set()  # digests of (prompt, answer): a night's prompts would double the memory as keys
     for p in found:
         for d in decisions(p, allow_mock, skipped, completed):
             if names[p.name] > 1:  # two folders of the same name from different places
                 d.run = str(p)
-            key = (json.dumps(d.messages, ensure_ascii=False), d.answer)
+            key = hashlib.sha256(json.dumps([d.messages, d.answer], ensure_ascii=False).encode()).digest()
             if key in seen:
                 skipped["duplicate"] += 1
                 continue

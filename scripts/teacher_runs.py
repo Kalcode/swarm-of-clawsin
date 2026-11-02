@@ -31,6 +31,7 @@ import asyncio
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -55,6 +56,10 @@ TEACHERS = re.compile(r"gpt-oss|qwen", re.I)  # what export_training.py keeps
 EPISODE = re.compile(r"^\d{8}-\d{6}-(?P<tag>.+)-s(?P<seed>\d+)$")
 
 
+def say(*parts) -> None:
+    print(*parts, flush=True)  # a night's log is usually a file (nohup): every line as it happens
+
+
 def parse_seeds(text: str) -> list[int]:
     """'100-139' (inclusive), '5,7,9' or a mix: '100-104,200'."""
     seeds: list[int] = []
@@ -77,7 +82,7 @@ def folder_tag(model: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", short_tag(model)).strip("-") or "model"
 
 
-def check_teacher(model: str, base_url: str | None, log=print) -> None:
+def check_teacher(model: str, base_url: str | None, log=say) -> None:
     if NEVER.search(model) or (base_url and NEVER.search(base_url)):
         raise SystemExit("Gemini (or any Google model) is never a teacher: its terms forbid training other models on "
                          "its outputs.")
@@ -96,7 +101,7 @@ def git_commit() -> str | None:
         return None
 
 
-def prepare(root: Path, tag: str, seeds: list[int], log=print) -> tuple[list[int], list[int]]:
+def prepare(root: Path, tag: str, seeds: list[int], log=say) -> tuple[list[int], list[int]]:
     """Which seeds still need an episode by this model, and which are done. Unfinished episodes of this model on these
     seeds are moved aside (<folder>.partial); everything else in the folder belongs to someone else."""
     mine: dict[int, list[Path]] = {}
@@ -130,7 +135,7 @@ def make_state(seed: int, run_dir: Path) -> ServerState:
                        log_prompts=True)
 
 
-async def think_with_retry(brain, job: dict, sleep=asyncio.sleep, clock=time.monotonic, log=print,
+async def think_with_retry(brain, job: dict, sleep=asyncio.sleep, clock=time.monotonic, log=say,
                            backoff: tuple[int, ...] = BACKOFF, give_up_s: float = GIVE_UP_S) -> tuple[bool, Any, str | None, dict]:
     """brain.think, retried with backoff until it answers or GIVE_UP_S of failures have passed."""
     t0 = clock()
@@ -152,7 +157,7 @@ async def think_with_retry(brain, job: dict, sleep=asyncio.sleep, clock=time.mon
 
 
 async def episode(brain, model: str, seed: int, creatures: int, ticks: int, root: Path, concurrency: int,
-                  base_url: str | None, log=print, sleep=asyncio.sleep) -> dict:
+                  base_url: str | None, log=say, sleep=asyncio.sleep) -> dict:
     tag = short_tag(model)
     run_dir = root / f"{time.strftime('%Y%m%d-%H%M%S')}-{folder_tag(model)}-s{seed}"
     st = make_state(seed, run_dir)
@@ -186,7 +191,7 @@ async def episode(brain, model: str, seed: int, creatures: int, ticks: int, root
     return r
 
 
-async def night(args: argparse.Namespace, log=print) -> dict:
+async def night(args: argparse.Namespace, log=say) -> dict:
     model = "mock" if args.mock else args.model
     if not model:
         raise SystemExit("give --model NAME (with --base-url), or --mock")
@@ -230,16 +235,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = ap.parse_args(argv)
     if not 1 <= args.creatures <= 60:
         ap.error("--creatures must be 1 to 60 (one brain node's limit)")
-    parse_seeds(args.seeds)
+    try:
+        parse_seeds(args.seeds)
+    except ValueError as exc:
+        ap.error(f"--seeds: {exc}")
     return args
+
+
+async def stoppable(args: argparse.Namespace) -> dict:
+    """The night, stopped by SIGTERM (kill) as cleanly as by Ctrl-C: the episode in progress closes its logs."""
+    task = asyncio.current_task()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+    return await night(args)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     try:
-        asyncio.run(night(args))
-    except KeyboardInterrupt:
-        print("\nStopped. The episode in progress has no `done` marker: the next start moves it aside and redoes it.")
+        asyncio.run(stoppable(args))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        say("\nStopped. The episode in progress has no `done` marker: the next start moves it aside and redoes it.")
         sys.exit(130)
 
 
