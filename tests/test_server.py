@@ -71,6 +71,20 @@ async def test_repeated_noops_count_as_a_loop_and_a_noop_rate(client):
     await ws.close()
 
 
+async def test_second_live_node_with_the_same_name_is_refused(client):
+    ws1, welcome1 = await _join(client, name="laptop", n=2)
+    ws2 = await client.ws_connect("/ws/node")
+    await ws2.send_json({"type": "hello", "node": "laptop", "slots": 4, "models": [{"tag": "mock", "creatures": 2}], "hardware": {}})
+    err = await _recv_type(ws2, "error")
+    assert "already connected" in err["message"]
+    assert all(c.node_id for c in client.app[STATE].world.creatures.values())  # the first node keeps its creatures
+    await ws1.close()
+    await asyncio.sleep(0.05)
+    ws3, welcome3 = await _join(client, name="laptop", n=2)  # a reconnect after a drop reclaims them
+    assert {c["id"] for c in welcome3["creatures"]} == {c["id"] for c in welcome1["creatures"]}
+    await ws3.close()
+
+
 async def test_bad_output_counts_parse_failure(client):
     ws, welcome = await _join(client, n=1)
     job = await _recv_type(ws, "think")

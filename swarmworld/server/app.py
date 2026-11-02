@@ -80,6 +80,11 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
                     await ws.send_json({"type": "error", "message": msg})
                     await ws.close()
                     break
+                if st.name_in_use(str(data.get("node") or "")):
+                    await ws.send_json({"type": "error", "message": f"a brain node named '{data.get('node')}' is already "
+                                        "connected; give this one another name with --name"})
+                    await ws.close()
+                    break
                 node, creatures = st.register_node(ws, data)
                 log.info("node %s joined (%s slots) with %d creatures", node.name, node.slots, len(creatures))
                 await ws.send_json({"type": "welcome", "node_id": node.id,

@@ -132,6 +132,10 @@ class ServerState:
         self.world.emit("join", cid, x, y, f"{c.name} appeared in the meadow ({model}).")
         return c
 
+    def name_in_use(self, name: str) -> bool:
+        """A live node already has this name (a dropped one's socket is closed, so its name can be reclaimed)."""
+        return any(n.name == name[:40] and not getattr(n.ws, "closed", False) for n in self.nodes.values())
+
     def register_node(self, ws: web.WebSocketResponse, hello: dict) -> tuple[Node, list[Creature]]:
         name = str(hello.get("node") or f"node-{len(self.nodes) + 1}")[:40]
         for old in [n for n in self.nodes.values() if n.name == name]:
