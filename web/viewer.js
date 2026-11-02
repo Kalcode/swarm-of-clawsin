@@ -10,6 +10,7 @@
 
   const T = window.SwarmTiles;      // Kenney art + shared helpers; always loaded
   let SK = T;                       // active world skin: LimeZu when present, else Kenney; or ASCII
+  const ROOFS = window.SwarmRoofs || null; // roofs.js: decoration over the buildings the server lists
   const FX = window.SwarmFX || null; // effects.js: decoration only, never needed to understand the world
   // The world skins, by the name the switcher and localStorage use. LimeZu needs its gitignored art.
   const SKINS = { limezu: () => window.SwarmLimeZu, kenney: () => T, ascii: () => window.SwarmASCII };
@@ -261,6 +262,7 @@
     S.objects = new Map();
     for (const o of m.objects || []) S.objects.set(o.id, o);
     indexObjects();
+    if (ROOFS) { ROOFS.clear(); ROOFS.set(m.buildings); }   // old servers send none
     const now = performance.now();
     const old = S.cres;
     S.cres = new Map();
@@ -332,6 +334,9 @@
       e.d = c;
     }
     if (namesChanged) indexNames();
+
+    // the full list of buildings arrives on a tick where one was completed or removed; null means no change
+    if (ROOFS && Array.isArray(m.buildings)) ROOFS.set(m.buildings);
 
     // Objects can move too (farm animals): interpolate them like creatures.
     let objChanged = false;
@@ -2139,6 +2144,11 @@
       });
     }
 
+    // roofs: above objects and creatures, fading when zoomed in or when the followed or selected creature is inside
+    if (ROOFS) {
+      const who = S.selected && S.cres.get(S.selected);
+      ROOFS.draw(ctx, SK, V, who ? Math.round(who.rx) : -1, who ? Math.round(who.ry) : -1);
+    }
     if (FX) FX.over(ctx, V);
     drawNight(list, ox, oy, ts, now);
     if (FX) FX.sky(ctx, V);

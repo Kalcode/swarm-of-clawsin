@@ -138,11 +138,27 @@
     return cv;
   }
 
+  /** A roof of characters over the building's rectangle (see roofs.js): a dark shaded block, a ridge of ^ along the
+   *  middle, ▒ slopes and ▓ at the south eave, in the design's color. A glyph per tile, from the glyph cache. */
+  function drawRoof(ctx, b, x, y, w, h, ts) {
+    const cols = b.x1 - b.x0 + 1, rows = b.y1 - b.y0 + 1;
+    const base = K.roofColor(b.design);
+    ctx.fillStyle = K.mix(base, '#0d130e', 0.62);
+    ctx.fillRect(x, y, w, h);
+    const ridge = rows >> 1;
+    const lit = { char: '▒', color: K.mix(base, '#ffffff', 0.12) }, shade = { char: '▒', color: K.mix(base, '#000000', 0.25) };
+    const eave = { char: '▓', color: K.mix(base, '#000000', 0.45) }, top = { char: '^', color: K.mix(base, '#ffffff', 0.42) };
+    for (let j = 0; j < rows; j++) {
+      const g = j === ridge ? top : j === rows - 1 ? eave : j < ridge ? lit : shade;
+      for (let i = 0; i < cols; i++) K.drawGlyph(ctx, g, x + i * ts, y + j * ts, ts, { scale: 0.95, outline: false });
+    }
+  }
+
   window.SwarmASCII = {
     name: 'ascii', credit: 'ASCII skin',
     load: () => Promise.resolve(true), ready: true,
     spriteTopTiles: 1, drawsWater: false,
-    renderTerrain, drawGround, drawObject, drawCreature, creatureBadge,
+    renderTerrain, drawGround, drawObject, drawCreature, creatureBadge, drawRoof,
     iconStyle: () => null,
     objectName: K.objectName, terrainName: K.terrainName, hasObject: () => true,
   };

@@ -695,13 +695,52 @@
     return true;
   }
 
+  /* ----------------------------------------------------------------- roofs (see roofs.js)
+   * The Serene Village roofs, a 9-slice per design in the manifest ("roofs"): the corners and edges are kept, the
+   * middle is tiled to the building's rectangle. Painted once per design and size, then drawn scaled. */
+  const roofCache = new Map();
+
+  function paintRoof(g, sheet, spec, W, H) {
+    const [rx, ry, rw, rh] = spec.rect, [l, r, t, b] = M.roofs.slice;
+    const mw = rw - l - r, mh = rh - t - b;
+    const blit = (sx, sy, sw, sh, dx, dy) => g.drawImage(sheet, rx + sx, ry + sy, sw, sh, dx, dy, sw, sh);
+    for (let y = t; y < H - b; y += mh) {
+      const ch = Math.min(mh, H - b - y);
+      blit(0, t, l, ch, 0, y);
+      blit(rw - r, t, r, ch, W - r, y);
+      for (let x = l; x < W - r; x += mw) {
+        const cw = Math.min(mw, W - r - x);
+        blit(l, t, cw, ch, x, y);
+        if (y === t) { blit(l, 0, cw, t, x, 0); blit(l, rh - b, cw, b, x, H - b); }
+      }
+    }
+    blit(0, 0, l, t, 0, 0); blit(rw - r, 0, r, t, W - r, 0);
+    blit(0, rh - b, l, b, 0, H - b); blit(rw - r, rh - b, r, b, W - r, H - b);
+  }
+
+  function drawRoof(ctx, b, x, y, w, h, ts, now) {
+    const roofs = M && ready && M.roofs, sheet = roofs && img[roofs.sheet];
+    const spec = roofs && roofs.designs && (own_(roofs.designs, b.design) || own_(roofs.designs, roofs.default));
+    if (!sheet || !spec) return K.drawRoof(ctx, b, x, y, w, h, ts, now);
+    const W = (b.x1 - b.x0 + 1) * TILE, H = (b.y1 - b.y0 + 1) * TILE, key = b.design + '|' + W + '|' + H;
+    let cv = roofCache.get(key);
+    if (!cv) {
+      if (roofCache.size > 48) roofCache.clear();
+      cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      paintRoof(cv.getContext('2d'), sheet, spec, W, H);
+      roofCache.set(key, cv);
+    }
+    ctx.drawImage(cv, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
+
   window.SwarmLimeZu = {
     name: 'limezu',
     credit: 'Art: LimeZu (limezu.itch.io)',
     load, get ready() { return ready; }, get manifest() { return M; },
     spriteTopTiles: 1.6,       // how far above the tile bottom a character's head reaches
     drawsWater: false,
-    renderTerrain, drawObject, drawCreature, creatureBadge, iconStyle, setInventions,
+    renderTerrain, drawObject, drawCreature, creatureBadge, drawRoof, iconStyle, setInventions,
     inventionId: (name) => invByName.get(String(name || '').toLowerCase()) || null,
     objectName: K.objectName, terrainName: K.terrainName,
     hasObject: (kind) => !!(M && (own_(M.objects, kind) || own_(M.animals, kind))),
