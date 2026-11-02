@@ -82,3 +82,13 @@ def test_brain_speaks_googles_dialect():
     assert "chat_template_kwargs" not in g  # Google rejects unknown fields
     assert g["reasoning_effort"] == "none"
     assert "chat_template_kwargs" in LLMBrain("http://127.0.0.1:8000/v1", "qwen3.5:9b").body([], None, 260)
+
+
+def test_node_finds_googles_key_without_the_command_line(tmp_path, monkeypatch):
+    from swarmworld.node.__main__ import key_for
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("OTHER=1\nGOOGLE_API_KEY=abc123\n")
+    monkeypatch.chdir(tmp_path)
+    assert key_for("https://generativelanguage.googleapis.com/v1beta/openai", None) == "abc123"
+    assert key_for("http://127.0.0.1:8000/v1", None) is None  # local servers need no key
+    assert key_for("https://generativelanguage.googleapis.com/v1beta/openai", "given") == "given"

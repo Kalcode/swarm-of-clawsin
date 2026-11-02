@@ -17,6 +17,7 @@ import re
 import socket
 import sys
 import urllib.request
+from pathlib import Path
 
 from .brain import LLMBrain, MockBrain
 from .client import FatalNodeError, ModelSpec, run_node
@@ -29,6 +30,26 @@ def short_tag(model: str) -> str:
     tag = re.sub(r"[-_](mlx|gguf|instruct|it|chat|q\d\w*|\d+bit)(?=$|[-_])", "", tag)
     tag = re.sub(r"[-_](mlx|gguf|instruct|it|chat|q\d\w*|\d+bit)(?=$|[-_])", "", tag)
     return tag.replace(":latest", "")
+
+
+CLOUD_KEYS = {"generativelanguage.googleapis.com": "GOOGLE_API_KEY"}
+
+
+def key_for(base_url: str, given: str | None) -> str | None:
+    """An API key for a cloud model server, from --api-key, the environment or ./.env (never from the command line
+    shown in the process list unless you pass it). Local servers need none."""
+    if given:
+        return given
+    name = next((v for host, v in CLOUD_KEYS.items() if host in base_url), None)
+    if not name:
+        return None
+    key = os.environ.get(name, "").strip()
+    if not key and Path(".env").is_file():
+        for line in Path(".env").read_text().splitlines():
+            k, sep, v = line.strip().partition("=")
+            if sep and k.strip() == name:
+                key = v.strip().strip("\"'")
+    return key or None
 
 
 def list_models(base_url: str, api_key: str | None = None) -> list[str] | None:
@@ -111,14 +132,15 @@ def main() -> None:
         listed: dict[str, list[str]] = {}
         for name, n, url in parsed:
             server = url or base
-            available = listed.setdefault(server, list_models(server, args.api_key) or [])
+            api_key = key_for(server, args.api_key)
+            available = listed.setdefault(server, [a.removeprefix("models/") for a in list_models(server, api_key) or []])
             n = n or suggest_creatures(hw.get("ram_gb"))
             if available and name not in available:
                 alt = next((a for a in available if a in (f"{name}:latest", f"mlx-community/{name}")), None)
                 if not alt:
                     sys.exit(f"Model '{name}' isn't on {server}. Available: {', '.join(available)}")
                 name = alt
-            specs.append(ModelSpec(short_tag(name), LLMBrain(server, name, args.api_key, temperature=args.temperature), n))
+            specs.append(ModelSpec(short_tag(name), LLMBrain(server, name, api_key, temperature=args.temperature), n))
             print(f"  {name}: {n} creatures, thinking on {server}")
     if args.mock:
         specs.append(ModelSpec("mock", MockBrain(), args.mock))
