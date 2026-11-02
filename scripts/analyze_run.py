@@ -49,7 +49,7 @@ def main() -> None:
             outcomes[m][e["kind"]] += 1
 
     print(f"Runs: {', '.join(str(r) for r in runs)}   thinks: {len(thinks)}   events: {len(events)}\n")
-    cols = ["gather", "craft", "discover", "place", "plant", "tame", "write", "program", "say", "fail", "collapse"]
+    cols = ["gather", "craft", "discover", "invent", "learn", "place", "plant", "tame", "write", "store", "tend", "program", "say", "fail", "collapse"]
     print(f"{'model':<14}{'creatures':>10}{'thinks':>8}{'lat s':>7}" + "".join(f"{c:>9}" for c in cols))
     for m in sorted(names):
         lat = sum(latency[m]) / len(latency[m]) / 1000 if latency[m] else 0
@@ -62,9 +62,9 @@ def main() -> None:
         top = ", ".join(f"{a} {100 * n / total:.0f}%" for a, n in actions[m].most_common(8))
         print(f"  {m}: {top}")
 
-    print("\nDiscoveries:")
+    print("\nDiscoveries and inventions:")
     for e in events:
-        if e["kind"] == "discover":
+        if e["kind"] in ("discover", "invent"):
             actor = e["text"].split(" ", 1)[0]
             print(f"  tick {e['tick']:>6}  {e['text'][:110]}  [{model_of.get(actor, '?')}]")
 

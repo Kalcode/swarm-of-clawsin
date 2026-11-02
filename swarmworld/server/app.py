@@ -77,7 +77,10 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_json({"type": "welcome", "node_id": node.id,
                                     "creatures": [{"id": c.id, "name": c.name, "model": c.model} for c in creatures]})
             elif kind == "result":
-                st.handle_result(node, data)
+                try:
+                    st.handle_result(node, data)
+                except Exception:  # one bad reply costs one creature its turn, never the node its connection
+                    log.exception("could not apply result %s from %s", data.get("job"), node.name)
             elif kind == "bye":
                 break
     finally:
