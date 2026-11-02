@@ -26,6 +26,8 @@ from .harness import Harness
 from .metrics import Metrics
 from .wishes import Wishes
 
+ACT_TOKENS = 260
+ACT_TOKENS_PLAN = 360  # a reply may carry a 5-step plan
 AUTO_RECALL = 2
 AUTO_LINE = 140
 HUNGRY = 40
@@ -420,7 +422,8 @@ class ServerState:
             thought_back, mem.thought_back = mem.thought_back, []
             kind, messages, schema, max_tokens = "act", build_act_messages(
                 self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back), \
-                (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), 260
+                (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), \
+                (ACT_TOKENS_PLAN if "plan" in layers else ACT_TOKENS)
             shown_recalled = [f"{k}: {t[:60]}" for k, t in recalled]
         c.thinking = True
         c.last_think_tick = self.world.tick

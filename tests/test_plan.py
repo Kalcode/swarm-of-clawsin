@@ -178,3 +178,10 @@ def test_a_noop_does_not_finish_a_step():
     finally:
         S.apply_intention = orig
     assert mem.plan_step == 0
+
+
+def test_plan_layer_acts_have_room_for_a_plan():
+    for layers, want in ((("plan",), 360), (("disclose", "recall"), 260), ((), 260)):
+        st, node, c = setup(layers)
+        job = st.make_job(node, c)
+        assert job["kind"] == "act" and job["max_tokens"] == want, layers
