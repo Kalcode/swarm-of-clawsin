@@ -18,16 +18,21 @@ Each episode writes runs/teacher/<time>-<model tag>-s<seed>/:
 
 Resumable: a seed whose episode (same model tag) has a `done` marker is skipped; an unfinished one is renamed
 <folder>.partial and the seed starts over. Several runs may write into one --out at once (say, the gaming PC's
-gpt-oss and this Mac's Qwen) as long as their (model, seed) pairs differ: nothing else is shared.
+gpt-oss and this Mac's Qwen) as long as their models differ; a second copy with the same model and --out refuses to
+start (a lock file, <out>/.teacher-<model tag>.lock), since it would move the first one's episode aside.
 
-A think that fails (timeout, HTTP error, dropped connection) is retried after 5 s, 15 s, 60 s and then every 60 s;
-after 10 minutes of failures the creature idles that turn and the run says so (the thinks.jsonl line records the
-error). Ctrl-C stops cleanly: the episode in progress has no `done`, so the next start redoes it."""
+At the start the server's model list (GET <base-url>/models) must name the teacher, so a typo stops the run at once
+(a server that can't list its models only gets a warning). A think that fails (timeout, dropped connection, HTTP 408,
+429 or 5xx) is retried after 5 s, 15 s, 60 s and then every 60 s; after 10 minutes of failures the creature idles that
+turn and the run says so (the thinks.jsonl line records the error). Any other HTTP 4xx is the request's own fault and
+is not retried. Ctrl-C (and SIGTERM, where the platform has it) stops cleanly: the episode in progress has no `done`,
+so the next start redoes it."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -35,9 +40,16 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -54,6 +66,8 @@ GIVE_UP_S = 600  # after this long failing, the creature idles this turn
 NEVER = re.compile(r"gemini|google", re.I)  # Google's terms forbid training on Gemini outputs
 TEACHERS = re.compile(r"gpt-oss|qwen", re.I)  # what export_training.py keeps
 EPISODE = re.compile(r"^\d{8}-\d{6}-(?P<tag>.+)-s(?P<seed>\d+)$")
+HTTP_STATUS = re.compile(r"^HTTP (\d{3})\b")
+RETRY_4XX = {408, 429}  # timeout and too many requests: waiting helps; any other 4xx is the request's own fault
 
 
 def say(*parts) -> None:
@@ -88,6 +102,49 @@ def check_teacher(model: str, base_url: str | None, log=say) -> None:
                          "its outputs.")
     if model != "mock" and not TEACHERS.search(model):
         log(f"  Note: export_training.py keeps only gpt-oss and Qwen teachers; '{model}' decisions won't be exported.")
+
+
+def check_listed(base_url: str, model: str, api_key: str | None, log=say, timeout: float = 10) -> None:
+    """Stop the run if the server lists its models and the teacher isn't one of them (a typo would fail every think
+    of the night); only warn when the list can't be had (the server may be down for now, or not list models)."""
+    try:
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/models",
+                                     headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            listed = [str(m.get("id", "")).removeprefix("models/") for m in json.loads(r.read()).get("data", [])]
+    except Exception as exc:  # unreachable, no /models, not JSON: the night's retries will tell
+        log(f"  Warning: couldn't list the models on {base_url} ({type(exc).__name__}); going on with '{model}'.")
+        return
+    if model not in listed and f"{model}:latest" not in listed:
+        raise SystemExit(f"'{model}' isn't on {base_url}. It has: {', '.join(listed) or '(nothing)'}")
+
+
+@contextlib.contextmanager
+def writer_lock(root: Path, tag: str):
+    """One writer per (out folder, model): a second copy of the same run would move the first one's episode aside."""
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f".teacher-{tag}.lock"
+    fh = open(path, "a+")
+    try:
+        fh.seek(0)
+        if fcntl:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        fh.seek(0)
+        other = fh.read().strip()
+        fh.close()
+        raise SystemExit(f"Another teacher run of {tag} is already writing into {root} (pid {other or '?'}). "
+                         "Stop it first, or give this one another --out.")
+    fh.seek(0)
+    fh.truncate()
+    fh.write(str(os.getpid()))
+    fh.flush()
+    try:
+        yield
+    finally:
+        fh.close()  # closing releases the lock
 
 
 def git_commit() -> str | None:
@@ -146,6 +203,11 @@ async def think_with_retry(brain, job: dict, sleep=asyncio.sleep, clock=time.mon
             return ok, output, error, usage
         failing = clock() - t0
         who = job.get("creature") or job.get("kind", "?")
+        status = HTTP_STATUS.match(error or "")
+        if status and 400 <= int(status[1]) < 500 and int(status[1]) not in RETRY_4XX:
+            error = f"not retried (the server refused the request itself): {error}"
+            log(f"  {time.strftime('%H:%M:%S')} think for {who} {error}; it idles this turn")
+            return False, None, error, {}
         if failing >= give_up_s:
             error = f"gave up after {failing / 60:.0f} min of failures: {error}"
             log(f"  {time.strftime('%H:%M:%S')} think for {who} {error}; it idles this turn")
@@ -196,16 +258,23 @@ async def night(args: argparse.Namespace, log=say) -> dict:
     if not model:
         raise SystemExit("give --model NAME (with --base-url), or --mock")
     base_url = None if args.mock else args.base_url
+    api_key = None if args.mock else args.api_key or os.environ.get("TEACHER_API_KEY")
     check_teacher(model, base_url, log)
+    if base_url:
+        check_listed(base_url, model, api_key, log)
     root = Path(args.out)
-    root.mkdir(parents=True, exist_ok=True)
+    with writer_lock(root, folder_tag(model)):
+        return await _night(args, model, base_url, api_key, root, log)
+
+
+async def _night(args: argparse.Namespace, model: str, base_url: str | None, api_key: str | None, root: Path,
+                 log) -> dict:
     todo, skipped = prepare(root, folder_tag(model), parse_seeds(args.seeds), log)
     where = "the mock brain" if args.mock else f"{model} on {urlparse(base_url).netloc}"
     log(f"Teacher runs with {where}: {len(todo)} episode(s) to run" + (f", {len(skipped)} already done" if skipped else "")
         + f" ({args.creatures} creatures, {args.ticks} ticks each) into {root}")
     done = []
-    brain = None if args.mock else LLMBrain(base_url, model, args.api_key or os.environ.get("TEACHER_API_KEY"),
-                                            timeout=args.timeout)
+    brain = None if args.mock else LLMBrain(base_url, model, api_key, timeout=args.timeout)
     try:
         for seed in todo:
             b = MockBrain(seed) if args.mock else brain
@@ -242,11 +311,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-async def stoppable(args: argparse.Namespace) -> dict:
-    """The night, stopped by SIGTERM (kill) as cleanly as by Ctrl-C: the episode in progress closes its logs."""
-    task = asyncio.current_task()
-    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
-    return await night(args)
+async def stoppable(args: argparse.Namespace, log=say) -> dict:
+    """The night, stopped by SIGTERM (kill) as cleanly as by Ctrl-C: the episode in progress closes its logs. Where the
+    event loop can't take signal handlers (Windows), Ctrl-C still stops it as a KeyboardInterrupt."""
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+        handled = True
+    except (NotImplementedError, AttributeError, RuntimeError):
+        handled = False
+    try:
+        return await night(args, log)
+    finally:
+        if handled:
+            loop.remove_signal_handler(signal.SIGTERM)
 
 
 def main(argv: list[str] | None = None) -> None:

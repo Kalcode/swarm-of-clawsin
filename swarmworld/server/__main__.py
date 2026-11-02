@@ -80,7 +80,8 @@ def main() -> None:
     ap.add_argument("--embed", choices=["voyage", "none"], default=None,
                     help="semantic recall: voyage embeddings (default when VOYAGE_API_KEY is set) or none (keywords only)")
     ap.add_argument("--log-prompts", action="store_true",
-                    help="act lines in thinks.jsonl also carry the full prompt (about 6 KB each), for distillation")
+                    help="act lines in thinks.jsonl also carry the full prompt (about 6 KB each); not used for "
+                         "training: a live prompt quotes other minds")
     args = ap.parse_args()
 
     everyone = layers(args.harness_all)

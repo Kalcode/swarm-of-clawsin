@@ -1,5 +1,9 @@
+import asyncio
 import importlib.util
 import json
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -209,3 +213,151 @@ def test_gemini_is_never_a_teacher():
     with pytest.raises(SystemExit):
         tr.check_teacher("some-model", "https://generativelanguage.googleapis.com/v1beta/openai")
     tr.check_teacher("gpt-oss:20b", "http://192.168.50.42:11434/v1")
+
+
+
+# ------------------------------------------------------------------ fix round 1
+def test_the_server_command_line_passes_log_prompts_through(tmp_path, monkeypatch):
+    import swarmworld.server.__main__ as server_main
+
+    seen = []
+
+    class Stop(Exception):
+        pass
+
+    def fake_create_app(**kw):
+        seen.append(kw["log_prompts"])
+        raise Stop
+
+    monkeypatch.setattr(server_main, "create_app", fake_create_app)
+    base = ["swarmworld.server", "--runs", str(tmp_path / "runs"), "--world", str(tmp_path / "w.json"), "--embed", "none"]
+    for extra in ([], ["--log-prompts"]):
+        monkeypatch.setattr(sys, "argv", base + extra)
+        with pytest.raises(Stop):
+            server_main.main()
+    assert seen == [False, True]
+
+
+class Answers:
+    """A brain that fails with the given errors in turn, then answers like the mock."""
+
+    def __init__(self, *errors: str):
+        self.errors = list(errors)
+        self.calls = 0
+        self.inner = MockBrain(1)
+
+    async def think(self, messages, schema, max_tokens):
+        self.calls += 1
+        if self.errors:
+            return False, None, self.errors.pop(0), {}
+        return await self.inner.think(messages, schema, max_tokens)
+
+
+JOB = {"messages": [{"role": "user", "content": "Right now: x"}], "schema": {"type": "object"}, "max_tokens": 50,
+       "creature": "c1"}
+
+
+async def test_a_request_the_server_rejects_is_given_up_at_once():
+    """A 4xx (a mistyped model, a bad request) won't get better by waiting: no 10 minutes per think all night."""
+    for status in (400, 401, 403, 404, 422):
+        slept, said = [], []
+
+        async def sleep(s):
+            slept.append(s)
+
+        brain = Answers(f'HTTP {status}: {{"error": "model \'gtp-oss:20b\' not found"}}')
+        ok, _, error, _ = await tr.think_with_retry(brain, JOB, sleep=sleep, log=said.append)
+        assert not ok and brain.calls == 1 and slept == [], status
+        assert f"HTTP {status}" in error and "not retried" in error and said
+
+
+async def test_busy_timeouts_and_server_errors_are_still_retried():
+    for status in (408, 429, 500, 503):
+        slept = []
+
+        async def sleep(s):
+            slept.append(s)
+
+        brain = Answers(f"HTTP {status}: busy", f"HTTP {status}: busy")
+        ok, *_ = await tr.think_with_retry(brain, JOB, sleep=sleep, log=lambda *_: None)
+        assert ok and brain.calls == 3 and slept == [5, 15], status
+
+
+class Models(BaseHTTPRequestHandler):
+    listed: list[str] | None = None  # None: the server has no /models
+
+    def do_GET(self):
+        if self.listed is None or self.path != "/v1/models":
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = json.dumps({"data": [{"id": m} for m in self.listed]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
+
+
+@pytest.fixture
+def model_server():
+    servers = []
+
+    def start(listed):
+        handler = type("H", (Models,), {"listed": listed})
+        srv = HTTPServer(("127.0.0.1", 0), handler)  # a free port of the OS's choosing
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+        return f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    yield start
+    for srv in servers:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_teacher_must_be_on_the_server(model_server):
+    url = model_server(["qwen3.5:9b", "gpt-oss:20b"])
+    tr.check_listed(url, "gpt-oss:20b", None, log=lambda *_: None)
+    with pytest.raises(SystemExit, match=r"'gtp-oss:20b' isn't on .*gpt-oss:20b"):
+        tr.check_listed(url, "gtp-oss:20b", None, log=lambda *_: None)
+    tr.check_listed(model_server(["gpt-oss:20b:latest"]), "gpt-oss:20b", None, log=lambda *_: None)
+
+
+def test_a_server_that_doesnt_list_models_only_warns(model_server):
+    said = []
+    tr.check_listed(model_server(None), "gpt-oss:20b", None, log=said.append)
+    assert any("couldn't list" in x for x in said)
+
+
+async def test_a_night_with_a_mistyped_teacher_stops_before_it_starts(tmp_path, model_server):
+    url = model_server(["gpt-oss:20b"])
+    out = tmp_path / "teacher"
+    with pytest.raises(SystemExit, match="isn't on"):
+        await tr.night(tr.parse_args(["--base-url", url, "--model", "gtp-oss:20b", "--seeds", "1", "--out", str(out)]),
+                       log=lambda *_: None)
+    assert not out.exists() or not [p for p in out.iterdir() if p.is_dir()]
+
+
+async def test_a_second_copy_of_the_same_run_refuses_to_start(tmp_path):
+    out = tmp_path / "teacher"
+    with tr.writer_lock(out, "mock"):
+        with pytest.raises(SystemExit, match="already writing"):
+            await night(out)
+        assert not [p for p in out.iterdir() if p.is_dir()]
+        with tr.writer_lock(out, "gpt-oss-20b"):  # another teacher may share the folder
+            pass
+    assert sorted(r["seed"] for r in (await night(out))["done"]) == [11, 12]  # the lock went with the first copy
+
+
+async def test_a_night_runs_where_signal_handlers_dont_exist(tmp_path, monkeypatch):
+    """Windows' event loop has no add_signal_handler; Ctrl-C (KeyboardInterrupt) still stops it there."""
+    def missing(*_):
+        raise NotImplementedError
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "add_signal_handler", missing)
+    args = tr.parse_args(["--mock", "--seeds", "1", "--creatures", "2", "--ticks", "20", "--out", str(tmp_path)])
+    r = await tr.stoppable(args, log=lambda *_: None)
+    assert [x["seed"] for x in r["done"]] == [1]
