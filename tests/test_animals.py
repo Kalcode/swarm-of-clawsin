@@ -208,3 +208,31 @@ def test_hunger_does_not_grow_while_resting_at_night(world):
     sheep = world.add_object("sheep", 20, 20, hunger=30)
     run(Simulation(world), 100)
     assert sheep.data["state"] == "rest" and sheep.data["hunger"] == 30
+
+
+def dirt(world, x0, y0, x1, y1):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            world.tiles[y][x] = "d"
+
+
+def test_animal_on_dirt_heads_to_grass_and_eats(world):
+    dirt(world, 16, 16, 24, 24)  # the nearest grass is 5 tiles away
+    sheep = world.add_object("sheep", 20, 20, hunger=60)
+    sim = Simulation(world)
+    reached = False
+    for _ in range(DAY_TICKS // 4):
+        run(sim, 4)
+        reached = reached or world.tile(sheep.x, sheep.y) in "gf"
+    assert reached and sheep.data["hunger"] < 60
+
+
+def test_grazing_feeds_only_on_grass_but_never_freezes(world):
+    dirt(world, 0, 0, 39, 39)  # no grass anywhere
+    sheep = world.add_object("sheep", 20, 20, hunger=30)
+    sim = Simulation(world)
+    spots = set()
+    for _ in range(60):
+        run(sim, 4)
+        spots.add((sheep.x, sheep.y))
+    assert len(spots) > 1 and sheep.data["hunger"] > 30
