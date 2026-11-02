@@ -79,6 +79,8 @@ def main() -> None:
     ap.add_argument("--harness-all", default="", help="layers every creature gets; the rest go to half of each model")
     ap.add_argument("--embed", choices=["voyage", "none"], default=None,
                     help="semantic recall: voyage embeddings (default when VOYAGE_API_KEY is set) or none (keywords only)")
+    ap.add_argument("--log-prompts", action="store_true",
+                    help="act lines in thinks.jsonl also carry the full prompt (about 6 KB each), for distillation")
     args = ap.parse_args()
 
     everyone = layers(args.harness_all)
@@ -92,7 +94,8 @@ def main() -> None:
     if world_path.exists():
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
-                     harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed))
+                     harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed),
+                     log_prompts=args.log_prompts)
     print(f"  {recall_search_line(app[STATE].embedder, args.embed)}")
     app[STATE].sim.inspiration = not args.no_inspiration
 

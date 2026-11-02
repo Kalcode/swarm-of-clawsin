@@ -125,12 +125,17 @@ class Simulation:
         for system in SYSTEMS:  # the packs' world behaviour, in registration order; one that fails skips this tick
             if t % system.every == 0:
                 call_safely(f"system '{system.name}'", system.fn, self, t)
-        new = w.events[self._returned_cursor:]
-        self._returned_cursor = len(w.events)
+        new = self.take_events()
         if len(w.events) > 5000:
             del w.events[:4000]
             self._event_cursor = max(0, self._event_cursor - 4000)
             self._returned_cursor = max(0, self._returned_cursor - 4000)
+        return new
+
+    def take_events(self) -> list:
+        """The events since the last tick (or call): what the server logs and shows next."""
+        new = self.world.events[self._returned_cursor:]
+        self._returned_cursor = len(self.world.events)
         return new
 
     # ------------------------------------------------------------------
