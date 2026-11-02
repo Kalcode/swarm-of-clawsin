@@ -154,9 +154,12 @@ def test_tired_creatures_sleep_through_the_night(world):
     sim = Simulation(world)
     c = creature(world, "Tam", 10, 10)
     c.energy = 30
+    c.persona = {"initiative": "proactive"}
+    rested = creature(world, "Mara", 20, 20)
+    rested.persona = {"initiative": "proactive"}  # energy 100: a proactive creature stays up
     world.tick = DAY_TICKS * 2 + int(DAY_TICKS * 0.7)  # night
     sim.tick()
-    assert (c.activity or {}).get("sleep")
+    assert (c.activity or {}).get("sleep") and not (rested.activity or {}).get("sleep")
     sim.wake(c, "met")
     assert c.wake_reason is None  # not roused by someone walking past
     world.tick = DAY_TICKS * 3 + 10  # dawn of the next day

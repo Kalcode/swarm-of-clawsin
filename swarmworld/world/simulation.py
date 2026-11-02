@@ -15,7 +15,7 @@ SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starvi
 ENERGY_EVERY = 30  # about 40 energy a day: a creature needs a good rest roughly once a day
 STARVE_EVERY = 4
 IDLE_TICKS = 30
-SLEEP_BELOW = {"reactive": 92, "proactive": 75}  # at night, idle creatures under this energy turn in
+SLEEP_BELOW = {"reactive": 101, "proactive": 80}  # at night, idle creatures under this energy turn in (reactive: always)
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -184,7 +184,7 @@ class Simulation:
         day = w.clock()["phase"] in ("dawn", "day")
         for c in w.creatures.values():
             act = c.activity or {}
-            if act.get("sleep") and (day or c.energy >= 98):
+            if act.get("sleep") and day:  # sleep through the night; dawn wakes everyone
                 c.activity = None
                 self.remember(c, "You wake up rested." if c.energy >= 60 else "You wake up, still tired.", 1)
                 self.wake(c, "woke")
