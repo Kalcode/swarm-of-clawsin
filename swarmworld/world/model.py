@@ -186,8 +186,10 @@ class World:
         else:
             phase, light = "night", 0.25
         weather = getattr(self, "weather", "clear")
-        if weather == "rain":
+        if weather in ("rain", "storm"):
             light *= 0.75
+        elif weather in ("fog", "drizzle"):
+            light *= 0.85
         return {"day": day, "phase": phase, "light": round(min(1.0, light), 2), "weather": weather}
 
     def time_text(self) -> str:

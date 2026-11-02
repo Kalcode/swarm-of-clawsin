@@ -19,6 +19,7 @@ from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore
 from ..world.actions import ActionResult, apply_intention, parse_intention
 from ..world.model import OBJECT_NAMES, Creature
+from ..world.packs.weather import KINDS, set_weather
 from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
 from ..world.simulation import Simulation
 from ..world.terrain import generate_world
@@ -686,10 +687,9 @@ class ServerState:
             out = {"creature": c.name, "x": x, "y": y}
         elif action == "weather":
             weather = str(body.get("weather") or "")
-            if weather not in ("rain", "clear"):
-                raise ValueError("weather is 'rain' or 'clear'")
-            w.weather = weather
-            w.weather_until = w.tick + max(1, min(2400, int(body.get("ticks") or 300)))
+            if weather not in KINDS:
+                raise ValueError("weather is " + ", ".join(f"'{k}'" for k in KINDS))
+            set_weather(w, weather, w.tick + max(1, min(2400, int(body.get("ticks") or 300))))
             note = f"set the weather to {weather} for {w.weather_until - w.tick} ticks"
             out = {"weather": weather, "until": w.weather_until}
         else:

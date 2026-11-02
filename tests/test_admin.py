@@ -33,5 +33,8 @@ async def test_give_place_move_remove_and_weather(client):
     assert (await post(client, "remove", {"object": oid})).status == 200 and oid not in st.world.objects
     r = await post(client, "weather", {"weather": "rain", "ticks": 100})
     assert r.status == 200 and st.world.weather == "rain" and st.world.weather_until == st.world.tick + 100
+    r = await post(client, "weather", {"weather": "fog"})
+    assert r.status == 200 and st.world.weather == "fog" and st.world.ext["weather"]["sight"]
+    assert (await post(client, "weather", {"weather": "hail"})).status == 400
     assert sum(1 for e in st.world.events if e.kind == "steward") >= 5
     await ws.close()
