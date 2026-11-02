@@ -30,7 +30,9 @@ setx OLLAMA_MAX_LOADED_MODELS "2"     # two minds side by side for mixed populat
 setx OLLAMA_KEEP_ALIVE "24h"          # don't unload between thoughts
 ```
 
-Quit Ollama from the system tray and start it again so it picks these up. Then, in an **administrator** PowerShell,
+The tray app ignores these variables (it uses its own settings), so quit it from the system tray and run
+`ollama serve` in a terminal instead; that one reads them. To give the GPU back for gaming, stop `ollama serve`
+(nothing else needs to change). Then, in an **administrator** PowerShell,
 allow other machines in the house (only the local subnet) to reach it:
 
 ```powershell
