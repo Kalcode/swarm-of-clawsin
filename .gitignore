@@ -10,3 +10,5 @@ inbox
 web/assets/limezu/
 docs/media/
 .env
+.superpowers/
+.worktrees/
