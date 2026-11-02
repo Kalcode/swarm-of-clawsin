@@ -268,7 +268,7 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
             lines.append("")
             lines.append("Things you could also do here:")
             lines += [f"- {t}" for t in tips]
-    if "recall" in layers:
+    if "recall" in layers or "disclose" in layers:  # disclose moved lore out of the prompt: recall finds it
         lines.append("")
         lines.append(RECALL_HINT)
     lines.append("")
