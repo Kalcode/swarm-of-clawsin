@@ -194,7 +194,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
             continue
         label = o.name
         if o.kind == "campfire":
-            label = "campfire (burning)" if o.data.get("lit") else "campfire (cold ashes)"
+            label = "campfire (burning)" if o.data.get("lit") else "campfire (cold ashes; feeding it sticks would bring it back to life)"
         if o.kind == "sign" and o.data.get("text"):
             label = "sign with writing"
         elif o.data.get("text") and o.kind in ("tree", "pine", "rock", "stump"):

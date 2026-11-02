@@ -952,7 +952,7 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
         if "light" in data["effects"]:
             data["lit"] = True
     if kind == "campfire":
-        data.update(lit=True, lit_until=world.tick + 1200)
+        data.update(lit=True, lit_until=world.tick + 2400)  # about two days
     elif kind == "sign":
         data.update(text="")
     elif kind in ("chest", "basket"):
