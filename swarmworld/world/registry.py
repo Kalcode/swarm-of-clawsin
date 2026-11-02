@@ -54,6 +54,12 @@ def _caller() -> str:
     return sys._getframe(2).f_globals.get("__name__", "?")
 
 
+def owner(what: str, name: object) -> str | None:
+    """Who registered a name: owner("verb", "gather") is "swarmworld.world.actions"; what is "verb" (verbs and their
+    aliases), "object kind", "technique" or "system"."""
+    return _OWNERS.get((what, name))
+
+
 def _check_free(what: str, key: object, source: str, shown: str | None = None, note: str = "") -> None:
     first = _OWNERS.get((what, key))
     if first is not None:

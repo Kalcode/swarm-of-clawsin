@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -84,14 +85,15 @@ LIVE = {"OBJECT_NAMES": model.OBJECT_NAMES, "BLOCKING": model.BLOCKING, "OBJECT_
         "ANIMALS": model.ANIMALS, "GATHERABLE": actions.GATHERABLE, "ITEM_SOURCES": actions.ITEM_SOURCES,
         "CARVABLE": actions.CARVABLE, "STORES": actions.STORES}
 
+# Test packs use probe names, so they never collide with what real packs install.
 REED_PACK = {
-    "items": {"reed": {"name": "reed", "aliases": ["reeds"], "tags": ["plant"], "desc": "A long hollow stem."},
-              "reed_mat": {"name": "reed mat", "placeable": True}},
-    "recipes": [{"output": "reed_mat", "inputs": {"reed": 4}}],
+    "items": {"probe_reed": {"name": "probe reed", "aliases": ["probe reeds"], "tags": ["plant"], "desc": "A long hollow stem."},
+              "probe_mat": {"name": "probe mat"}},
+    "recipes": [{"output": "probe_mat", "inputs": {"probe_reed": 4}}],
     "objects": {
-        "reed_bed": {"name": "reed bed", "aliases": ["reed bed", "reeds"], "look": "reeds",
-                     "yields": {"items": {"reed": [2, 2]}, "uses": 2, "becomes": "reed_stubble", "regrow": 100}},
-        "reed_stubble": {"name": "cut reeds", "aliases": ["stubble"], "look": "reeds_cut"},
+        "probe_bed": {"name": "probe bed", "aliases": ["probe bed", "probe reeds"], "look": "reeds",
+                      "yields": {"items": {"probe_reed": [2, 2]}, "uses": 2, "becomes": "probe_stubble", "regrow": 100}},
+        "probe_stubble": {"name": "cut probe reeds", "aliases": ["probe stubble"], "look": "reeds_cut"},
     },
 }
 
@@ -105,11 +107,11 @@ HUM_PACK = """
 
 
     def someone_near(world, c):
-        return 2.0 if len(world.creatures) > 1 else None
+        return 99.0 if len(world.creatures) > 1 else None
 
 
-    register_verb("hum", hum, aliases=("whistle", "sing_along"))
-    register_technique(Technique("hum", "hum (text): hum a tune for those around you.", someone_near))
+    register_verb("probe_hum", hum, aliases=("probe_whistle", "probe_sing"))
+    register_technique(Technique("probe_hum", "probe_hum (text): hum a tune for those around you.", someone_near))
 """
 
 
@@ -144,6 +146,20 @@ def data_dir(tmp_path, packs):
         for name, content in files.items():
             (root / "packs" / pack / f"{name}.json").write_text(json.dumps(content))
     return root
+
+
+@contextmanager
+def only_this_test():
+    """A sandbox without the installed packs' systems and perception lines, so a test sees only its own."""
+    with registry.sandbox():
+        registry.SYSTEMS.clear()
+        registry.PERCEPTIONS.clear()
+        yield
+
+
+def core_alias() -> tuple[str, str]:
+    """A word that so far only means a core verb (packs may take some over), and that verb."""
+    return next((a, v) for a, v in actions.VERB_ALIASES.items() if registry.owner("verb", a) == registry.CORE_VERBS_MODULE)
 
 
 @pytest.fixture
@@ -186,25 +202,26 @@ def test_kind_tables_unchanged_from_data():
 
 
 def test_pack_items_and_kinds_merge(tmp_path):
-    data = data_dir(tmp_path, {"reeds": REED_PACK, "tiny": {"items": {"pebble": {"name": "pebble"}}}})
+    data = data_dir(tmp_path, {"reeds": REED_PACK, "tiny": {"items": {"probe_pebble": {"name": "probe pebble"}}}})
     base, cat = Catalog.load(data_dir(tmp_path / "base", {})), Catalog.load(data)  # base: no packs at all
-    assert set(base.items) | {"reed", "reed_mat", "pebble"} == set(cat.items)
-    assert cat.resolve("reeds") == "reed" and cat.items["reed"].desc == "A long hollow stem."
-    assert [r.output for r in cat.recipes] == [r.output for r in base.recipes] + ["reed_mat"]  # packs after the base
-    assert cat.recipe_for("reed_mat").inputs == {"reed": 4}
+    assert set(base.items) | {"probe_reed", "probe_mat", "probe_pebble"} == set(cat.items)
+    assert cat.resolve("probe reeds") == "probe_reed" and cat.items["probe_reed"].desc == "A long hollow stem."
+    assert [r.output for r in cat.recipes] == [r.output for r in base.recipes] + ["probe_mat"]  # packs after the base
+    assert cat.recipe_for("probe_mat").inputs == {"probe_reed": 4}
 
     kinds = registry.load_objects(data)
-    assert list(kinds) == list(registry.load_objects(DATA, packs=False)) + ["reed_bed", "reed_stubble"]
+    assert list(kinds) == list(registry.load_objects(DATA, packs=False)) + ["probe_bed", "probe_stubble"]
     tables = registry.build_tables(kinds)
-    assert tables["OBJECT_NAMES"]["reed_bed"] == "reed bed" and tables["OBJECT_ALIASES"]["reed_stubble"] == ["stubble"]
-    assert "reed_bed" in tables["GATHERABLE"] and "reed_stubble" not in tables["GATHERABLE"]
-    assert "reed_bed" not in tables["BLOCKING"] | tables["ANIMALS"] | tables["CARVABLE"] | tables["STORES"]
-    assert tables["ITEM_SOURCES"]["reed"] == {"reed_bed"}  # gives defaults to what it yields
-    assert tables["YIELDS"]["reed_bed"] == {"items": {"reed": [2, 2]}, "tool": None, "uses": 2,
-                                            "becomes": "reed_stubble", "regrow": 100}
-    assert tables["DEPLETED"] == {"reed_stubble"}
-    assert tables["LOOKS"] == {"reed_bed": "reeds", "reed_stubble": "reeds_cut"}
-    assert "reed_bed" not in registry.KINDS  # reading a data folder registers nothing
+    assert tables["OBJECT_NAMES"]["probe_bed"] == "probe bed"
+    assert tables["OBJECT_ALIASES"]["probe_stubble"] == ["probe stubble"]
+    assert "probe_bed" in tables["GATHERABLE"] and "probe_stubble" not in tables["GATHERABLE"]
+    assert "probe_bed" not in tables["BLOCKING"] | tables["ANIMALS"] | tables["CARVABLE"] | tables["STORES"]
+    assert tables["ITEM_SOURCES"]["probe_reed"] == {"probe_bed"}  # gives defaults to what it yields
+    assert tables["YIELDS"]["probe_bed"] == {"items": {"probe_reed": [2, 2]}, "tool": None, "uses": 2,
+                                             "becomes": "probe_stubble", "regrow": 100}
+    assert tables["DEPLETED"] == {"probe_stubble"}
+    assert tables["LOOKS"] == {"probe_bed": "reeds", "probe_stubble": "reeds_cut"}
+    assert "probe_bed" not in registry.KINDS  # reading a data folder registers nothing
 
 
 def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
@@ -212,13 +229,13 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
         with pytest.raises(ValueError) as err:
             pack_modules(alpha=HUM_PACK, beta=HUM_PACK)
     message = str(err.value)
-    assert "'hum'" in message and f"{pack_modules.package}.alpha" in message and f"{pack_modules.package}.beta" in message
-    assert "hum" not in actions.VERBS  # the sandbox took alpha's verb back out
+    assert "'probe_hum'" in message
+    assert f"{pack_modules.package}.alpha" in message and f"{pack_modules.package}.beta" in message
+    assert "probe_hum" not in actions.VERBS  # the sandbox took alpha's verb back out
 
-    reed_kind = {"name": "reed bed"}
-    data = data_dir(tmp_path, {"a": {"objects": {"reed_bed": reed_kind}},
-                               "b": {"objects": {"reed_bed": reed_kind}, "items": {"stick": {"name": "stick"}}}})
-    with pytest.raises(ValueError, match=r"'reed_bed'.*packs/a/objects\.json.*packs/b/objects\.json"):
+    data = data_dir(tmp_path, {"a": {"objects": {"probe_bed": {"name": "probe bed"}}},
+                               "b": {"objects": {"probe_bed": {"name": "probe bed"}}, "items": {"stick": {"name": "stick"}}}})
+    with pytest.raises(ValueError, match=r"'probe_bed'.*packs/a/objects\.json.*packs/b/objects\.json"):
         registry.load_objects(data)
     with pytest.raises(ValueError, match=r"'stick'.*in items\.json.*packs/b/items\.json"):
         Catalog.load(data)
@@ -226,6 +243,7 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
     with pytest.raises(ValueError, match=r"'rope'.*in recipes\.json.*packs/c/recipes\.json"):
         Catalog.load(data)
 
+    alias, _ = core_alias()
     with registry.sandbox():  # registering at run time: the first owner and the second are both named
         with pytest.raises(ValueError, match=r"'tree'.*objects\.json.*test_registry"):
             registry.register_kinds({"tree": {"name": "tree"}})
@@ -233,11 +251,11 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
             registry.register_technique(Technique("read", "read (target): again.", lambda w, c: None))
         with pytest.raises(ValueError, match=r"'gather'.*swarmworld\.world\.actions.*test_registry"):
             registry.register_verb("gather", lambda w, c, it: None)
-        with pytest.raises(ValueError, match=r"'chop'.*swarmworld\.world\.actions.*test_registry"):
-            registry.register_verb("fell", lambda w, c, it: None, aliases=("chop",))  # chop already means gather
-        registry.register_system("tides", 5, lambda sim, t: None)
-        with pytest.raises(ValueError, match=r"'tides'.*test_registry.*test_registry"):
-            registry.register_system("tides", 7, lambda sim, t: None)
+        with pytest.raises(ValueError, match=rf"'{alias}'.*swarmworld\.world\.actions.*test_registry"):
+            registry.register_verb("probe_fell", lambda w, c, it: None, aliases=(alias,))  # already a core verb's word
+        registry.register_system("probe tides", 5, lambda sim, t: None)
+        with pytest.raises(ValueError, match=r"'probe tides'.*test_registry.*test_registry"):
+            registry.register_system("probe tides", 7, lambda sim, t: None)
 
         def line(world, c):
             return None
@@ -245,47 +263,47 @@ def test_duplicate_registration_names_both_packs(tmp_path, pack_modules):
         registry.register_perception(line)
         with pytest.raises(ValueError, match="registered twice"):
             registry.register_perception(line)
-    assert "fell" not in actions.VERBS and not any(s.name == "tides" for s in registry.SYSTEMS)
+    assert "probe_fell" not in actions.VERBS and not any(s.name == "probe tides" for s in registry.SYSTEMS)
 
 
 def test_generic_yields_gather_deplete_regrow(tmp_path):
     w = grass_world(Catalog.load(data_dir(tmp_path, {"reeds": REED_PACK})))
     c = creature(w, "Tam", 5, 5)
-    with registry.sandbox():
-        registry.register_kinds(REED_PACK["objects"], "packs/reeds/objects.json")  # only data: no code for reeds
-        assert "reed_bed" in actions.GATHERABLE and actions.ITEM_SOURCES["reed"] == {"reed_bed"}
-        bed = w.add_object("reed_bed", 6, 5)
-        assert bed.name == "reed bed" and w.walkable(6, 5)
+    with only_this_test():
+        registry.register_kinds(REED_PACK["objects"], "packs/reeds/objects.json")  # only data: no code for these
+        assert "probe_bed" in actions.GATHERABLE and actions.ITEM_SOURCES["probe_reed"] == {"probe_bed"}
+        bed = w.add_object("probe_bed", 6, 5)
+        assert bed.name == "probe bed" and w.walkable(6, 5)
 
-        res = act(w, c, action="gather", target="reeds")
-        assert res.ok and c.inventory["reed"] == 2 and bed.kind == "reed_bed" and bed.data["uses"] == 1
+        res = act(w, c, action="gather", target="probe reeds")
+        assert res.ok and c.inventory["probe_reed"] == 2 and bed.kind == "probe_bed" and bed.data["uses"] == 1
         res = act(w, c, action="gather")  # nothing named: whatever beside you still gives something
-        assert res.ok and c.inventory["reed"] == 4
-        assert bed.kind == "reed_stubble" and bed.name == "cut reeds" and bed.data["regrow_at"] == w.tick + 100
-        res = act(w, c, action="gather", target="stubble")
-        assert not res.ok and "nothing left" in res.message and c.inventory["reed"] == 4
+        assert res.ok and c.inventory["probe_reed"] == 4
+        assert bed.kind == "probe_stubble" and bed.name == "cut probe reeds" and bed.data["regrow_at"] == w.tick + 100
+        res = act(w, c, action="gather", target="probe stubble")
+        assert not res.ok and "nothing left" in res.message and c.inventory["probe_reed"] == 4
 
         sim = Simulation(w)
         for _ in range(110):
             sim.tick()
-        assert bed.kind == "reed_bed" and not {"uses", "regrow_at", "regrows"} & set(bed.data)
-        res = act(w, c, action="gather", target="reed")  # the item's name finds what gives it
-        assert res.ok and c.inventory["reed"] == 6 and bed.data["uses"] == 1
+        assert bed.kind == "probe_bed" and not {"uses", "regrow_at", "regrows"} & set(bed.data)
+        res = act(w, c, action="gather", target="probe reed")  # the item's name finds what gives it
+        assert res.ok and c.inventory["probe_reed"] == 6 and bed.data["uses"] == 1
 
 
 def test_generic_yields_need_their_tool_and_can_run_out():
     w = grass_world()
     c = creature(w, "Tam", 5, 5)
     with registry.sandbox():
-        registry.register_kinds({"flint_nodule": {
-            "name": "flint nodule", "aliases": ["nodule"], "blocking": True,
+        registry.register_kinds({"probe_nodule": {
+            "name": "probe nodule", "aliases": ["probe nodule"], "blocking": True,
             "yields": {"items": {"flint": [1, 1], "stone": [0, 0]}, "tool": "stone_pickaxe", "uses": 1}}})
-        nodule = w.add_object("flint_nodule", 6, 5)
+        nodule = w.add_object("probe_nodule", 6, 5)
         assert not w.walkable(6, 5)
-        res = act(w, c, action="gather", target="nodule")
+        res = act(w, c, action="gather", target="probe nodule")
         assert not res.ok and "stone pickaxe" in res.message and nodule.id in w.objects
         c.inventory["stone_pickaxe"] = 1
-        res = act(w, c, action="gather", target="nodule")
+        res = act(w, c, action="gather", target="probe nodule")
         assert res.ok and c.inventory["flint"] == 1 and "stone" not in c.inventory
         assert nodule.id not in w.objects and w.walkable(6, 5)  # used up with nothing to become: gone
 
@@ -299,27 +317,30 @@ def test_registered_verb_works_and_is_in_the_schema(pack_modules):
     w = grass_world()
     c, _ = creature(w, "Tam", 5, 5), creature(w, "Mara", 6, 5)
     with registry.sandbox():
-        assert pack_modules(hum=HUM_PACK) == ["hum"]
-        assert actions.VERBS[-1] == "hum" and "hum" in INTENTION_SCHEMA["properties"]["action"]["enum"]
-        it = parse_intention({"action": "whistle", "text": "softly"})
-        assert it.action == "hum"
+        assert pack_modules(probe_humming=HUM_PACK) == ["probe_humming"]
+        assert actions.VERBS[-1] == "probe_hum" and "probe_hum" in INTENTION_SCHEMA["properties"]["action"]["enum"]
+        it = parse_intention({"action": "probe_whistle", "text": "softly"})
+        assert it.action == "probe_hum"
         res = apply_intention(w, c, it)
         assert res.ok and res.message == "You hum softly."
-        assert "hum (text): hum a tune for those around you." in relevant(w, c)
+        assert "probe_hum (text): hum a tune for those around you." in relevant(w, c)
         assert set(actions.VERBS) == set(CORE_VERBS) | {v for t in TECHNIQUES for v in t.verbs} | {"recall"}
-    assert "hum" not in actions.VERBS and "hum" not in actions.HANDLERS and "whistle" not in actions.VERB_ALIASES
-    assert parse_intention({"action": "hum"}) is None and not any(t.name == "hum" for t in TECHNIQUES)
+    assert "probe_hum" not in actions.VERBS and "probe_hum" not in actions.HANDLERS
+    assert "probe_whistle" not in actions.VERB_ALIASES and not any(t.name == "probe_hum" for t in TECHNIQUES)
+    assert parse_intention({"action": "probe_hum"}) is None
 
 
 def test_pack_verb_can_take_over_a_core_alias():
+    """A word that so far only meant a core verb (as "build" meant craft) can become a pack's own verb."""
     w = grass_world()
     c = creature(w, "Tam", 5, 5)
-    assert parse_intention({"action": "build", "target": "campfire"}).action == "craft"
+    alias, verb = core_alias()
     with registry.sandbox():
-        registry.register_verb("build", lambda world, cr, it: actions.ActionResult(True, f"You start a {it.target}."))
-        assert parse_intention({"action": "build"}).action == "build" and "build" not in actions.VERB_ALIASES
-        assert act(w, c, action="build", target="hut").message == "You start a hut."
-    assert parse_intention({"action": "build"}).action == "craft" and actions.VERB_ALIASES["build"] == "craft"
+        registry.register_verb(alias, lambda world, cr, it: actions.ActionResult(True, f"You start a {it.target}."))
+        assert parse_intention({"action": alias}).action == alias and alias not in actions.VERB_ALIASES
+        assert registry.owner("verb", alias).endswith("test_registry")
+        assert act(w, c, action=alias, target="hut").message == "You start a hut."
+    assert parse_intention({"action": alias}).action == verb and registry.owner("verb", alias) == "swarmworld.world.actions"
 
 
 def test_registered_system_runs_on_its_interval():
@@ -327,11 +348,11 @@ def test_registered_system_runs_on_its_interval():
     creature(w, "Tam", 5, 5)
     sim = Simulation(w)
     calls = []
-    with registry.sandbox():
-        registry.register_system("every 7", 7, lambda s, t: calls.append(("seven", t, s is sim)))
-        registry.register_system("every tick", 1, lambda s, t: calls.append(("one", t, s is sim)))
+    with only_this_test():
+        registry.register_system("probe every 7", 7, lambda s, t: calls.append(("seven", t, s is sim)))
+        registry.register_system("probe every tick", 1, lambda s, t: calls.append(("one", t, s is sim)))
         with pytest.raises(ValueError):
-            registry.register_system("never", 0, lambda s, t: None)
+            registry.register_system("probe never", 0, lambda s, t: None)
         start = w.tick
         for _ in range(21):
             sim.tick()
@@ -347,7 +368,7 @@ def test_registered_system_runs_on_its_interval():
 def test_extra_perception_lines_are_capped():
     w = grass_world()
     c = creature(w, "Tam", 5, 5)
-    before = perceive(w, c, heard=['Mara says: "hello"'])
+    installed = list(registry.PERCEPTIONS)
     called = []
 
     def quiet(world, cr):
@@ -369,7 +390,8 @@ def test_extra_perception_lines_are_capped():
         called.append("third")
         return "A third line that must not show."
 
-    with registry.sandbox():
+    with only_this_test():
+        before = perceive(w, c, heard=['Mara says: "hello"'])
         for fn in (quiet, first, blank, second, third):
             registry.register_perception(fn)
         text = perceive(w, c, heard=['Mara says: "hello"'])
@@ -378,7 +400,7 @@ def test_extra_perception_lines_are_capped():
     assert lines[carry - 3:carry] == ['You hear: Mara says: "hello"', "The air smells of rain.", "Bees hum in the clover."]
     assert "third" not in text and called == ["quiet", "first", "blank", "second"]  # no room left: not even asked
     assert [line for line in lines if line not in ("The air smells of rain.", "Bees hum in the clover.")] == before.splitlines()
-    assert perceive(w, c, heard=['Mara says: "hello"']) == before
+    assert registry.PERCEPTIONS == installed
 
 
 # ------------------------------------------------------------------ sound
@@ -389,27 +411,27 @@ def test_sound_reaches_listeners_with_direction():
     south = creature(w, "Mara", 10, 16)  # 6 steps south of the sound
     beside = creature(w, "Odo", 11, 10)
     far = creature(w, "Pell", 10, 19)  # 9 steps: out of earshot
-    ev = w.sound(10, 10, "chopping", radius=8, kind="chop", source=chopper.id)
-    assert ev.kind == "sound" and ev.actor == chopper.id
-    assert ev.to_dict()["sound"] == "chop" and ev.to_dict()["radius"] == 8 and ev.to_dict()["loud"] is False
-    sim.tick()
-    assert sim.take_heard(south) == ["You hear chopping, about 6 steps north."]
-    assert sim.take_heard(beside) == ["You hear chopping, right beside you to the west."]
-    assert sim.take_heard(far) == [] and sim.take_heard(chopper) == []
+    with only_this_test():  # no pack's own sounds or lines in the way
+        ev = w.sound(10, 10, "chopping", radius=8, kind="chop", source=chopper.id)
+        assert ev.kind == "sound" and ev.actor == chopper.id
+        assert ev.to_dict()["sound"] == "chop" and ev.to_dict()["radius"] == 8 and ev.to_dict()["loud"] is False
+        sim.tick()
+        assert sim.take_heard(south) == ["You hear chopping, about 6 steps north."]
+        assert sim.take_heard(beside) == ["You hear chopping, right beside you to the west."]
+        assert sim.take_heard(far) == [] and sim.take_heard(chopper) == []
 
-    for x in (10, 9):  # the same kind of sound twice: only the latest is kept
-        w.sound(x, 10, "chopping", kind="chop", source=chopper.id)
-    w.sound(4, 16, "a splash", kind="splash")
-    sim.tick()
-    heard = sim.take_heard(south)
-    assert heard == ["You hear chopping, about 6 steps north.", "You hear a splash, about 6 steps west."]
-    for n in range(4):  # never more than two sounds a turn
-        w.sound(10, 12 + n, f"sound {n}", kind=f"k{n}")
-    sim.tick()
-    assert sim.take_heard(south) == ["You hear sound 2, about 2 steps north.",
-                                     "You hear sound 3, right beside you to the north."]
-    text = perceive(w, south, heard=['Odo says: "over here"', *heard])
-    lines = text.splitlines()
+        for x in (10, 9):  # the same kind of sound twice: only the latest is kept
+            w.sound(x, 10, "chopping", kind="chop", source=chopper.id)
+        w.sound(4, 16, "a splash", kind="splash")
+        sim.tick()
+        heard = sim.take_heard(south)
+        assert heard == ["You hear chopping, about 6 steps north.", "You hear a splash, about 6 steps west."]
+        for n in range(4):  # never more than two sounds a turn
+            w.sound(10, 12 + n, f"sound {n}", kind=f"k{n}")
+        sim.tick()
+        assert sim.take_heard(south) == ["You hear sound 2, about 2 steps north.",
+                                         "You hear sound 3, right beside you to the north."]
+        lines = perceive(w, south, heard=['Odo says: "over here"', *heard]).splitlines()
     i = lines.index('You hear: Odo says: "over here"')
     assert lines[i + 1:i + 4] == [*heard, "You carry: nothing."]
 
@@ -424,18 +446,19 @@ def test_sound_skips_source_and_sleepers():
     sim._start_sleep(sleeper, True)
     away = creature(w, "Odo", 10, 12)
     away.asleep = True  # its mind is away: the body is in stasis
-    w.sound(10, 10, "a branch snapping", kind="snap", source=source.id)
-    sim.tick()
-    assert sim.take_heard(source) == [] and sim.take_heard(sleeper) == [] and sim.take_heard(away) == []
-    assert (sleeper.activity or {}).get("sleep") and "Mara" not in notes
+    with only_this_test():
+        w.sound(10, 10, "a branch snapping", kind="snap", source=source.id)
+        sim.tick()
+        assert sim.take_heard(source) == [] and sim.take_heard(sleeper) == [] and sim.take_heard(away) == []
+        assert (sleeper.activity or {}).get("sleep") and "Mara" not in notes
 
-    w.sound(10, 10, "thunder crashing", radius=20, kind="thunder", loud=True)
-    sim.tick()
-    assert sim.take_heard(sleeper) == ["You hear thunder crashing, about 2 steps west."]
-    assert not (sleeper.activity or {}).get("sleep") and sleeper.wake_reason == "woke"
-    assert any("wakes you" in n for n in notes["Mara"])
-    assert sim.take_heard(away) == [] and away.asleep
-    assert sim.take_heard(source) == ["You hear thunder crashing, right here."]  # no source: everyone awake hears it
+        w.sound(10, 10, "thunder crashing", radius=20, kind="thunder", loud=True)
+        sim.tick()
+        assert sim.take_heard(sleeper) == ["You hear thunder crashing, about 2 steps west."]
+        assert not (sleeper.activity or {}).get("sleep") and sleeper.wake_reason == "woke"
+        assert any("wakes you" in n for n in notes["Mara"])
+        assert sim.take_heard(away) == [] and away.asleep
+        assert sim.take_heard(source) == ["You hear thunder crashing, right here."]  # no source: everyone awake hears it
 
 
 # ------------------------------------------------------------------ the packs and data that are installed
