@@ -73,6 +73,7 @@ class Node:
     hardware: dict
     inflight: dict[str, str] = field(default_factory=dict)
     joined: float = field(default_factory=time.time)
+    min_gap: int = MIN_GAP_TICKS  # a node may pace its creatures (e.g. a fast, paid cloud model)
 
 
 @dataclass
@@ -194,7 +195,8 @@ class ServerState:
         for old in [n for n in self.nodes.values() if n.name == name]:
             self.unregister_node(old.id)
         node = Node(self.world.new_id("n"), name, ws, max(1, min(64, int(hello.get("slots") or 4))),
-                    list(hello.get("models") or []), dict(hello.get("hardware") or {}))
+                    list(hello.get("models") or []), dict(hello.get("hardware") or {}),
+                    min_gap=max(MIN_GAP_TICKS, min(600, int(hello.get("min_gap_ticks") or MIN_GAP_TICKS))))
         self.nodes[node.id] = node
         assigned: list[Creature] = []
         budget = MAX_PER_NODE
@@ -283,7 +285,7 @@ class ServerState:
                 continue
             ready = [c for c in w.creatures.values()
                      if c.node_id == node.id and not c.asleep and not c.thinking and not c.collapsed
-                     and c.wake_reason is not None and w.tick - c.last_think_tick >= MIN_GAP_TICKS]
+                     and c.wake_reason is not None and w.tick - c.last_think_tick >= node.min_gap]
             if not self.chronicle_inflight and w.tick >= self.chronicle_due and node.models:
                 job = self.make_chronicle_job(node)  # rare, so it jumps the queue
                 if job:

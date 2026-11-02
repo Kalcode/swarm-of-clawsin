@@ -76,3 +76,13 @@ def test_the_same_machine_can_rejoin_with_new_minds():
     st.unregister_node(old_node.id)
     _, got = join(st, "mac", [{"tag": "gpt-oss", "creatures": 2, "adopt": ["gemma"]}])
     assert {c.id for c in got} == {c.id for c in olds} and all(c.model == "gpt-oss" for c in olds)
+
+
+def test_a_node_can_pace_its_creatures():
+    st = ServerState(seed=7)
+    node, (a,) = st.register_node(NullWS(), {"node": "cloud", "slots": 4, "min_gap_ticks": 30,
+                                             "models": [{"tag": "fast", "creatures": 1}]})
+    a.asleep, a.wake_reason, a.last_think_tick = False, "result", st.world.tick - 10
+    assert not st.plan_dispatch()  # 10 ticks since the last thought < 30
+    a.last_think_tick = st.world.tick - 31
+    assert [job["creature"] for _, job in st.plan_dispatch()] == [a.id]

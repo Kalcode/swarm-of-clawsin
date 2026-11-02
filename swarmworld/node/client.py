@@ -47,14 +47,15 @@ async def _handle(ws: aiohttp.ClientWebSocketResponse, job: dict, brains: dict[s
 
 
 async def run_node(server_url: str, name: str, models: list[ModelSpec], slots: int, token: str | None = None,
-                   hardware: dict | None = None, once: bool = False) -> None:
+                   hardware: dict | None = None, once: bool = False, min_gap_ticks: int = 0) -> None:
     url = server_url.rstrip("/")
     if not url.endswith("/ws/node"):
         url += "/ws/node"
     brains = {m.tag: m.brain for m in models}
     default = models[0].brain
     hello = {"type": "hello", "node": name, "token": token, "slots": slots,
-             "models": [{"tag": m.tag, "creatures": m.creatures, "adopt": m.adopt} for m in models], "hardware": hardware or {}}
+             "models": [{"tag": m.tag, "creatures": m.creatures, "adopt": m.adopt} for m in models], "hardware": hardware or {},
+             "min_gap_ticks": min_gap_ticks}
     backoff = 1.0
     stats = {"thinks": 0, "errors": 0}
     while True:

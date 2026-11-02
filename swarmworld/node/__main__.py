@@ -115,6 +115,8 @@ def main() -> None:
                     help="give sleeping creatures of model OLD a new mind (they keep their memories); "
                          "NEW picks which of your models (default: the first)")
     ap.add_argument("--slots", type=int, default=8, help="concurrent model requests")
+    ap.add_argument("--min-gap-ticks", type=int, default=0,
+                    help="at least this many world ticks between one creature's thoughts (pace a fast or paid model)")
     ap.add_argument("--name", default=None, help="node name (default: hostname)")
     ap.add_argument("--temperature", type=float, default=0.8)
     args = ap.parse_args()
@@ -167,7 +169,7 @@ def main() -> None:
     name = args.name or socket.gethostname().split(".")[0]
     print(f"  Joining {server} as '{name}' with " + ", ".join(f"{s.creatures}x {s.tag}" for s in specs))
     try:
-        asyncio.run(run_node(server, name, specs, args.slots, args.token, hw))
+        asyncio.run(run_node(server, name, specs, args.slots, args.token, hw, min_gap_ticks=args.min_gap_ticks))
     except FatalNodeError as exc:
         sys.exit(f"World refused to let us join: {exc}")
     except KeyboardInterrupt:
