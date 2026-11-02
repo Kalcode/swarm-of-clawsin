@@ -18,6 +18,13 @@ PORT="${PORT:-7777}"
 WORLD="${WORLD:-worlds/default.json}"
 mkdir -p runs
 
+# Never run two worlds at once: they can share the port on macOS and steal each other's brain nodes.
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || pgrep -f "python -m swarmworld.server" >/dev/null; then
+  echo "A Swarm World is already running (port $PORT or a swarmworld.server process). Stop it first:"
+  echo "  pkill -f start-world.sh; pkill -f swarmworld"
+  exit 1
+fi
+
 start_omlx() {
   echo "Starting oMLX..."
   omlx serve --model-dir ~/models --max-concurrent-requests 16 --memory-guard-gb 20 --paged-ssd-cache-dir ~/.omlx/cache --paged-ssd-cache-max-size 10GB >> runs/omlx.log 2>&1 &
