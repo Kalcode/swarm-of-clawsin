@@ -58,6 +58,19 @@ async def test_think_roundtrip(client):
     await ws.close()
 
 
+async def test_repeated_noops_count_as_a_loop_and_a_noop_rate(client):
+    ws, welcome = await _join(client, n=1)
+    st = client.app[STATE]
+    c = st.world.creatures[welcome["creatures"][0]["id"]]
+    for _ in range(3):
+        st._track_loop(c, "walk_to", "berry bush", ok=True, noop=True)
+    assert st.metrics.models["mock"]["loops"] == 1
+    st.metrics.bump("mock", "act_ok", 4)
+    st.metrics.bump("mock", "noops", 1)
+    assert st.metrics.snapshot(st.world, 0)["models"]["mock"]["noop_rate"] == 0.25
+    await ws.close()
+
+
 async def test_bad_output_counts_parse_failure(client):
     ws, welcome = await _join(client, n=1)
     job = await _recv_type(ws, "think")

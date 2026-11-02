@@ -102,6 +102,7 @@ class Creature:
     known_recipes: set = field(default_factory=set)
     seen: dict = field(default_factory=dict)
     seen_pos: dict = field(default_factory=dict)  # lowercase name -> (x, y, tick) where last seen
+    last_noop: str = ""  # "action target" of the last turn that changed nothing
     stats: Counter = field(default_factory=Counter)
 
     @property

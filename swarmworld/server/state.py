@@ -355,22 +355,25 @@ class ServerState:
         res = apply_intention(self.world, c, it)
         info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick)
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
+        if res.noop:
+            self.metrics.bump(c.model, "noops")
         if res.ok and res.instant:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1)
         elif not res.ok:
             self._remember(c, f"You tried to {it.summary()}, but: {res.message}", 1)
         if it.action == "say" and res.ok and it.target:
             mem.note_person(it.target.split()[0].capitalize(), f'you told them: "{it.text[:60]}"')
-        self._track_loop(c, it.action, it.target, res.ok)
+        self._track_loop(c, it.action, it.target, res.ok, res.noop)
         if res.instant:
             c.wake_reason = "result"
 
-    def _track_loop(self, c: Creature, action: str, target: str, ok: bool) -> None:
+    def _track_loop(self, c: Creature, action: str, target: str, ok: bool, noop: bool = False) -> None:
         dq = self.recent_acts.setdefault(c.id, deque(maxlen=3))
-        dq.append((action, target.lower(), ok))
-        if len(dq) == 3 and len(set(dq)) == 1 and not ok:
+        dq.append((action, target.lower(), ok, noop))
+        if len(dq) == 3 and len(set(dq)) == 1 and (noop or not ok):
             self.metrics.bump(c.model, "loops")
-            self._remember(c, "You notice you keep trying the same thing and failing. Try something different.", 3)
+            self._remember(c, "You notice you keep doing the same thing and nothing changes. Try something different."
+                           if noop else "You notice you keep trying the same thing and failing. Try something different.", 3)
             dq.clear()
 
     # ------------------------------------------------------------ history

@@ -53,6 +53,7 @@ class Metrics:
                 "thinks": m["thinks"],
                 "avg_latency_s": round(m["latency_ms_total"] / m["thinks"] / 1000, 1) if m["thinks"] else 0,
                 "success_rate": round(m["act_ok"] / acts, 2) if acts else 0,
+                "noop_rate": round(m["noops"] / acts, 2) if acts else 0,
                 "parse_failures": m["parse_failures"],
                 "errors": m["errors"],
                 "loops": m["loops"],

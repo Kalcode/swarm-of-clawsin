@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .catalog import Recipe
 from .events import HEARING
@@ -81,6 +81,7 @@ class ActionResult:
     ok: bool
     message: str
     instant: bool = True
+    noop: bool = False  # succeeded, but changed nothing (walking to where you already are)
 
 
 # --------------------------------------------------------------------- parsing
@@ -402,6 +403,19 @@ def _next_hint(obj: WorldObject) -> str:
     return ""
 
 
+def _noop_key(it: Intention) -> str:
+    return f"{it.action} {it.target.lower()}"
+
+
+def _use_beside(world: World, c: Creature, obj: WorldObject) -> ActionResult | None:
+    """What a creature that walks again to the thing it already stands beside most likely means to do with it."""
+    if obj.kind in GATHERABLE:
+        return _gather(world, c, Intention("gather", target=obj.name))
+    if obj.kind in ("sign", "tablet", "terminal") or (obj.kind in CARVABLE and obj.data.get("text")):
+        return _read(world, c, Intention("read", target=obj.name))
+    return None
+
+
 # --------------------------------------------------------------------- verbs
 def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     if not it.target:
@@ -412,7 +426,7 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
         if it.text and d <= HEARING:  # they meant to talk, and they're within earshot already
             return _say(world, c, Intention("say", target=other.name, text=it.text))
         if d <= 1:
-            return ActionResult(True, f"You are already beside {other.name}. You can talk (say) or give them something.")
+            return ActionResult(True, f"You are already beside {other.name}. You can talk (say) or give them something.", noop=True)
         res = start_walk(world, c, _adjacent_goals(world, other.x, other.y), f"walking to {other.name}", f"You reach {other.name}.")
         if it.text and c.activity:
             c.activity["say"] = (other.name, it.text)
@@ -430,13 +444,14 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     lm = find_landmark(world, c, it.target)
     if lm:
         if dist(c.x, c.y, lm["x"], lm["y"]) <= 2:
-            return ActionResult(True, f"You are at {lm['name']}.")
+            return ActionResult(True, f"You are at {lm['name']}.", noop=True)
         goals = {(x, y) for x in range(lm["x"] - 2, lm["x"] + 3) for y in range(lm["y"] - 2, lm["y"] + 3) if world.walkable(x, y)}
         return start_walk(world, c, goals, f"heading to {lm['name']}", f"You arrive at {lm['name']}.")
     obj = find_object(world, c, it.target)
     if obj:
         if dist(c.x, c.y, obj.x, obj.y) <= 1:
-            return ActionResult(True, f"You are already beside the {obj.name}. {_next_hint(obj)}".strip())
+            used = _use_beside(world, c, obj) if c.last_noop == _noop_key(it) else None
+            return used or ActionResult(True, f"You are already beside the {obj.name}. {_next_hint(obj)}".strip(), noop=True)
         return start_walk(world, c, _adjacent_goals(world, obj.x, obj.y, include_self=obj.kind not in ("tree", "pine", "rock")),
                           f"walking to the {obj.name}", f"You arrive beside the {obj.name}.")
     for w in _words(it.target):
@@ -1279,7 +1294,8 @@ def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
     if it.speech and it.action not in ("say", "teach"):  # talking while working
         addressed = next((o for o, d, _ in visible_creatures(world, c) if o.name.lower() in it.speech.lower()), None)
         _say(world, c, Intention("say", target=addressed.name if addressed else "", text=it.speech))
-        res = ActionResult(res.ok, f'{res.message} (While doing it you say: "{it.speech[:160]}")', res.instant)
+        res = replace(res, message=f'{res.message} (While doing it you say: "{it.speech[:160]}")')
+    c.last_noop = _noop_key(it) if res.noop else ""
     if not res.ok:
         world.emit("fail", c.id, c.x, c.y, f"{c.name} tried to {it.summary()}: {res.message}")
     return res

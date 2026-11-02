@@ -834,11 +834,11 @@
   }
 
   /* ================================================================= swarm */
-  const METRIC_ORDER = ['creatures', 'awake', 'thinks', 'success_rate', 'act_ok', 'act_fail', 'parse_failures', 'errors', 'loops',
+  const METRIC_ORDER = ['creatures', 'awake', 'thinks', 'success_rate', 'noop_rate', 'act_ok', 'act_fail', 'parse_failures', 'errors', 'loops',
     'avg_latency_s', 'avg_latency_ms', 'tokens_in', 'tokens_out', 'cache_hit', 'speech', 'gathered', 'crafted', 'built',
     'discoveries', 'inventions', 'unique_items', 'writing', 'programs', 'collapses'];
   const METRIC_LABEL = {
-    creatures: 'Creatures', awake: 'Awake', thinks: 'Thinks', success_rate: 'Success', act_ok: 'OK', act_fail: 'Failed',
+    creatures: 'Creatures', awake: 'Awake', thinks: 'Thinks', success_rate: 'Success', noop_rate: 'No-op', act_ok: 'OK', act_fail: 'Failed',
     parse_failures: 'Parse err', errors: 'Errors', loops: 'Loops', avg_latency_s: 'Latency', avg_latency_ms: 'Latency',
     tokens_in: 'Tok in', tokens_out: 'Tok out', cache_hit: 'Cache hit', speech: 'Speech', gathered: 'Gathered',
     crafted: 'Crafted', built: 'Built', discoveries: 'Discov.', unique_items: 'Items', writing: 'Writing',

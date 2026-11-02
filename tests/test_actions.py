@@ -110,6 +110,32 @@ def test_sign_write_and_read(world):
     assert res.ok and "makes an axe" in res.message and "Tam" in res.message
 
 
+def test_walk_to_beside_is_a_noop_and_the_repeat_gathers(world):
+    c = creature(world)
+    world.add_object("bush", 11, 10, berries=4)
+    first = apply_intention(world, c, Intention("walk_to", target="berry bush"))
+    assert first.ok and first.noop and not c.inventory.get("berries")
+    second = apply_intention(world, c, Intention("walk_to", target="berry bush"))
+    assert second.ok and not second.noop and c.inventory.get("berries", 0) > 0
+    third = apply_intention(world, c, Intention("walk_to", target="berry bush"))
+    assert third.noop  # a fresh no-op after a useful turn
+
+
+def test_repeated_walk_to_a_sign_beside_you_reads_it(world):
+    c = creature(world)
+    world.add_object("sign", 11, 10, text="Clay by the river")
+    apply_intention(world, c, Intention("walk_to", target="sign"))
+    res = apply_intention(world, c, Intention("walk_to", target="sign"))
+    assert res.ok and "Clay by the river" in res.message
+
+
+def test_noop_survives_speaking_while_acting(world):
+    c = creature(world)
+    world.add_object("bush", 11, 10, berries=4)
+    res = apply_intention(world, c, Intention("walk_to", target="berry bush", speech="Nice bush."))
+    assert res.noop
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
