@@ -6,7 +6,6 @@ background task embeds them (`embed_pending`) and hands the vectors back with `s
 
 from __future__ import annotations
 
-import logging
 import math
 import re
 from collections import Counter
@@ -15,7 +14,6 @@ from typing import Awaitable, Callable, Iterable
 
 import numpy as np
 
-log = logging.getLogger(__name__)
 
 K1 = 1.2
 B = 0.75
@@ -65,7 +63,7 @@ class RecallIndex:
         self._tokens[doc.key] = tokenize(doc.text)
 
     def add(self, cid: str, kind: str, text: str, tick: int, importance: int = 1, skip_repeat: bool = False) -> None:
-        text = text.strip()
+        text = " ".join(text.split())  # one line: a recalled text must not spill across the prompt
         if not text:
             return
         docs = self._docs.setdefault(cid, [])
@@ -101,13 +99,16 @@ class RecallIndex:
         extra: Iterable[tuple[str, str]] = (),
         semantic: str | None = None,
         lore: bool = True,
+        max_lore: int | None = None,
+        weight: Callable[[Doc], float] | None = None,
     ) -> list[Doc]:
         """`query` drives keywords; `semantic` (default: the same text) is what gets embedded, so a caller can
-        keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out."""
+        keep it stable across turns and reuse the cached vector. `lore=False` leaves shared lore out;
+        `max_lore` caps how many of the results may be lore; `weight` scales each doc's score."""
         qtokens = tokenize(query)
         sem = query if semantic is None else semantic
         qnorm = " ".join(sem.lower().split())
-        skip = set(exclude)
+        skip = {" ".join(t.split()) for t in exclude}  # docs are stored whitespace-collapsed
         docs: list[Doc] = [*self._docs.get(cid, ()), *(self._lore if lore else ())]
         docs = [d for d in docs if d.key not in skip and d.text not in skip]
         extras = []
@@ -139,16 +140,22 @@ class RecallIndex:
         age = np.array([0 if d.kind == "lore" or d.key.startswith("extra:") else max(0, now - d.tick) for d in docs])
         imp = np.array([d.importance for d in docs])
         score = score * (1 + 0.15 * imp) * 0.5 ** (age / HALF_LIFE)
+        if weight is not None:
+            score = score * np.array([weight(d) for d in docs])
 
         order = np.argsort(-score, kind="stable")
         out: list[Doc] = []
         seen: set[str] = set()
+        lore_left = len(docs) if max_lore is None else max_lore
         for i in order:
             if score[i] <= 0 or len(out) >= k:
                 break
+            if docs[i].kind == "lore" and lore_left <= 0:
+                continue
             if docs[i].text not in seen:  # identical texts: keep the best-scoring one
                 seen.add(docs[i].text)
                 out.append(docs[i])
+                lore_left -= docs[i].kind == "lore"
         return out
 
     def _bm25(self, qtokens: list[str], docs: list[Doc]) -> np.ndarray:
@@ -257,19 +264,16 @@ class VoyageEmbedder:
 
 
 async def embed_pending(index: RecallIndex, embedder) -> int:
-    """Embed one batch of what `index` is waiting on. Returns how many vectors were set; 0 on any error."""
-    try:
-        items = index.pending(BATCH)
-        docs = [(k, t) for k, t in items if not k.startswith("q:")]
-        queries = [(k, t) for k, t in items if k.startswith("q:")]
-        done = 0
-        for group, input_type in ((docs, "document"), (queries, "query")):
-            if not group:
-                continue
-            vecs = await embedder.embed([t for _, t in group], input_type)
-            index.set_vectors([(k, v) for (k, _), v in zip(group, vecs)])
-            done += len(group)
-        return done
-    except Exception:
-        log.exception("recall embedding failed; keyword search continues")
-        return 0
+    """Embed one batch of what `index` is waiting on. Returns how many vectors were set. Errors propagate: the
+    caller decides how to report them and when to retry; keyword search carries on regardless."""
+    items = index.pending(BATCH)
+    docs = [(k, t) for k, t in items if not k.startswith("q:")]
+    queries = [(k, t) for k, t in items if k.startswith("q:")]
+    done = 0
+    for group, input_type in ((docs, "document"), (queries, "query")):
+        if not group:
+            continue
+        vecs = await embedder.embed([t for _, t in group], input_type)
+        index.set_vectors([(k, v) for (k, _), v in zip(group, vecs)])
+        done += len(group)
+    return done

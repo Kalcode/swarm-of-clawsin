@@ -50,6 +50,13 @@ def make_embedder(choice: str | None):
     return VoyageEmbedder(key) if key else None
 
 
+def recall_search_line(embedder, choice: str | None) -> str:
+    """What recall searches with in this session, for the startup banner (never the key)."""
+    if embedder is not None:
+        return f"Recall search: keywords + Voyage embeddings ({embedder.model})"
+    return f"Recall search: keywords only ({'--embed none' if choice == 'none' else 'no VOYAGE_API_KEY'})"
+
+
 def layers(arg: str) -> set[str]:
     names = {n.strip() for n in arg.split(",") if n.strip()}
     if names - set(LAYERS):
@@ -86,7 +93,7 @@ def main() -> None:
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
                      harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed))
-    print(f"  Recall search: {'keywords + voyage embeddings' if app[STATE].embedder else 'keywords only'}")
+    print(f"  {recall_search_line(app[STATE].embedder, args.embed)}")
     app[STATE].sim.inspiration = not args.no_inspiration
 
     advert = None

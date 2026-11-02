@@ -103,7 +103,8 @@ class Fake:
 
 async def test_embedder_failure_falls_back_to_keywords():
     idx = make_index(3)
-    assert await embed_pending(idx, Boom()) == 0
+    with pytest.raises(RuntimeError):  # the caller (the embed loop) decides how to log and when to retry
+        await embed_pending(idx, Boom())
     assert idx.search("a", "clay", now=60)[0].text.startswith("the clay bank")
     assert idx.pending()  # still waiting
 
@@ -182,3 +183,21 @@ def test_semantic_text_is_what_gets_queued():
     idx.search("a", "make a pot oak tree Mara", now=60, semantic="make a pot")
     assert [k for k, _ in idx.pending() if k.startswith("q:")] == ["q:make a pot"]
     assert idx.search("a", "clay", now=60, lore=False)
+
+
+def test_max_lore_caps_shared_lore():
+    idx = RecallIndex()
+    for name in ("fire", "flint", "kindling"):
+        idx.add_lore(name, f"{name}: fire needs dry wood")
+    idx.add("a", "memory", "dry wood by the fire pit", tick=1)
+    assert sum(d.kind == "lore" for d in idx.search("a", "fire dry wood", k=5, now=2)) == 3
+    hits = idx.search("a", "fire dry wood", k=5, now=2, max_lore=1)
+    assert [d.kind for d in hits].count("lore") == 1 and any(d.kind == "memory" for d in hits)
+
+
+def test_add_collapses_whitespace():
+    idx = RecallIndex()
+    idx.add("a", "read", "  The sign reads:\n  CLAY   is\tnorth  ", tick=1)
+    assert idx.to_dict()["docs"]["a"] == [["read", "The sign reads: CLAY is north", 1, 1]]
+    idx.add("a", "read", "The sign reads: CLAY is\nnorth", tick=2, skip_repeat=True)
+    assert len(idx.to_dict()["docs"]["a"]) == 1  # the same text once collapsed

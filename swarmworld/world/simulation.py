@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict, deque
 from typing import Callable
 
-from .actions import ANIMAL_FOOD, WELL_FED, ActionResult, step_activity
+from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
-from .perception import note_spots, visible_creatures
+from .perception import DAY_SIGHT, note_spots, visible_creatures
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -21,6 +21,8 @@ ANIMAL_GRAZE_FILL = 3
 ANIMAL_EVERY = 4  # ticks between animal evaluations
 ANIMAL_BREED_CHANCE = 0.08
 ANIMAL_CAP = 12  # per kind, world-wide
+GRAZING = "gf"  # grass and forest floor: where animals can feed
+HOME_RANGE = 3  # a tamed animal grazes within this many tiles of its home
 MET_FORGET = 200
 WITNESS_RADIUS = 4
 TERMINAL_EVERY = 20
@@ -451,7 +453,7 @@ class Simulation:
             near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
                     and max(abs(c.x - o.x), abs(c.y - o.y)) < 3] if not owner and not d.get("tamed_by") else []
             following = bool(owner and max(abs(owner.x - o.x), abs(owner.y - o.y)) <= 6
-                             and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_FOOD))
+                             and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_LURE))
             if near:
                 d["state"] = "wary"
                 c = min(near, key=lambda c: max(abs(c.x - o.x), abs(c.y - o.y)))
@@ -479,18 +481,45 @@ class Simulation:
                     self._animal_step(o, home[0], home[1])
                 else:
                     d["state"] = "graze"
-                    if w.tile(o.x, o.y) in "gf":
+                    if w.tile(o.x, o.y) in GRAZING:
                         d["hunger"] = max(0, d["hunger"] - ANIMAL_GRAZE_FILL)
-                    if w.rng.random() < 0.3:
-                        dx, dy = w.rng.choice(((1, 0), (-1, 0), (0, 1), (0, -1)))
-                        nx, ny = o.x + dx, o.y + dy
-                        if not (home and max(abs(nx - home[0]), abs(ny - home[1])) > 3) and w.tile(nx, ny) in "gf":
-                            self._animal_step(o, nx, ny)
+                        if w.rng.random() < 0.3:
+                            self._wander(o, home)
+                    else:  # bare ground: head for the nearest grass in sight, or wander until some comes into view
+                        grass = self._nearest_grass(o, home)
+                        if not (grass and self._animal_step(o, *grass)) and w.rng.random() < 0.3:
+                            self._wander(o, home)
             if d["state"] != "rest" and w.rng.random() < ANIMAL_HUNGER_CHANCE:  # asleep at night: no hunger
                 d["hunger"] = min(100, d["hunger"] + 1)
             if d["hunger"] >= WELL_FED and d.get("ready_at", 0) > w.tick:
                 d["ready_at"] += ANIMAL_EVERY  # the production timer pauses while hungry
             self._breed(o, animals, counts, day)
+
+    def _free_for_animal(self, x: int, y: int, home) -> bool:
+        w = self.world
+        return ((x, y) not in w.grid and w.walkable(x, y) and w.tile(x, y) not in "wW" and not w.occupied(x, y)
+                and not (home and max(abs(x - home[0]), abs(y - home[1])) > HOME_RANGE))
+
+    def _wander(self, o, home) -> None:
+        """A grazing step to a free neighbouring tile of land, grass or forest floor if there is one."""
+        w = self.world
+        free = [(o.x + dx, o.y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                if self._free_for_animal(o.x + dx, o.y + dy, home)]
+        grassy = [p for p in free if w.tile(*p) in GRAZING]
+        if free:
+            w.move_object(o, *w.rng.choice(grassy or free))
+
+    def _nearest_grass(self, o, home) -> tuple[int, int] | None:
+        """The closest free grass or forest tile the animal can see (within its home range, if it has a home)."""
+        w = self.world
+        best = None
+        for y in range(o.y - DAY_SIGHT, o.y + DAY_SIGHT + 1):
+            for x in range(o.x - DAY_SIGHT, o.x + DAY_SIGHT + 1):
+                if w.tile(x, y) in GRAZING and self._free_for_animal(x, y, home):
+                    key = (max(abs(x - o.x), abs(y - o.y)), (x - o.x) ** 2 + (y - o.y) ** 2, y, x)
+                    if best is None or key < best[0]:
+                        best = (key, (x, y))
+        return best[1] if best else None
 
     def _animal_step(self, o, tx: int, ty: int, away: bool = False) -> bool:
         """Move one tile toward (or away from) a target, taking the best free tile; False if boxed in."""

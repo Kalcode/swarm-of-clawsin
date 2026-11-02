@@ -54,6 +54,7 @@ SOURCE_HINT = {
 }
 WELL_FED = 40  # animal hunger below this: it gives eggs, milk, wool and may breed
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
+ANIMAL_LURE = ANIMAL_FOOD - {"plant_fiber"}  # what a tamed animal follows its owner for (fiber feeds it, but no lure)
 EMPTY_KINDS = {"bush_empty", "stump"}
 CARVABLE = {"tree", "pine", "rock", "stump"}
 TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
@@ -127,6 +128,9 @@ def _first_json_object(s: str) -> dict | None:
     return None
 
 
+PLAN_MARKER = re.compile(r"^(?:\s*(?:\d+\s*[.)](?!\d)|now\s*:|done\s*:|[-*•]))+\s*", re.IGNORECASE)  # "2. NOW: "
+
+
 def parse_intention(raw: dict | str | None) -> Intention | None:
     if raw is None:
         return None
@@ -151,7 +155,8 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
     plan = raw.get("plan") or []
     if not isinstance(plan, list):
         plan = []
-    plan = [str(s).strip()[:80] for s in plan if str(s).strip()][:5]
+    plan = [PLAN_MARKER.sub("", str(s).strip()).strip()[:80] for s in plan]  # an echoed plan keeps matching
+    plan = [s for s in plan if s][:5]
     return Intention(
         action=action,
         target=str(raw.get("target") or "").strip()[:80],

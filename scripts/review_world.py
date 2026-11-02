@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import re
 from collections import Counter, defaultdict
@@ -35,14 +36,18 @@ def load(dirs: list[Path]):
 
 
 def split_report(thinks: list[dict], events: list[dict]) -> dict:
-    """Per (model, layers) group, e.g. ("m", "plan+recall") or ("m", "none"): how the harness halves compare."""
-    group_of: dict[str, tuple] = {}
+    """Per (model, layers) group, e.g. ("m", "plan+recall") or ("m", "none"): how the harness halves compare.
+    Think lines from before the harness (no `harness` key) are left out. An event counts for the group its creature
+    was in at the time: the one of its latest think at or before the event's tick."""
+    timeline: dict[str, list[tuple[int, tuple]]] = defaultdict(list)  # creature -> [(tick, group)]
     rows: dict[tuple, dict] = {}
     last: dict[str, tuple] = {}
     run_len: dict[str, int] = defaultdict(int)
     for t in thinks:
-        key = (t["model"], "+".join(sorted(t.get("harness") or [])) or "none")
-        group_of[t["creature"]] = key
+        if "harness" not in t:
+            continue
+        key = (t["model"], "+".join(sorted(t["harness"] or [])) or "none")
+        timeline[t["creature"]].append((t.get("tick", 0), key))
         if t["kind"] != "act":
             continue
         g = rows.setdefault(key, defaultdict(float))
@@ -58,10 +63,16 @@ def split_report(thinks: list[dict], events: list[dict]) -> dict:
             run_len[t["creature"]] = run_len[t["creature"]] + 1 if last.get(t["creature"]) == k else 1
             last[t["creature"]] = k
             g["streaks"] += run_len[t["creature"]] == 4
+    for tl in timeline.values():
+        tl.sort(key=lambda p: p[0])  # stable: same-tick thinks keep their log order
+    ticks = {cid: [tick for tick, _ in tl] for cid, tl in timeline.items()}
     for e in events:
-        key = group_of.get(e.get("actor"))
-        if key and e["kind"] in ("collapse", "craft"):
-            rows.setdefault(key, defaultdict(float))["collapses" if e["kind"] == "collapse" else "crafted"] += 1
+        tl = timeline.get(e.get("actor"))
+        if not tl or e.get("tick") is None or e["kind"] not in ("collapse", "craft"):
+            continue
+        i = bisect.bisect_right(ticks[e["actor"]], e["tick"]) - 1
+        if i >= 0:
+            rows.setdefault(tl[i][1], defaultdict(float))["collapses" if e["kind"] == "collapse" else "crafted"] += 1
     out = {}
     for key, g in rows.items():
         n = g["replies"] or 1

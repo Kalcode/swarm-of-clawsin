@@ -13,8 +13,8 @@ from pathlib import Path
 from aiohttp import web
 
 from ..mind.memory import Memory
-from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, build_act_messages, build_reflect_messages,
-                            curated_recent, make_persona, recent_limit, tip_limit)
+from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, build_act_messages,
+                            build_reflect_messages, curated_recent, make_persona, recent_limit, tip_limit)
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore, relevant
 from ..world.actions import ActionResult, apply_intention, parse_intention
@@ -26,10 +26,14 @@ from .harness import Harness
 from .metrics import Metrics
 from .wishes import Wishes
 
-AUTO_RECALL = 3
+ACT_TOKENS = 260
+ACT_TOKENS_PLAN = 360  # a reply may carry a 5-step plan
+AUTO_RECALL = 2
 AUTO_LINE = 140
+AUTO_HEARD = 0.5  # what others said to or near the creature counts half when recall comes unasked
 HUNGRY = 40
 RECALL_ASKED = 5
+RECALL_LORE = 1  # of those, at most this many from shared lore, so places, recipes and memories get room
 RECALL_LINE = 160
 MIN_GAP_TICKS = 4
 CHRONICLE_EVERY = 600
@@ -45,6 +49,10 @@ PALETTE = ["#f2c14e", "#5bc0eb", "#9bc53d", "#fa7921", "#e55934", "#c879ff", "#4
 WAKE_PRIORITY = {"heard": 0, "hungry": 1, "woke": 2, "result": 2, "met": 3, "idle": 4}
 SAYS_RE = re.compile(r'^(\w+) says(?: to (?:you|\w+))?: "(.*)"$')
 GAVE_RE = re.compile(r"^(\w+) gave you (.*)\.$")
+
+
+def _heard_counts_less(doc) -> float:
+    return AUTO_HEARD if doc.kind == "memory" and SPEECH_RE.match(doc.text) else 1.0
 
 
 @dataclass
@@ -368,22 +376,21 @@ class ServerState:
 
     def _recall_hook(self, c: Creature, query: str) -> list[tuple[str, str]]:
         """What the `recall` action finds: memories, places, recipes, texts read and shared lore."""
-        hits = self.recall.search(c.id, query, k=RECALL_ASKED, now=self.world.tick,
+        hits = self.recall.search(c.id, query, k=RECALL_ASKED, now=self.world.tick, max_lore=RECALL_LORE,
                                   extra=[*self._places(c), *self._recipes(c)])
         return [(d.kind, d.text[:RECALL_LINE]) for d in hits]
 
     @staticmethod
     def _recall_note(it, message: str) -> str:
-        """What a creature keeps of a recall: one short line, not the whole answer."""
+        """What a creature keeps of a recall: one short line. The whole answer is shown once, in the next act."""
         found = message.splitlines()[1:]
         query = (it.target or it.text)[:40]
         if not found:
             return f'You tried to think back about "{query}", but nothing came.'
-        more = f"; and {len(found) - 1} more" if len(found) > 1 else ""
-        return f'You thought back about "{query}": {found[0][:90]}{more}.'[:160]
+        return f'You thought back about "{query}": {found[0][:90]}.'[:160]
 
     def auto_recall(self, c: Creature, mem: Memory, recent: list[str]) -> list[tuple[str, str]]:
-        """Up to 3 things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
+        """Up to AUTO_RECALL things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
         aim = [mem.goal]
         if mem.plan and mem.plan_step < len(mem.plan):
             aim.append(mem.plan[mem.plan_step])
@@ -395,7 +402,8 @@ class ServerState:
             words.append("food eat berries")
         query = " ".join(dict.fromkeys(w for w in words if w))
         hits = self.recall.search(c.id, query, k=AUTO_RECALL, now=self.world.tick, exclude=recent,
-                                  semantic=stable, lore=False)  # lore is already shown as techniques
+                                  semantic=stable, lore=False,  # lore is already shown as techniques
+                                  weight=_heard_counts_less)
         return [(d.kind, d.text[:AUTO_LINE]) for d in hits]
 
     def make_job(self, node: Node, c: Creature) -> dict:
@@ -417,9 +425,11 @@ class ServerState:
             if "disclose" in layers:
                 tips = set(relevant(self.world, c, tip_limit(layers)))
                 shown = [t.name for t in TECHNIQUES if t.line in tips]
+            thought_back, mem.thought_back = mem.thought_back, []
             kind, messages, schema, max_tokens = "act", build_act_messages(
-                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled]), \
-                (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), 260
+                self.world, c, mem, perception, reason, layers, [f"{k}: {t}" for k, t in recalled], thought_back), \
+                (INTENTION_SCHEMA_PLAN if "plan" in layers else INTENTION_SCHEMA), \
+                (ACT_TOKENS_PLAN if "plan" in layers else ACT_TOKENS)
             shown_recalled = [f"{k}: {t[:60]}" for k, t in recalled]
         c.thinking = True
         c.last_think_tick = self.world.tick
@@ -497,6 +507,8 @@ class ServerState:
             self.metrics.bump(c.model, "noops")
         if res.ok and res.instant and it.action == "recall":
             self._remember(c, self._recall_note(it, res.message), 1, index=False)
+            if not res.noop:  # a repeated question gets nothing new to show
+                mem.thought_back = res.message.splitlines()[1:]
         elif res.ok and res.instant:
             self._remember(c, res.message, 2 if it.action in ("combine", "craft", "say", "read") else 1,
                            kind="read" if it.action == "read" else "memory")

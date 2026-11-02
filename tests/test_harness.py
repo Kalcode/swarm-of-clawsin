@@ -85,3 +85,63 @@ def test_think_log_records_harness(tmp_path):
     assert line["harness"] == ["plan"]
     cid = next(iter(st.world.creatures))
     assert st.creature_detail(cid)["harness"] == ["plan"]
+
+
+def test_layers_are_crossed_not_stacked():
+    cs = make("a", 8)
+    h = Harness({"plan", "recall"}, set())
+    h.assign(cs)
+    plan = {c.id for c in cs if c.harness["plan"]}
+    recall = {c.id for c in cs if c.harness["recall"]}
+    assert len(plan) == len(recall) == 4  # each layer is balanced within the model
+    assert plan != recall  # but the layers are split independently, so their effects can be told apart
+    assert len(plan & recall) == 2  # fully crossed: every combination of the two layers has 2 creatures
+    h2 = Harness({"plan", "recall"}, set())
+    fresh = make("a", 8)
+    h2.assign(reversed(fresh))  # the order creatures come in doesn't change who gets what
+    assert {c.id: c.harness for c in fresh} == {c.id: c.harness for c in cs}
+
+
+def test_recall_hint_for_disclose_or_recall():
+    from swarmworld.mind.memory import Memory
+    from swarmworld.mind.prompts import RECALL_HINT, build_act_messages
+
+    st = ServerState(seed=7)
+    _, cs = st.register_node(NullWS(), {"node": "t", "slots": 2, "models": [{"tag": "a", "creatures": 1}]})
+    for layers, shown in (({"disclose"}, True), ({"recall"}, True), ({"plan"}, False), (set(), False)):
+        text = build_act_messages(st.world, cs[0], Memory(), "You see nothing.", layers=layers)[1]["content"]
+        assert (RECALL_HINT in text) is shown, layers
+
+
+def test_three_layers_on_eight_creatures_cover_every_combination():
+    from collections import Counter
+
+    for model in ("a", "b", "q"):
+        cs = make(model, 8)
+        Harness({"plan", "disclose", "recall"}, set()).assign(cs)
+        combos = Counter(tuple(c.harness[layer] for layer in ("plan", "disclose", "recall")) for c in cs)
+        assert len(combos) == 8 and set(combos.values()) == {1}, combos
+
+
+def test_crossed_split_stays_balanced_as_creatures_join():
+    cs = make("a", 3)
+    h = Harness({"plan", "disclose", "recall"}, set())
+    h.assign(cs)
+    for n in range(4, 14):
+        cs += make("a", 1, start=n - 1)
+        before = {c.id: dict(c.harness) for c in cs[:-1]}
+        h.assign(cs)
+        assert {c.id: c.harness for c in cs[:-1]} == before  # earlier decisions never change
+        for layer in ("plan", "disclose", "recall"):
+            assert abs(2 * count(h, cs, layer) - len(cs)) <= 1, (layer, len(cs))
+
+
+def test_every_pair_of_layers_is_balanced_on_twelve():
+    from itertools import combinations
+
+    for model in ("a", "gpt", "z"):
+        cs = make(model, 12)
+        Harness({"plan", "disclose", "recall"}, set()).assign(cs)
+        for x, y in combinations(("plan", "disclose", "recall"), 2):
+            both = sum(c.harness[x] and c.harness[y] for c in cs)
+            assert both == 3, (model, x, y, both)  # half of each layer's 6 also has the other layer

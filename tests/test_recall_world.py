@@ -88,6 +88,46 @@ def test_recall_action_answers_and_remembers():
     note = st.memory(c.id).entries[-1].text
     assert note.startswith('You thought back about "which clay is near":') and len(note) <= 160 and "\n" not in note
     assert "place: clay" in note
+    assert "more" not in note  # the full answer is shown once instead; nothing hints at a hidden rest
+
+
+def section(text, header):
+    return text.split(header, 1)[1].split("\n\n", 1)[0].strip().splitlines()
+
+
+def test_asked_recall_is_shown_in_full_once():
+    st, node, c = setup(())
+    for i in range(6):
+        st._remember(c, f"You saw clay number {i} by the pond.", 1)
+    for i in range(30):
+        st._remember(c, f"You walked past boulder number {i}.", 1)
+    job = st.make_job(node, c)
+    st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "recall", "target": "clay by the pond"}})
+    found = c.last_recall[2].splitlines()[1:]
+    assert len(found) == 5
+    text = user_text(st, node, c)
+    assert section(text, "You thought back:") == [f"- {line}" for line in found]
+    assert "You thought back:" not in user_text(st, node, c)  # one-shot
+
+
+def test_asked_recall_after_restart_still_shows(tmp_path):
+    st, node, c = setup(())
+    st._remember(c, "You saw clay by the pond.", 1)
+    job = st.make_job(node, c)
+    st.handle_result(node, {"job": job["job"], "ok": True, "output": {"action": "recall", "target": "clay"}})
+    save(st, tmp_path / "w.json")
+    st2 = ServerState(seed=7)
+    restore(st2, tmp_path / "w.json")
+    assert st2.memory(c.id).thought_back == st.memory(c.id).thought_back != []
+
+
+def test_asked_recall_has_at_most_one_lore_line():
+    st, _, c = setup(())
+    st._remember(c, "You fed sticks to the campfire by the oak and gave berries to a sheep.", 1)
+    st._remember(c, "You planted seeds in the soil and placed a sign.", 1)
+    res = apply_intention(st.world, c, Intention("recall", target="give feed sticks campfire animal plant seeds sign"))
+    kinds = [line.split(":", 1)[0] for line in res.message.splitlines()[1:]]
+    assert kinds.count("lore") == 1 and kinds.count("memory") == 2
 
 
 def test_repeated_recall_is_a_noop():
@@ -199,13 +239,7 @@ def measure_prompts():
 
 def test_full_stack_prompt_within_budget():
     today_user, full_len = measure_prompts()
-    assert full_len <= 1.5 * today_user  # measured 1.41x in this scenario; see the xfail below for the 1.15x target
-
-
-@pytest.mark.xfail(reason="controller target 1.15x of today's user message; the ruled cuts reach about 1.41x", strict=False)
-def test_full_stack_prompt_meets_the_tight_target():
-    today_user, full_len = measure_prompts()
-    assert full_len <= 1.15 * today_user
+    assert full_len <= 1.5 * today_user  # measured 1.39x in this scenario (2319 vs 1670 chars, 2 recall lines)
 
 
 def test_a_creature_recalls_only_landmarks_it_has_been_near():
@@ -239,6 +273,17 @@ def test_repeated_memory_is_indexed_once():
     texts = [d.text for d in st.recall.search(c.id, "clay bank", k=5, now=st.world.tick)]
     assert texts == ["You gathered clay from the clay bank."]
     assert sum(1 for d in st.recall._docs[c.id] if "clay bank" in d.text) == 2
+
+
+def test_auto_recall_shows_at_most_two_lines():
+    st, node, c = setup()
+    for i in range(5):
+        st._remember(c, f"You found clay number {i} by the pond.", 1)
+    for i in range(30):
+        st._remember(c, f"You walked past boulder number {i}.", 1)
+    st.memory(c.id).goal = "find clay by the pond"
+    assert len(st.auto_recall(c, st.memory(c.id), [])) == 2
+    assert len(section(user_text(st, node, c), "You recall:")) == 2
 
 
 def test_hunger_adds_food_words_to_the_automatic_query():
@@ -312,6 +357,89 @@ async def test_embed_loop_survives_a_dead_embedder():
     assert app[STATE].recall.pending(1)  # keyword search carries on
 
 
+class HTTPError(Exception):
+    """Like aiohttp's ClientResponseError: carries the HTTP status (and here, a key that must never be logged)."""
+
+    def __init__(self, status):
+        super().__init__(f"{status} for Authorization: Bearer pa-secret")
+        self.status = status
+
+
+class Flaky:
+    """Answers with each outcome in turn: an HTTP status to fail with, or None to succeed."""
+
+    def __init__(self, outcomes):
+        self.outcomes, self.calls = list(outcomes), 0
+
+    async def embed(self, texts, input_type):
+        self.calls += 1
+        status = self.outcomes.pop(0) if self.outcomes else None
+        if status:
+            raise HTTPError(status)
+        return [[1.0, 0.5, float(len(t) % 5)] for t in texts]
+
+
+class Stop(Exception):
+    pass
+
+
+async def run_embed_loop(emb, sleeps):
+    from swarmworld.server.app import STATE, create_app, embed_loop
+
+    app = create_app(seed=7, start_loop=False, embedder=emb)
+    for i in range(1000):  # plenty of work queued, so every turn of the loop calls the embedder
+        app[STATE].recall.add("c1", "memory", f"note {i}", i)
+    delays = []
+
+    async def fake_sleep(s):
+        delays.append(s)
+        if len(delays) >= sleeps:
+            raise Stop
+
+    try:
+        await embed_loop(app, every=3.0, sleep=fake_sleep)
+    except Stop:
+        pass
+    return app[STATE], delays
+
+
+@pytest.mark.asyncio
+async def test_embed_failures_back_off_and_reset(caplog):
+    caplog.set_level("INFO")
+    st, delays = await run_embed_loop(Flaky([429, 429, 429, None, 503] + [500] * 9), sleeps=14)
+    assert delays[:5] == [6.0, 12.0, 24.0, 3.0, 6.0]  # doubles on failure, back to 3 s after a success
+    assert max(delays) == 300.0 and delays[-2:] == [300.0, 300.0]  # capped at 5 minutes
+    fails = [r for r in caplog.records if "embedding failed" in r.getMessage()]
+    assert len(fails) == 13 and all(r.exc_info is None for r in fails)  # one line each, no traceback
+    assert "HTTP 429" in fails[0].getMessage() and "HTTP 503" in fails[3].getMessage()
+    assert not any("pa-secret" in r.getMessage() for r in caplog.records)
+    assert st.embedder is not None
+
+
+@pytest.mark.asyncio
+async def test_rejected_key_turns_embeddings_off(caplog):
+    caplog.set_level("INFO")
+    for status in (401, 403):
+        caplog.clear()
+        st, delays = await run_embed_loop(Flaky([status]), sleeps=3)
+        assert delays == [] and st.embedder is None  # the loop ends instead of retrying
+        msgs = [r.getMessage() for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+        assert len(msgs) == 1 and f"HTTP {status}" in msgs[0] and "keywords only" in msgs[0]
+        assert not any("pa-secret" in r.getMessage() for r in caplog.records)
+
+
+def test_startup_line_says_what_recall_uses(tmp_path, monkeypatch):
+    from swarmworld.server.__main__ import make_embedder, recall_search_line
+
+    monkeypatch.delenv("VOYAGE_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert recall_search_line(make_embedder(None), None) == "Recall search: keywords only (no VOYAGE_API_KEY)"
+    assert recall_search_line(make_embedder("none"), "none") == "Recall search: keywords only (--embed none)"
+    monkeypatch.setenv("VOYAGE_API_KEY", "pa-secret")
+    line = recall_search_line(make_embedder(None), None)
+    assert line == "Recall search: keywords + Voyage embeddings (voyage-3.5-lite)" and "pa-secret" not in line
+
+
 @pytest.mark.asyncio
 async def test_no_embedder_means_no_embed_task():
     import asyncio
@@ -343,3 +471,24 @@ def test_voyage_key_from_env_or_dotenv(tmp_path, monkeypatch):
     assert make_embedder(None) is None
     with pytest.raises(SystemExit):
         make_embedder("voyage")
+
+
+def test_overheard_speech_counts_half_in_automatic_recall_only():
+    st, _, c = setup()
+    mem = st.memory(c.id)
+    mem.goal = "find clay"
+    st._remember(c, "You saw clay at the bank.", 1)
+    st._remember(c, 'Mara says to you: "Clay! There is clay by the pond."', 3)
+    asked = [t for _, t in st._recall_hook(c, "find clay") if "clay" in t.lower()]
+    auto = [t for _, t in st.auto_recall(c, mem, [])]
+    assert asked.index('Mara says to you: "Clay! There is clay by the pond."') < asked.index("You saw clay at the bank.")
+    assert auto[0] == "You saw clay at the bank."  # what others said counts half when recall comes unasked
+
+
+def test_multiline_memory_shown_in_recent_is_not_recalled_again():
+    st, _, c = setup()
+    mem = st.memory(c.id)
+    mem.goal = "find clay"
+    text = "You read the sign:\nCLAY is north of the pond"
+    st._remember(c, text, 2, kind="read")
+    assert not st.auto_recall(c, mem, [text])

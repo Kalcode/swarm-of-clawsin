@@ -68,7 +68,7 @@ Actions:
 
 Other things you can do (write, read, store, place, plant, invent and more) appear under "Things you could also do here" when they fit.
 
-Good to know: hunger grows; eat before you starve or you will collapse and lose everything you carry. Speak briefly and naturally, in your own voice.
+Good to know: hunger grows; eat before you starve or you will collapse and lose everything you carry. Only name things you can actually see, carry or remember. Speak briefly and naturally, in your own voice. Skip empty pleasantries; talk about useful things: where food and materials are, what you made and how, what you need, plans to work together.
 
 Example reply:
 {"thought": "I need stone for tools and the boulder is right here.", "action": "gather", "target": "boulder", "items": [], "text": "", "count": 3, "goal": "make a stone axe", "speech": "Mara, I'll get the stone if you find sticks!"}"""
@@ -227,7 +227,7 @@ RECALL_HINT = "(You can think back with recall: target is what you want to remem
 
 
 def build_act_messages(world: World, c: Creature, memory: Memory, perception: str, wake_reason: str | None = None,
-                       layers: set[str] = frozenset(), recalled: list[str] = ()) -> list[dict]:
+                       layers: set[str] = frozenset(), recalled: list[str] = (), thought_back: list[str] = ()) -> list[dict]:
     p = c.persona or {}
     traits = " and ".join(p.get("traits", [])) or "ordinary"
     drive = DRIVES.get(p.get("drive", ""), "a wish to survive")
@@ -252,6 +252,10 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
         lines.append("")
         lines.append("Recent memories (oldest first):")
         lines += [f"- {r}" for r in recent]
+    if thought_back:  # the full answer to the recall the creature just asked for, shown this once
+        lines.append("")
+        lines.append("You thought back:")
+        lines += [f"- {r}" for r in thought_back]
     if "recall" in layers and recalled:
         lines.append("")
         lines.append("You recall:")
@@ -268,7 +272,7 @@ def build_act_messages(world: World, c: Creature, memory: Memory, perception: st
             lines.append("")
             lines.append("Things you could also do here:")
             lines += [f"- {t}" for t in tips]
-    if "recall" in layers:
+    if "recall" in layers or "disclose" in layers:  # disclose moved lore out of the prompt: recall finds it
         lines.append("")
         lines.append(RECALL_HINT)
     lines.append("")
