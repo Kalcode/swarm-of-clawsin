@@ -55,6 +55,18 @@ def main() -> None:
                  f"with {len(state['creatures'])} creatures. In the window covered: {len(events)} events and "
                  f"{sum(1 for e in events if e['kind'] == 'say')} things said.\n")
 
+    try:
+        history = get("/api/history")
+    except Exception:
+        history = []
+    if len(history) >= 2:
+        a, b = history[0], history[-1]
+        lines.append("## Growth\n")
+        lines.append(f"From day {a['day']} to day {b['day']}: knowledge in the society (recipes known, summed over creatures) went from "
+                     f"**{a['world']['recipes_known']} to {b['world']['recipes_known']}**, structures from {a['world']['structures']} to "
+                     f"{b['world']['structures']}, camps from {a['world']['camps']} to {b['world']['camps']}, and relationships "
+                     f"from {a['world']['ties']} to {b['world']['ties']}.\n")
+
     lines.append("## The Chronicle\n")
     if chronicle:
         for ch in chronicle:
@@ -114,6 +126,13 @@ def main() -> None:
     for m, v in metrics["models"].items():
         lines.append(f"| {m} | " + " | ".join(str(v.get(c, "")) for c in cols) + " |")
     lines.append("")
+
+    benches = sorted(Path("bench/results").glob("world_bench-*.json"))
+    if benches:
+        latest = json.loads(benches[-1].read_text())
+        if not latest["args"].get("mock"):
+            lines.append("## Turn-based benchmark (latest run)\n")
+            lines.append(latest["table"] + "\n")
 
     quotes = [e for e in events if e["kind"] == "say" and len(e["text"]) > 60]
     if quotes:
