@@ -1130,7 +1130,7 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, "You'd need a bit more material for something new: at least 3 items in all.")
     if world.catalog.match_combination(set(inputs)):
         return ActionResult(False, "Those things already combine into something known. Try combine instead.")
-    desc = it.text.strip()[:140] or f"Something {c.name} invented."
+    desc = (it.text.strip() or it.thought.strip())[:140] or f"Something {c.name} invented."
     edible_words = ("eat", "food", "meal", "snack", "cake", "pie", "stew", "soup", "bread", "tasty", "filling")
     food_in = sum(cat.items[i].food * n for i, n in inputs.items())
     food = int(food_in * 1.4) if food_in and any(w in (name + " " + desc).lower() for w in edible_words) else 0
