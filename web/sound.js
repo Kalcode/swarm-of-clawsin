@@ -39,7 +39,7 @@
   }
 
   function applyVolume() {
-    if (master) master.gain.value = state.on ? state.vol * state.vol : 0;
+    if (master) master.gain.setTargetAtTime(state.on ? state.vol * state.vol : 0, ctx.currentTime, 0.03);
   }
 
   // ---------------------------------------------------------------- voice helpers
@@ -229,9 +229,10 @@
   function renderUI() {
     const b = document.getElementById('sound-btn'), v = document.getElementById('sound-vol');
     if (b) {
-      b.innerHTML = (state.on ? ICON_ON : ICON_OFF) + '<span class="sr-only">Sound</span>';
-      b.setAttribute('aria-pressed', state.on ? 'true' : 'false');
-      b.title = state.on ? 'Mute sound (M)' : 'Turn sound on (M)';
+      const live = state.on && !pendingStart;  // a remembered "on" is silent until the first gesture
+      b.innerHTML = (live ? ICON_ON : ICON_OFF) + '<span class="sr-only">Sound</span>';
+      b.setAttribute('aria-pressed', live ? 'true' : 'false');
+      b.title = live ? 'Mute sound (M)' : 'Turn sound on (M)';
     }
     if (v) { v.value = Math.round(state.vol * 100); v.disabled = false; }
   }
@@ -255,16 +256,27 @@
   function init() {
     const b = document.getElementById('sound-btn'), v = document.getElementById('sound-vol');
     renderUI();
-    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); setOn(!state.on); });
+    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); setOn(!(state.on && !pendingStart)); });
     if (v) v.addEventListener('input', () => { state.vol = v.value / 100; save(); applyVolume(); });
     window.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName) || '';
-      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag)) setOn(!state.on);
+      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag)) setOn(!(state.on && !pendingStart));
     });
     // a remembered "on" resumes with the first gesture, as browsers require
-    const first = () => { if (pendingStart && state.on) setOn(true); window.removeEventListener('pointerdown', first, true); };
+    const first = (e) => {
+      if (e.type === 'keydown' && (e.key === 'm' || e.key === 'M')) return;  // the M handler is this gesture
+      if (b && e.target && b.contains(e.target)) return;                     // so is the button's own click
+      if (pendingStart && state.on) setOn(true);
+      window.removeEventListener('pointerdown', first, true);
+      window.removeEventListener('keydown', first, true);
+    };
     window.addEventListener('pointerdown', first, true);
     window.addEventListener('keydown', first, true);
+    document.addEventListener('visibilitychange', () => {  // a hidden tab plays nothing
+      if (!ctx) return;
+      if (document.hidden) { stopMusic(); if (ctx.state === 'running') ctx.suspend(); }
+      else if (state.on && !pendingStart) ctx.resume().then(startMusic, () => {});
+    });
   }
 
   // ---------------------------------------------------------------- the hook viewer.js calls
