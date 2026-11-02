@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict, deque
 from typing import Callable
 
-from .actions import ANIMAL_FOOD, WELL_FED, ActionResult, step_activity
+from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World
 from .perception import DAY_SIGHT, note_spots, visible_creatures
@@ -453,7 +453,7 @@ class Simulation:
             near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
                     and max(abs(c.x - o.x), abs(c.y - o.y)) < 3] if not owner and not d.get("tamed_by") else []
             following = bool(owner and max(abs(owner.x - o.x), abs(owner.y - o.y)) <= 6
-                             and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_FOOD))
+                             and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_LURE))
             if near:
                 d["state"] = "wary"
                 c = min(near, key=lambda c: max(abs(c.x - o.x), abs(c.y - o.y)))

@@ -236,3 +236,19 @@ def test_grazing_feeds_only_on_grass_but_never_freezes(world):
         run(sim, 4)
         spots.add((sheep.x, sheep.y))
     assert len(spots) > 1 and sheep.data["hunger"] > 30
+
+
+def test_plant_fiber_feeds_but_does_not_lure(world):
+    owner = creature(world, "Mara", 20, 20)
+    owner.inventory["plant_fiber"] = 3
+    sheep = world.add_object("sheep", 20, 17)
+    tame(sheep, home=(20, 17))
+    sim = Simulation(world)
+    for _ in range(12):
+        owner.x += 1
+        run(sim, 4)
+    assert sheep.data["state"] != "follow"
+    owner.x, owner.y = sheep.x + 1, sheep.y
+    sheep.data["hunger"] = 80
+    res = apply_intention(world, owner, Intention("give", target="sheep", items=["plant_fiber"]))
+    assert res.ok and sheep.data["hunger"] == 20

@@ -54,6 +54,7 @@ SOURCE_HINT = {
 }
 WELL_FED = 40  # animal hunger below this: it gives eggs, milk, wool and may breed
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
+ANIMAL_LURE = ANIMAL_FOOD - {"plant_fiber"}  # what a tamed animal follows its owner for (fiber feeds it, but no lure)
 EMPTY_KINDS = {"bush_empty", "stump"}
 CARVABLE = {"tree", "pine", "rock", "stump"}
 TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
