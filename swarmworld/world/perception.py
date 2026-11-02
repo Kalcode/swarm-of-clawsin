@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from .model import OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
+from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
 
 DAY_SIGHT = 6
 NIGHT_SIGHT = 2
@@ -174,6 +174,13 @@ def _feeling(c: Creature) -> str:
     return ", ".join(bits)
 
 
+def _animal_doing(o: WorldObject) -> str:
+    state = o.data["state"]
+    if state == "follow":
+        return f"following {o.data.get('tamed_by', 'its owner')}"
+    return {"graze": "grazing", "rest": "resting", "wary": "edging away from you", "home": "heading home"}.get(state, "")
+
+
 def inventory_text(world: World, c: Creature) -> str:
     items = [(world.catalog.name(i), n) for i, n in sorted(c.inventory.items()) if n > 0]
     if not items:
@@ -236,6 +243,8 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
         elif o.kind in ("basket", "chest"):
             held = o.data.get("items") or {}
             label = f"{o.name} (holding " + ", ".join(f"{n} {world.catalog.name(i)}" for i, n in held.items()) + ")" if held else f"empty {o.name}"
+        if o.kind in ANIMALS and o.data.get("state"):
+            label = f"{o.name} {_animal_doing(o)}".strip()
         if o.kind == "terminal":
             label = "strange terminal (running a program)" if o.data.get("code") else "strange terminal (its screen glows, waiting)"
         groups[label].append((d, dirn))
