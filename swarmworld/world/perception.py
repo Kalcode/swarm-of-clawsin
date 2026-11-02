@@ -11,6 +11,7 @@ DAY_SIGHT = 6
 NIGHT_SIGHT = 2
 FIRE_SIGHT = 5
 FIRE_RADIUS = 3
+GLOW_SIGHT = 8  # how far a fire's glow can be seen at night
 LANDMARK_RANGE = 14
 
 DIRS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]
@@ -53,6 +54,15 @@ def visible_objects(world: World, creature: Creature, rng: int | None = None) ->
             if o:
                 dx, dy = o.x - creature.x, o.y - creature.y
                 out.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
+    if rng is None and r < DAY_SIGHT:  # in the dark, fires and lights still glow from afar
+        seen = {o.id for o, _, _ in out}
+        for y in range(creature.y - GLOW_SIGHT, creature.y + GLOW_SIGHT + 1):
+            for x in range(creature.x - GLOW_SIGHT, creature.x + GLOW_SIGHT + 1):
+                o = world.object_at(x, y)
+                if o and o.id not in seen and ((o.kind == "campfire" and o.data.get("lit"))
+                                               or (o.kind == "creation" and "light" in o.data.get("effects", ()))):
+                    dx, dy = o.x - creature.x, o.y - creature.y
+                    out.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
     out.sort(key=lambda t: t[1])
     return out
 

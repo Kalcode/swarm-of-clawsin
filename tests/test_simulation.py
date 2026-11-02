@@ -166,3 +166,18 @@ def test_tired_creatures_sleep_through_the_night(world):
     for _ in range(25):
         sim.tick()
     assert not (c.activity or {}).get("sleep") and c.energy > 30
+
+
+def test_sleepers_seek_the_fire(world):
+    from swarmworld.world.model import DAY_TICKS
+    sim = Simulation(world)
+    world.add_object("campfire", 15, 10, lit=True, lit_until=10**9)
+    c = creature(world, "Tam", 10, 10)
+    c.persona = {"initiative": "reactive"}
+    world.tick = DAY_TICKS * 2 + int(DAY_TICKS * 0.7)
+    sim.tick()
+    assert "heading to the campfire" in (c.activity or {}).get("label", "")
+    for _ in range(12):
+        sim.tick()
+    assert (c.activity or {}).get("sleep") and max(abs(c.x - 15), abs(c.y - 10)) <= 2
+    assert "out in the cold" not in c.activity["label"]

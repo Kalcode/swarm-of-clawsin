@@ -75,7 +75,12 @@ class Simulation:
             self._needs(c, t)
             if c.collapsed:
                 continue
+            was_bedtime_walk = (c.activity or {}).get("sleep_after")
             res = step_activity(w, c)
+            if res is not None and was_bedtime_walk and c.activity is None and w.clock()["phase"] == "night":
+                self.remember(c, res.message, 1)
+                self._start_sleep(c, self.exposure(c) is None)
+                res = None
             if res is not None:
                 if self.on_result:
                     self.on_result(c, res)
@@ -174,6 +179,26 @@ class Simulation:
             return
         from .actions import station_near
         snug = station_near(w, c, "bed") or self.exposure(c) is None
+        if not snug:  # head for the warmth of a fire or a shelter in sight, then sleep there
+            from .actions import _adjacent_goals, bfs_path, occupied_tiles
+            from .perception import visible_objects
+            warm = next((o for o, d, _ in visible_objects(w, c)
+                         if (o.kind == "campfire" and o.data.get("lit")) or o.kind == "bed"
+                         or (o.kind == "creation" and {"shelter", "light"} & set(o.data.get("effects", ())))), None)
+            if warm:
+                goals = {(x, y) for x in range(warm.x - 2, warm.x + 3) for y in range(warm.y - 2, warm.y + 3)
+                         if w.walkable(x, y)} - occupied_tiles(w, c.id)
+                path = bfs_path(w, (c.x, c.y), goals, avoid=occupied_tiles(w, c.id)) if goals else None
+                if path:
+                    c.activity = {"type": "walk", "path": path, "label": f"heading to the {warm.name} to sleep",
+                                  "result": f"You settle down by the {warm.name}.", "sleep_after": True}
+                    c.wake_reason = None
+                    return
+        self._start_sleep(c, snug)
+
+    def _start_sleep(self, c: Creature, snug: bool) -> None:
+        from .actions import station_near
+        w = self.world
         c.activity = {"type": "busy", "ticks": 10_000, "label": "sleeping" + ("" if snug else " out in the cold"),
                       "result": "You wake up.", "rest": True, "bed": station_near(w, c, "bed"), "sleep": True}
         c.wake_reason = None
