@@ -26,7 +26,7 @@ from .harness import Harness
 from .metrics import Metrics
 from .wishes import Wishes
 
-AUTO_RECALL = 3
+AUTO_RECALL = 2
 AUTO_LINE = 140
 HUNGRY = 40
 RECALL_ASKED = 5
@@ -383,7 +383,7 @@ class ServerState:
         return f'You thought back about "{query}": {found[0][:90]}.'[:160]
 
     def auto_recall(self, c: Creature, mem: Memory, recent: list[str]) -> list[tuple[str, str]]:
-        """Up to 3 things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
+        """Up to AUTO_RECALL things worth recalling now: from the goal, the plan's NOW step and what is in sight."""
         aim = [mem.goal]
         if mem.plan and mem.plan_step < len(mem.plan):
             aim.append(mem.plan[mem.plan_step])

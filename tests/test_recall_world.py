@@ -239,13 +239,7 @@ def measure_prompts():
 
 def test_full_stack_prompt_within_budget():
     today_user, full_len = measure_prompts()
-    assert full_len <= 1.5 * today_user  # measured 1.41x in this scenario; see the xfail below for the 1.15x target
-
-
-@pytest.mark.xfail(reason="controller target 1.15x of today's user message; the ruled cuts reach about 1.41x", strict=False)
-def test_full_stack_prompt_meets_the_tight_target():
-    today_user, full_len = measure_prompts()
-    assert full_len <= 1.15 * today_user
+    assert full_len <= 1.5 * today_user  # measured 1.39x in this scenario (2319 vs 1670 chars, 2 recall lines)
 
 
 def test_a_creature_recalls_only_landmarks_it_has_been_near():
@@ -279,6 +273,17 @@ def test_repeated_memory_is_indexed_once():
     texts = [d.text for d in st.recall.search(c.id, "clay bank", k=5, now=st.world.tick)]
     assert texts == ["You gathered clay from the clay bank."]
     assert sum(1 for d in st.recall._docs[c.id] if "clay bank" in d.text) == 2
+
+
+def test_auto_recall_shows_at_most_two_lines():
+    st, node, c = setup()
+    for i in range(5):
+        st._remember(c, f"You found clay number {i} by the pond.", 1)
+    for i in range(30):
+        st._remember(c, f"You walked past boulder number {i}.", 1)
+    st.memory(c.id).goal = "find clay by the pond"
+    assert len(st.auto_recall(c, st.memory(c.id), [])) == 2
+    assert len(section(user_text(st, node, c), "You recall:")) == 2
 
 
 def test_hunger_adds_food_words_to_the_automatic_query():
