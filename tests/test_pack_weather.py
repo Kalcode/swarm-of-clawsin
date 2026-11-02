@@ -78,7 +78,7 @@ def test_heat_makes_creatures_hungrier():
         _run(st, 96)
         return 90 - c.satiety
 
-    assert hunger("heat") > hunger("clear")
+    assert hunger("heat") == hunger("clear") + 2  # one extra point at ticks 144 and 192
 
 
 def test_weather_line_only_when_not_clear():

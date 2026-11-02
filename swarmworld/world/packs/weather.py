@@ -23,9 +23,9 @@ ENDS = {"rain": "The rain stops and the clouds drift apart.", "drizzle": "The dr
         "heat": "The heat breaks at last."}
 LINES = {"drizzle": "A fine drizzle is falling.",
          "fog": "Fog hangs thick around you; you can only see a few steps.",
-         "wind": "A strong wind is blowing; fires burn down fast and sounds carry far.",
+         "wind": "Wind tugs at everything; fires eat their fuel faster.",
          "storm": "A storm is raging: rain, wind and thunder.",
-         "heat": "The heat is heavy; you tire and hunger faster."}
+         "heat": "The heat is heavy; you hunger faster."}
 FOG_SIGHT = 3
 WIND_CARRY = 1.5  # sounds carry this much farther on a windy day
 FIRE_EXTRA = 10  # extra ticks of fuel a campfire loses per 10 ticks of wind: it burns twice as fast
@@ -120,14 +120,25 @@ def _storm(w: World, t: int) -> None:
             kind="thunder", loud=True)
     if struck:
         struck.data["burning"] = t + BURN_TICKS
+        _state(w).setdefault("burning", []).append(struck.id)
         w.changed_objects.add(struck.id)
         w.emit("lightning", None, x, y, "Lightning strikes a tree and it bursts into flame.")
 
 
+def _burning(w: World) -> list:
+    return w.ext.get("weather", {}).get("burning") or []
+
+
 def _burn(w: World, t: int) -> None:
-    for o in list(w.objects.values()):
-        until = o.data.get("burning")
+    ids = _burning(w)
+    if not ids:
+        return
+    _state(w)["burning"] = [i for i in ids if i in w.objects and w.objects[i].data.get("burning")]
+    for oid in ids:
+        o = w.objects.get(oid)
+        until = o.data.get("burning") if o else None
         if until and t >= until:
+            _state(w)["burning"] = [i for i in _state(w)["burning"] if i != oid]
             o.data.pop("burning", None)
             w.change_kind(o, "stump")
             o.data["regrow_at"] = t + 800
@@ -141,10 +152,13 @@ def _weather_line(world: World, c) -> str | None:
 
 def _burning_line(world: World, c) -> str | None:
     from ..perception import sight_range
+    ids = _burning(world)
+    if not ids:
+        return None
     r = sight_range(world, c)
     best = None
-    for o in world.objects.values():
-        if o.data.get("burning"):
+    for o in (world.objects.get(i) for i in ids):
+        if o and o.data.get("burning"):
             d = dist(c.x, c.y, o.x, o.y)
             if d <= max(r, 8) and (best is None or d < best[0]):
                 best = (d, o)
@@ -156,4 +170,4 @@ def _burning_line(world: World, c) -> str | None:
 
 register_system("weather", 2, _step)
 register_perception(_burning_line, priority=30)
-register_perception(_weather_line, priority=45)
+register_perception(_weather_line, priority=50)

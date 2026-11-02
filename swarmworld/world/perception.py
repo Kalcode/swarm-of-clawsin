@@ -227,7 +227,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     light = "It is dark; you can only see a couple of steps." if r == NIGHT_SIGHT else (
         "It is night, but firelight lets you see around you." if phase == "night" else "")
     weather = ""
-    if getattr(world, "weather", "clear") in ("rain", "storm"):
+    if getattr(world, "weather", "clear") == "rain":  # a storm's own line says it
         weather = "Rain is falling."
     if c.satiety < 15:  # the body's alarm comes before everything else
         lines.append("You are starving: eat now or you will collapse.")
