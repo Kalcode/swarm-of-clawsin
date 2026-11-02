@@ -8,6 +8,8 @@
 # Settings (environment variables): MODEL, CREATURES, SLOTS, SEED, TICK, PORT, WORLD, MODEL2 ("NAME:N" second model; MODEL2= for one model only)
 #   MODEL_SERVER: think on another machine's model server instead of this Mac's oMLX, e.g. the gaming PC:
 #   MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
+#   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
+#   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
 cd "$(dirname "$0")"
 MODEL="${MODEL:-gemma-4-e4b-it-4bit}"
@@ -42,6 +44,7 @@ WORLD_ARGS=(--seed "$SEED" --tick "$TICK" --port "$PORT" --world "$WORLD")
 NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "$SLOTS")
 [[ -n "${MODEL2:-}" ]] && NODE_ARGS+=(--model "$MODEL2")
 [[ -n "${MODEL_SERVER:-}" ]] && NODE_ARGS+=(--model-server "$MODEL_SERVER")
+for a in ${ADOPT:-}; do NODE_ARGS+=(--adopt "$a"); done
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")
   NODE_ARGS+=(--token "$TOKEN")

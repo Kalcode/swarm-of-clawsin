@@ -58,6 +58,16 @@ def suggest_creatures(ram_gb: float | None) -> int:
     return 4 if ram_gb < 12 else 8 if ram_gb < 24 else 12 if ram_gb < 48 else 20
 
 
+def apply_adopts(specs: list[ModelSpec], adopts: list[str]) -> None:
+    """--adopt gemma-4-e4b (to the first model) or --adopt qwen3.5-4b=qwen3.5:9b (to a named one)."""
+    for a in adopts:
+        old, _, new = a.partition("=")
+        spec = next((s for s in specs if not new or s.tag in (new, short_tag(new))), None)
+        if spec is None:
+            sys.exit(f"--adopt {a}: '{new}' isn't one of this node's models ({', '.join(s.tag for s in specs)})")
+        spec.adopt.append(short_tag(old.strip()))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Join Swarm World as a brain node")
     ap.add_argument("--server", default=None, help="world address, e.g. ws://192.168.1.20:7777 (default: local, or --discover)")
@@ -67,6 +77,9 @@ def main() -> None:
     ap.add_argument("--api-key", default=None)
     ap.add_argument("--model", action="append", default=[], help="MODEL[:CREATURES], repeatable for a mixed population")
     ap.add_argument("--mock", type=int, default=0, metavar="N", help="add N rule-based creatures (no LLM)")
+    ap.add_argument("--adopt", action="append", default=[], metavar="OLD[=NEW]",
+                    help="give sleeping creatures of model OLD a new mind (they keep their memories); "
+                         "NEW picks which of your models (default: the first)")
     ap.add_argument("--slots", type=int, default=8, help="concurrent model requests")
     ap.add_argument("--name", default=None, help="node name (default: hostname)")
     ap.add_argument("--temperature", type=float, default=0.8)
@@ -104,6 +117,7 @@ def main() -> None:
         print(f"  Using {name} on {base} for {n} creatures (pass --model to choose).")
         specs.append(ModelSpec(short_tag(name), LLMBrain(base, name, args.api_key, temperature=args.temperature), n))
 
+    apply_adopts(specs, args.adopt)
     server = args.server
     if not server and args.discover:
         from ..net.discovery import discover

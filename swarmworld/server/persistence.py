@@ -25,6 +25,7 @@ def _creature_dict(c: Creature) -> dict:
         "inventory": dict(c.inventory), "satiety": c.satiety, "energy": c.energy, "health": c.health,
         "collapsed_until": c.collapsed_until, "known_recipes": sorted(c.known_recipes), "stats": dict(c.stats),
         "spots": {k: list(v) for k, v in c.spots.items()},
+        "minds": c.minds, "stats_base": dict(c.stats_base),
     }
 
 
@@ -55,6 +56,7 @@ def snapshot(st: "ServerState") -> dict:
         "inventions": getattr(st.world.catalog, "inventions", []),
         "metrics": {m: dict(cnt) for m, cnt in st.metrics.models.items()},
         "metric_items": {m: sorted(v) for m, v in st.metrics.items.items()},
+        "metric_retired": {m: dict(v) for m, v in st.metrics.retired.items()},
     }
 
 
@@ -105,7 +107,8 @@ def restore(st: "ServerState", path: Path) -> None:
                      inventory=Counter(cd["inventory"]), satiety=cd["satiety"], energy=cd["energy"], health=cd["health"],
                      collapsed_until=0 if not cd.get("collapsed_until") else w.tick + 5,
                      known_recipes=set(cd["known_recipes"]), stats=Counter(cd["stats"]),
-                     spots={k: tuple(v) for k, v in cd.get("spots", {}).items()})
+                     spots={k: tuple(v) for k, v in cd.get("spots", {}).items()},
+                     minds=cd.get("minds", []), stats_base=Counter(cd.get("stats_base", {})))
         c.asleep = True
         if "initiative" not in c.persona:  # saves from before temperaments: assign one, stable per creature
             import random as _r
@@ -136,6 +139,8 @@ def restore(st: "ServerState", path: Path) -> None:
     st.wishes.load(data.get("wishes"))
     for m, cnt in data.get("metrics", {}).items():
         st.metrics.models[m].update(cnt)
+    for m, r in data.get("metric_retired", {}).items():
+        st.metrics.retired[m].update(r)
     for m, items in data.get("metric_items", {}).items():
         st.metrics.items[m].update(items)
     st.chronicle_from = w.tick

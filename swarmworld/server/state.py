@@ -29,6 +29,9 @@ HISTORY_MAX = 3000  # ticks (5 minutes of world time)
 JOB_TIMEOUT_S = 90
 MAX_PER_NODE = 60
 MAX_CREATURES = 200
+HISTORY_STATS = ("crafted", "discoveries", "inventions", "speech", "built", "gathered", "writing", "collapses", "stored",
+                 "tended_fire")
+LEARN_STATS = ("learned_by_watching", "learned_by_listening", "learned_by_reading")
 PALETTE = ["#f2c14e", "#5bc0eb", "#9bc53d", "#fa7921", "#e55934", "#c879ff", "#4ecdc4", "#ff6b9d", "#f7f7f7"]
 WAKE_PRIORITY = {"heard": 0, "hungry": 1, "woke": 2, "result": 2, "met": 3, "idle": 4}
 SAYS_RE = re.compile(r'^(\w+) says(?: to (?:you|\w+))?: "(.*)"$')
@@ -154,7 +157,13 @@ class ServerState:
             orphans = [c for c in self.world.creatures.values()
                        if c.model == tag and c.node_id is None and self.owner.get(c.id) not in {n.name for n in self.nodes.values()}
                        and c not in mine]
-            picked = (mine + orphans)[:want]
+            adopt = {str(t)[:60] for t in spec.get("adopt") or []} - {tag}
+            adoptees = [c for c in self.world.creatures.values()
+                        if c.model in adopt and c.node_id is None and self.owner.get(c.id) not in {n.name for n in self.nodes.values()}]
+            picked = (mine + orphans + adoptees)[:want]
+            for c in picked:
+                if c.model != tag:
+                    self.transplant(c, tag)
             while len(picked) < want and len(self.world.creatures) < MAX_CREATURES:
                 picked.append(self.new_creature(tag))
             for c in picked:
@@ -167,6 +176,18 @@ class ServerState:
             budget -= len(picked)
         self.world.emit("join", None, *self.world.center, f"Brain node '{name}' joined with {len(assigned)} creatures.")
         return node, assigned
+
+    def transplant(self, c: Creature, tag: str) -> None:
+        """Give a creature a new mind. Its body, memories and bonds stay; what it did so far stays credited to the old model."""
+        old = c.model
+        earned = Counter(c.stats)
+        earned.subtract(c.stats_base)
+        self.metrics.retire(old, +earned)
+        c.stats_base = Counter(c.stats)
+        c.minds.append({"model": old, "until": self.world.tick})
+        c.model, c.color = tag, self.color_for(tag)
+        self._remember(c, "You wake with a strange clarity, as if your thoughts run along new paths.", 1)
+        self.world.emit("join", c.id, c.x, c.y, f"{c.name}'s mind moved from {old} to {tag}.")
 
     def unregister_node(self, node_id: str) -> None:
         node = self.nodes.pop(node_id, None)
@@ -398,11 +419,16 @@ class ServerState:
         for c in w.creatures.values():
             m = models.setdefault(c.model, Counter())
             m["creatures"] += 1
-            for k in ("crafted", "discoveries", "inventions", "speech", "built", "gathered", "writing", "collapses", "stored", "tended_fire"):
-                m[k] += c.stats.get(k, 0)
-            m["learned"] += sum(c.stats.get(k, 0) for k in ("learned_by_watching", "learned_by_listening", "learned_by_reading"))
+            for k in HISTORY_STATS:
+                m[k] += c.stats.get(k, 0) - c.stats_base.get(k, 0)
+            m["learned"] += sum(c.stats.get(k, 0) - c.stats_base.get(k, 0) for k in LEARN_STATS)
             m["recipes_known"] += len(c.known_recipes)
             known_total += len(c.known_recipes)
+        for tag, r in self.metrics.retired.items():  # creatures' deeds under minds they've since lost
+            m = models.setdefault(tag, Counter())
+            for k in HISTORY_STATS:
+                m[k] += r.get(k, 0)
+            m["learned"] += sum(r.get(k, 0) for k in LEARN_STATS)
         for tag, m in models.items():
             m["thinks"] = self.metrics.models[tag]["thinks"]
         structures = sum(1 for o in w.objects.values()
@@ -525,7 +551,7 @@ class ServerState:
         cat = self.world.catalog
         node = self.nodes.get(c.node_id) if c.node_id else None
         return {
-            "id": c.id, "name": c.name, "model": c.model, "color": c.color, "persona": c.persona,
+            "id": c.id, "name": c.name, "model": c.model, "minds": c.minds, "color": c.color, "persona": c.persona,
             "x": c.x, "y": c.y, "node": node.name if node else None, "asleep": c.asleep, "thinking": c.thinking,
             "activity": (c.activity or {}).get("label"),
             "perception": info.get("perception", ""), "last_thought": info.get("thought", ""),

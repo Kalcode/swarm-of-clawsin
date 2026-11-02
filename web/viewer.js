@@ -659,7 +659,9 @@
       p.style.background = `radial-gradient(circle at 50% 60%, ${T.rgba(color, 0.18)}, transparent 70%), var(--ink-1)`;
     }
     const badge = $('cre-model');
-    setText(badge, model);
+    const minds = Array.isArray(d.minds) ? d.minds : [];
+    setText(badge, minds.length ? `${model} · was ${minds[minds.length - 1].model}` : model);
+    badge.title = minds.length ? 'Earlier minds: ' + minds.map((m) => `${m.model} (until tick ${m.until})`).join(', ') : '';
     badge.style.color = T.readable(color);
     badge.style.borderColor = T.rgba(color, 0.45);
     badge.style.background = T.rgba(color, 0.1);

@@ -12,6 +12,7 @@ class Metrics:
     def __init__(self) -> None:
         self.models: dict[str, Counter] = defaultdict(Counter)
         self.items: dict[str, set] = defaultdict(set)
+        self.retired: dict[str, Counter] = defaultdict(Counter)  # what creatures did under minds they've since lost
         self.think_stamps: deque[float] = deque()
 
     def think(self, model: str, latency_ms: int, tokens_in: int, tokens_out: int, ok: bool) -> None:
@@ -30,6 +31,9 @@ class Metrics:
     def bump(self, model: str, key: str, n: int = 1) -> None:
         self.models[model][key] += n
 
+    def retire(self, model: str, stats: Counter) -> None:
+        self.retired[model].update(stats)
+
     def item(self, model: str, item: str) -> None:
         self.items[model].add(item)
 
@@ -42,7 +46,10 @@ class Metrics:
             s["awake"] += 0 if c.asleep else 1
             for k in ("speech", "discoveries", "crafted", "collapses", "built", "gathered", "programs", "writing",
                       "inventions", "tamed", "planted"):
-                s[k] += c.stats.get(k, 0)
+                s[k] += c.stats.get(k, 0) - c.stats_base.get(k, 0)
+        for model, r in self.retired.items():
+            for k, n in r.items():
+                creature_stats[model][k] += n
         for model in set(self.models) | set(creature_stats):
             m = self.models[model]
             s = creature_stats[model]

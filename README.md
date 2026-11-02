@@ -91,6 +91,7 @@ The world itself is light; the minds are heavy. So the Mac hosts the world and t
 MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
 ```
 
+- **New minds for old creatures:** a creature is tied to the model it was born with, so a new model normally brings newcomers and the old creatures sleep until their model returns. `ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b"` (or `--adopt OLD[=NEW]` on any node, including `join.ps1`) gives the sleeping creatures the new minds instead. They keep their bodies, memories and bonds; what they did before stays credited to the old model in the Swarm and History tabs. Ask for more creatures than there are to adopt and newcomers fill the rest.
 - **Deploying a change** is a restart: Ctrl-C saves, and starting again without `--fresh` resumes the same world. Pass the old `TOKEN=...` so joined machines get back in. Brain nodes reconnect on their own.
 - **Developing while it runs:** `uv run pytest` uses rule-based brains, no GPU. Never start a second world on port 7777 (`start-world.sh` refuses). For a throwaway world use another port and save file: `uv run python -m swarmworld.server --port 7791 --world /tmp/scratch.json --fresh`.
 - **Benchmarks** go to a machine that isn't thinking for the live world: `uv run python bench/world_bench.py --base-url http://<machine>:11434/v1 --model <name> --episodes 3`.

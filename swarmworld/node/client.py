@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
@@ -19,6 +19,7 @@ class ModelSpec:
     tag: str
     brain: Any
     creatures: int
+    adopt: list[str] = field(default_factory=list)  # other models whose sleeping creatures this one takes over
 
 
 class FatalNodeError(Exception):
@@ -53,7 +54,7 @@ async def run_node(server_url: str, name: str, models: list[ModelSpec], slots: i
     brains = {m.tag: m.brain for m in models}
     default = models[0].brain
     hello = {"type": "hello", "node": name, "token": token, "slots": slots,
-             "models": [{"tag": m.tag, "creatures": m.creatures} for m in models], "hardware": hardware or {}}
+             "models": [{"tag": m.tag, "creatures": m.creatures, "adopt": m.adopt} for m in models], "hardware": hardware or {}}
     backoff = 1.0
     stats = {"thinks": 0, "errors": 0}
     while True:
