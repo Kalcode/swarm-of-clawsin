@@ -10,7 +10,10 @@
 #                   fuse keeps it. A quantized BASE_MODEL works too (fused with --dequantize, then QBITS).
 #   OUT             ~/models/swarm-student-<yyyymmdd>, the fused model (must not exist yet)
 #   QBITS           8: quantize the fused model to 8 bits (about 1.9 GB); 4 is smaller and faster; 0 keeps bf16 (3.4 GB)
-#   EPOCHS          1, or ITERS: training steps (default EPOCHS x train lines / BATCH_SIZE)
+#   EPOCHS          1, or ITERS: training steps (default EPOCHS x train lines / BATCH_SIZE, which has no upper bound:
+#                   a night's export can be 10k lines, about 10 h; ITERS=4000 is about 4 h)
+#   SECS_PER_EXAMPLE 3.5: for the time estimate printed before training (assumed for Qwen3-1.7B on an M1 Max; put
+#                   in what you measure)
 #   BATCH_SIZE      1  GRAD_ACCUM 8 (one optimizer step per 8 examples)
 #   MAX_SEQ_LENGTH  4096 (prompts run 2-3k tokens; mlx-lm's default 2048 would cut off the answers)
 #   NUM_LAYERS      16 (LoRA on the last 16 of Qwen3-1.7B's 28 layers; the backward pass stops there)
@@ -53,6 +56,7 @@ SAVE_EVERY="${SAVE_EVERY:-200}"
 SEED="${SEED:-0}"
 ADAPTERS="${ADAPTERS:-$DATA/adapters-$(basename "$OUT")}"
 MLX_LM="${MLX_LM:-mlx-lm==0.32.2}"
+SECS_PER_EXAMPLE="${SECS_PER_EXAMPLE:-3.5}"
 LINES=$(wc -l < "$DATA/train.jsonl" | tr -d ' ')
 ITERS="${ITERS:-$(( (LINES * EPOCHS + BATCH_SIZE - 1) / BATCH_SIZE ))}"
 UPDATES=$(( ITERS / GRAD_ACCUM > 0 ? ITERS / GRAD_ACCUM : 1 ))
@@ -71,6 +75,11 @@ if [[ -z "${RESUME:-}" && -e "$ADAPTERS/adapters.safetensors" ]]; then
 fi
 
 echo "Student: $BASE_MODEL + LoRA on $DATA ($LINES train lines), $ITERS steps of $BATCH_SIZE, an update every $GRAD_ACCUM"
+EXAMPLES=$(( ITERS * BATCH_SIZE ))
+ESTIMATE=$(awk -v n="$EXAMPLES" -v t="$SECS_PER_EXAMPLE" \
+  'BEGIN { s = n * t; if (s < 3600) printf "~%d min", (s + 30) / 60; else printf "~%.1f h", s / 3600 }')
+echo "Estimated training time: $EXAMPLES examples x ~$SECS_PER_EXAMPLE s = $ESTIMATE (cap it with ITERS, e.g. ITERS=4000 for about 4 h)"
+echo "  (SECS_PER_EXAMPLE is assumed for Qwen3-1.7B on an M1 Max; set what you measure)"
 "${MLX[@]}" python scripts/check_student.py template "$BASE_MODEL" "$DATA" --max-seq-length "$MAX_SEQ_LENGTH"
 
 mkdir -p "$ADAPTERS"
@@ -119,9 +128,14 @@ else
   "${MLX[@]}" mlx_lm.convert --hf-path "$FUSED" --mlx-path "$OUT" -q --q-bits "$QBITS" --q-group-size 64
   rm -rf "$FUSED"
 fi
-"${MLX[@]}" python scripts/check_student.py template "$OUT" "$DATA" --max-seq-length "$MAX_SEQ_LENGTH" \
-  || echo "WARNING: the fused student's own chat template (the one oMLX serves with) renders differently from training."
+TEMPLATE_OK=1
+"${MLX[@]}" python scripts/check_student.py template "$OUT" "$DATA" --max-seq-length "$MAX_SEQ_LENGTH" || TEMPLATE_OK=0
 "${MLX[@]}" python scripts/check_student.py answer "$OUT" "$DATA" || true
 echo
+if [[ "$TEMPLATE_OK" == 0 ]]; then
+  echo "Saved $OUT (adapter in $ADAPTERS), but its own chat template, the one oMLX serves with, renders differently"
+  echo "from what it was trained on (see the check above): the student is NOT ready. Don't serve it until that's fixed."
+  exit 2
+fi
 echo "Student ready: $OUT (adapter and training config in $ADAPTERS)."
 echo "oMLX serves it as '$(basename "$OUT")' (restart oMLX if it isn't listed yet). Live trial: docs/distillation.md."
