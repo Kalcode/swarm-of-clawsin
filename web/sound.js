@@ -1,6 +1,8 @@
 /* Swarm World audio: Web Audio playback for sound events near the camera, plus quiet ambient music.
- * Everything is synthesized (no files), so it is CC0 by construction. Muted until the person clicks the speaker
- * button (browser autoplay rules); on/off and volume are remembered in localStorage.
+ * Every effect has a synthesized voice (no files, CC0 by construction). When the licensed ElvGames & Pegonthetrack
+ * samples have been extracted into assets/sfx/ (scripts/extract_sfx.py; never committed) they are preferred, with
+ * variation on every play. Muted until the person clicks the speaker button (browser autoplay rules); on/off and the
+ * mixer (master + one volume per category) are remembered in localStorage.
  * viewer.js calls SwarmSound.tick(events, cam, clock) once per world message. */
 (function () {
   'use strict';
@@ -9,12 +11,41 @@
   const MAX_VOICES = 8;
   const MIN_GAP_MS = 140;      // per sound kind
 
-  let ctx = null, master = null, sfx = null, musicBus = null, noiseBuf = null;
+  let ctx = null, master = null, musicBus = null, noiseBuf = null;
   const MUSIC_GAIN = 0.16;
-  let state = { on: false, vol: 0.6, music: true };
+
+  // ------------------------------------------------------------ mixer categories
+  // Every sound routes to exactly one category through CATEGORY_OF (one line per sound: move it by editing its value).
+  // To add a category: add it to CATEGORIES and point sounds at it. Slider 0-100; 75 is unity gain.
+  const CATEGORIES = [
+    { id: 'general', label: 'General', hint: 'UI clicks, discoveries, magic, the voice from the sky', def: 75 },
+    { id: 'music', label: 'Music', hint: 'ambient music', def: 75 },
+    { id: 'footsteps', label: 'Footsteps', hint: 'creatures walking near the camera', def: 55 },
+    { id: 'speech', label: 'Speech', hint: 'creatures talking, crowd murmur', def: 60 },
+    { id: 'ambience', label: 'Ambience', hint: 'river, rain, crickets, birds, animals, fire, thunder', def: 75 },
+    { id: 'crafting', label: 'Crafting', hint: 'chopping, knocking, building, crafting, cooking', def: 75 },
+  ];
+  const CATEGORY_OF = {
+    // world sound kinds (registry.SOUND_KINDS)
+    chop: 'crafting', knock: 'crafting', build: 'crafting', craft: 'crafting', cook: 'crafting',
+    splash: 'ambience', fire: 'ambience', thunder: 'ambience', rain: 'ambience', river: 'ambience',
+    crickets: 'ambience', bird: 'ambience', animal: 'ambience',
+    crowd: 'speech', say: 'speech', footsteps: 'footsteps', music: 'music',
+    dance: 'general', hunt: 'general', blip: 'general',
+    // world events and viewer UI cues
+    discover: 'general', invent: 'general', chronicle: 'general', wish: 'general', grant: 'general', voice: 'general',
+    ui_tab: 'general', ui_open: 'general', ui_ok: 'general', ui_warn: 'general', ui_send: 'general',
+  };
+  const categoryOf = (kind) => CATEGORY_OF[kind.startsWith('animal:') ? 'animal' : kind] || (kind.startsWith('fs_') ? 'footsteps' : 'general');
+  const sliderGain = (v) => { const x = Math.min(100, Math.max(0, +v || 0)) / 100; return x * x * 1.78; };  // 75 -> ~1.0
+  const buses = {};
+
+  let state = { on: false, vol: 0.6, music: true, mix: {} };
   try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* private mode */ }
   state.on = !!state.on;
   state.vol = Math.min(1, Math.max(0, +state.vol || 0));
+  if (!state.mix || typeof state.mix !== 'object') state.mix = {};
+  const mixOf = (id) => { const c = CATEGORIES.find((k) => k.id === id); return isFinite(state.mix[id]) ? +state.mix[id] : (c ? c.def : 75); };
   let voices = 0;
   const lastAt = {};
   let phase = 'day';
@@ -29,19 +60,21 @@
     ctx = new AC();
     master = ctx.createGain();
     master.connect(ctx.destination);
-    sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
-    musicBus = ctx.createGain(); musicBus.gain.value = state.music ? MUSIC_GAIN : 0; musicBus.connect(master);
+    for (const c of CATEGORIES) { buses[c.id] = ctx.createGain(); buses[c.id].connect(master); }
+    musicBus = ctx.createGain(); musicBus.connect(buses.music);  // the music toggle fades this; the Music slider sets the category bus
     const n = ctx.sampleRate * 2;
     noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     applyVolume();
+    preloadSamples();
     return true;
   }
 
   function applyVolume() {
     if (master) master.gain.setTargetAtTime(state.on ? state.vol * state.vol : 0, ctx.currentTime, 0.03);
     if (musicBus) musicBus.gain.setTargetAtTime(state.music ? MUSIC_GAIN : 0, ctx.currentTime, 0.3);  // music fades on its own
+    for (const c of CATEGORIES) if (buses[c.id]) buses[c.id].gain.setTargetAtTime(sliderGain(mixOf(c.id)), ctx.currentTime, 0.03);
   }
 
   // ---------------------------------------------------------------- voice helpers
@@ -155,20 +188,162 @@
     return b;
   }
 
+  // ---------------------------------------------------------------- samples (optional; assets/sfx/manifest.json)
+  const SFX_DIR = 'assets/sfx/';
+  // loudness trim per sample key (the packs differ in level); anything not listed plays at 1
+  const SAMPLE_TRIM = {
+    chop: 1.5, knock: 1.5, build: 1.0, craft: 0.9, splash: 0.9, cook: 1.2, discover: 0.5, invent: 0.5, chronicle: 0.5,
+    wish: 0.75, grant: 0.75, voice: 0.5, ui_tab: 0.5, ui_open: 0.4, ui_ok: 0.5, ui_warn: 0.4, ui_send: 0.5,
+    fs_grass: 1, fs_dirt: 0.8, fs_sand: 1.6, fs_gravel: 1, fs_stone: 0.7, fs_wood: 1, fs_water: 0.9,
+  };
+  const KEY_GAP_MS = { discover: 6000, invent: 6000, chronicle: 8000, wish: 2500, grant: 2500, voice: 1500, craft: 1200, cook: 2500,
+    ui_tab: 60, ui_open: 120, ui_ok: 250, ui_warn: 250, ui_send: 200 };
+  let manifest = null;            // key -> [files]
+  const buffers = new Map();      // file -> AudioBuffer
+  const loading = new Set();
+  const recent = {};              // key -> the last two files played (never repeated back to back)
+  let preloadStarted = false;
+
+  function loadManifest() {
+    try {
+      fetch(SFX_DIR + 'manifest.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((m) => {
+        if (m && m.sounds && typeof m.sounds === 'object') {
+          manifest = m.sounds;
+          document.dispatchEvent(new CustomEvent('swarmsound-samples', { detail: { credit: m.credit || '' } }));
+          if (ctx) preloadSamples();
+        }
+      }).catch(() => {});
+    } catch (e) { /* no fetch */ }
+  }
+  async function loadFile(f) {
+    if (buffers.has(f) || loading.has(f) || !ctx) return;
+    loading.add(f);
+    try {
+      const r = await fetch(SFX_DIR + f);
+      if (!r.ok) return;
+      buffers.set(f, await ctx.decodeAudioData(await r.arrayBuffer()));
+    } catch (e) { /* unreadable sample: that key falls back to synth */ } finally { loading.delete(f); }
+  }
+  async function preloadSamples() {  // one file at a time, footsteps last, so startup stays light
+    if (preloadStarted || !manifest || !ctx) return;
+    preloadStarted = true;
+    const keys = Object.keys(manifest).sort((a, b) => (a.startsWith('fs_') - b.startsWith('fs_')));
+    for (const k of keys) for (const f of manifest[k]) await loadFile(f);
+  }
+  function pick(key) {
+    const files = ((manifest && manifest[key]) || []).filter((f) => buffers.has(f));
+    if (!files.length) return null;
+    const r = recent[key] || (recent[key] = []);
+    const fresh = files.filter((f) => !r.includes(f));
+    const pool = fresh.length ? fresh : files.filter((f) => f !== r[r.length - 1]);
+    const f = (pool.length ? pool : files)[(Math.random() * (pool.length ? pool.length : files.length)) | 0];
+    r.push(f);
+    if (r.length > 2) r.shift();
+    return buffers.get(f);
+  }
+  const jit = (amt) => 1 + (Math.random() * 2 - 1) * amt;
+  /** Play a varied sample for key into its category bus; false when there is none loaded. */
+  function playSample(key, gain, o) {
+    o = o || {};
+    const buf = pick(key);
+    if (!buf) return false;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf;
+    src.playbackRate.value = (o.rate || 1) * jit(o.rateJit == null ? 0.06 : o.rateJit);
+    g.gain.value = gain * (SAMPLE_TRIM[key] || 1) * jit(o.gainJit == null ? 0.15 : o.gainJit);
+    let out = g;
+    if (o.lowpass) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = o.lowpass; g.connect(f); out = f; }
+    src.connect(g); out.connect(buses[categoryOf(key)] || buses.general);
+    src.start(ctx.currentTime + 0.005 + Math.random() * 0.03);  // tiny start jitter
+    voices++;
+    src.onended = () => { voices--; try { out.disconnect(); } catch (e) { /* gone */ } };
+    return true;
+  }
+  const live = () => !!ctx && state.on && ctx.state === 'running';
+  const keyReady = (key, gap) => { const now = performance.now(); if (now - (lastAt[key] || 0) < gap) return false; lastAt[key] = now; return true; };
+
+  /** World sound kinds that have a sampled voice. */
+  const SAMPLED = { chop: 'chop', knock: 'knock', build: 'build', splash: 'splash' };
+
   function play(kind, gain) {
-    if (!ctx || !state.on || ctx.state !== 'running') return;
+    if (!live()) return;
     const sub = kind.startsWith('animal:') ? kind.slice(7) : '';
     const name = sub ? 'animal' : (SYNTH[kind] ? kind : 'blip');
     const now = performance.now();
     if (now - (lastAt[kind] || 0) < MIN_GAP_MS || voices >= MAX_VOICES) return;
     lastAt[kind] = now;
+    if (SAMPLED[kind] && playSample(SAMPLED[kind], gain)) return;
     const g = ctx.createGain();
-    g.gain.value = gain;
-    g.connect(sfx);
+    g.gain.value = gain * 0.9;
+    g.connect(buses[categoryOf(kind)] || buses.general);
     voices++;
     try { SYNTH[name](ctx.currentTime + 0.02, g, sub); } catch (e) { /* a bad voice must not break the viewer */ }
     setTimeout(() => { voices--; try { g.disconnect(); } catch (e) { /* gone */ } }, 3200);
   }
+
+  /** A sampled cue (events, viewer UI): quiet and only when sound is on; silent if the samples are absent. */
+  function cue(key, gain) {
+    if (!live() || voices >= MAX_VOICES + 4 || !keyReady(key, KEY_GAP_MS[key] || 100)) return;
+    playSample(key, gain == null ? 1 : gain);
+  }
+
+  // ---------------------------------------------------------------- speech: a soft voice-like babble per say event
+  function speak(actor, text, gain) {
+    if (!live() || voices >= MAX_VOICES || !keyReady('say', 350)) return;
+    const h = hash(String(actor || '?')), t0 = ctx.currentTime + 0.03;
+    const base = 105 + (h % 90) * (h % 2 ? 1.6 : 1);          // each speaker has their own pitch
+    const n = Math.max(2, Math.min(6, Math.round(String(text || '').length / 14) + 1 + ((Math.random() * 2) | 0)));
+    const out = ctx.createGain(); out.gain.value = gain * 0.5; out.connect(buses.speech);
+    let t = t0;
+    for (let i = 0; i < n; i++) {
+      const dur = 0.07 + Math.random() * 0.07, f0 = base * jit(0.18);
+      const o = ctx.createOscillator(), g = ctx.createGain(), f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * jit(0.12), t + dur);
+      f1.type = 'bandpass'; f1.frequency.value = 350 + Math.random() * 450; f1.Q.value = 4;   // vowel-ish formants
+      f2.type = 'bandpass'; f2.frequency.value = 1100 + Math.random() * 1000; f2.Q.value = 5;
+      env(g, t, 0.015, 0.45 * jit(0.3), dur);
+      o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(out);
+      o.start(t); o.stop(t + dur + 0.06);
+      t += dur + 0.03 + Math.random() * 0.07;
+    }
+    voices++;
+    setTimeout(() => { voices--; try { out.disconnect(); } catch (e) { /* gone */ } }, (t - t0) * 1000 + 400);
+  }
+
+  // ---------------------------------------------------------------- footsteps (generated from creatures that walk)
+  const FS_BASE = 0.16;          // far below every other sound (those play at about 0.4-1.0)
+  const FS_HEARD = 13;           // tiles from the view center
+  const FS_MIN_ZOOM = 1.5;       // none when zoomed further out
+  const FS_MAX_PER_SEC = 4;      // the whole crowd together
+  const walkers = new Map();     // creature id -> { x, y, acc, next, rate, side }
+  const stepTimes = [];
+
+  /** viewer.js calls this each frame for every creature that is moving: its smoothed tile position and the surface
+   * key ('grass', 'dirt', 'sand', 'gravel', 'stone', 'wood', 'water') under it. */
+  function step(id, x, y, surface, cam, zoom) {
+    let w = walkers.get(id);
+    if (!w) { w = { x, y, acc: 0, next: 0.5 + Math.random() * 0.8, rate: jit(0.05), side: 0 }; walkers.set(id, w); }
+    const ds = Math.hypot(x - w.x, y - w.y);
+    w.x = x; w.y = y;
+    if (ds > 1.5) { w.acc = 0; return; }   // a jump, not a walk
+    w.acc += ds;
+    if (w.acc < w.next) return;
+    w.acc -= w.next;
+    w.next = 0.85 + Math.random() * 0.5;   // a stride is a little different each time
+    if (!live() || zoom < FS_MIN_ZOOM || voices >= MAX_VOICES + 2) return;
+    const d = cam ? Math.hypot(x - cam.x, y - cam.y) : 0;
+    if (d > FS_HEARD) return;
+    const now = performance.now();
+    while (stepTimes.length && now - stepTimes[0] > 1000) stepTimes.shift();
+    if (stepTimes.length >= FS_MAX_PER_SEC) return;
+    const crowd = 1 / (1 + 0.25 * stepTimes.length);   // many steppers blur into a softer murmur
+    stepTimes.push(now);
+    w.side ^= 1;
+    const key = 'fs_' + (surface || 'grass');
+    const gain = FS_BASE * crowd * (w.side ? 1 : 0.85) / (1 + d / 5) * Math.min(1, zoom / 3 + 0.4);
+    playSample(key, gain, { rate: w.rate, rateJit: 0.08, gainJit: 0.3, lowpass: 5200 });
+  }
+  function forgetWalkers(alive) { if (walkers.size > 200) for (const id of walkers.keys()) if (!alive.has(id)) walkers.delete(id); }
 
   // ---------------------------------------------------------------- ambient music (generative: no loop seam)
   const MUSIC = {
@@ -229,14 +404,16 @@
   const ICON_OFF = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6"/><path d="M22 9l-5 6"/></svg>';
 
   function renderUI() {
-    const b = document.getElementById('sound-btn'), v = document.getElementById('sound-vol');
+    const b = document.getElementById('sound-btn');
     if (b) {
       const live = state.on && !pendingStart;  // a remembered "on" is silent until the first gesture
       b.innerHTML = (live ? ICON_ON : ICON_OFF) + '<span class="sr-only">Sound</span>';
       b.setAttribute('aria-pressed', live ? 'true' : 'false');
       b.title = live ? 'Mute sound (M)' : 'Turn sound on (M)';
     }
-    if (v) { v.value = Math.round(state.vol * 100); v.disabled = false; }
+    const set = (id, val) => { const el = document.getElementById('mix-' + id), o = document.getElementById('mixv-' + id); if (el) el.value = val; if (o) o.textContent = val; };
+    set('master', Math.round(state.vol * 100));
+    for (const c of CATEGORIES) set(c.id, Math.round(mixOf(c.id)));
     const mb = document.getElementById('music-btn');
     if (mb) {
       mb.setAttribute('aria-pressed', state.music ? 'true' : 'false');
@@ -268,11 +445,38 @@
     renderUI();
   }
 
+  const ICON_GEAR = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>';
+  function buildMixer() {
+    const btn = document.getElementById('audio-btn'), pop = document.getElementById('audio-pop');
+    if (!btn || !pop) return;
+    btn.innerHTML = ICON_GEAR + '<span class="sr-only">Audio settings</span>';
+    const rows = [{ id: 'master', label: 'Master', hint: 'overall volume' }].concat(CATEGORIES);
+    pop.innerHTML = '<div class="mix-title">Audio settings</div>' + rows.map((r) =>
+      `<div class="mix-row"><label for="mix-${r.id}" title="${r.hint}">${r.label}</label>` +
+      `<input id="mix-${r.id}" type="range" min="0" max="100" step="1" aria-label="${r.label} volume"><output id="mixv-${r.id}"></output></div>`).join('') +
+      '<button type="button" class="mix-reset" id="mix-reset">Reset to defaults</button>';
+    const set = (id, val) => {
+      if (id === 'master') state.vol = val / 100; else state.mix[id] = val;
+      document.getElementById('mixv-' + id).textContent = val;
+      save(); applyVolume();
+    };
+    for (const r of rows) {
+      const el = document.getElementById('mix-' + r.id);
+      el.addEventListener('input', () => set(r.id, +el.value));
+    }
+    document.getElementById('mix-reset').addEventListener('click', () => { state.vol = 0.6; state.mix = {}; save(); applyVolume(); renderUI(); });
+    const open = (on) => { pop.hidden = !on; btn.setAttribute('aria-expanded', String(on)); if (on) document.getElementById('mix-master').focus(); };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); open(pop.hidden); });
+    pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); open(false); btn.focus(); } });
+    document.addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) open(false); });
+  }
+
   function init() {
-    const b = document.getElementById('sound-btn'), v = document.getElementById('sound-vol');
+    const b = document.getElementById('sound-btn');
+    buildMixer();
+    loadManifest();
     renderUI();
     if (b) b.addEventListener('click', (e) => { e.stopPropagation(); setOn(!(state.on && !pendingStart)); });
-    if (v) v.addEventListener('input', () => { state.vol = v.value / 100; save(); applyVolume(); });
     const mb = document.getElementById('music-btn');
     if (mb) mb.addEventListener('click', (e) => { e.stopPropagation(); setMusic(!state.music); });
     window.addEventListener('keydown', (e) => {
@@ -297,12 +501,27 @@
   }
 
   // ---------------------------------------------------------------- the hook viewer.js calls
+  const cookWords = /\b(cook|bake|baked|brew|boil|roast|stew|simmer|fry|fried)/i;
+  /** World events that are not sound events: celebrations, wishes, the voice, crafting, creatures talking. */
+  function worldEvent(ev, cx, cy) {
+    const near = isFinite(cx) && isFinite(ev.x) ? Math.hypot(ev.x - cx, ev.y - cy) : 0;
+    switch (ev.kind) {
+      case 'discover': case 'invent': if (near <= HEARD_TILES) cue(ev.kind, 1 / (1 + near / 14)); break;
+      case 'chronicle': case 'wish': case 'grant': cue(ev.kind, ev.kind === 'chronicle' ? 0.8 : 0.7); break;  // heard anywhere: they belong to the whole world
+      case 'voice': cue('voice', 1); break;
+      case 'craft': if (near <= HEARD_TILES) cue(cookWords.test(ev.text || '') ? 'cook' : 'craft', 1 / (1 + near / 8)); break;
+      case 'say': if (near <= 14) speak(ev.actor, ev.text, 1 / (1 + near / 5)); break;
+      default: break;
+    }
+  }
+
   function tick(events, cam, clock) {
     if (clock && clock.phase) phase = clock.phase;
     if (!state.on || !ctx || ctx.state !== 'running' || !Array.isArray(events)) return;
     const cx = cam && +cam.x, cy = cam && +cam.y;
     for (const ev of events) {
-      if (!ev || ev.kind !== 'sound') continue;
+      if (!ev) continue;
+      if (ev.kind !== 'sound') { worldEvent(ev, cx, cy); continue; }
       const kind = String(ev.sound || 'blip');
       const d = isFinite(cx) && isFinite(ev.x) ? Math.hypot(ev.x - cx, ev.y - cy) : 0;
       if (d > HEARD_TILES) continue;
@@ -312,6 +531,9 @@
     }
   }
 
-  window.SwarmSound = { tick, setOn, get on() { return state.on; }, kinds: Object.keys(SYNTH), play };
+  window.SwarmSound = {
+    tick, setOn, get on() { return state.on; }, kinds: Object.keys(SYNTH), play, cue, step, forgetWalkers,
+    get samples() { return !!manifest; }, categories: CATEGORIES.map((c) => c.id),
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

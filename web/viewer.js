@@ -579,6 +579,7 @@
   function select(id, follow) {
     if (!S.cres.has(id)) return;
     const changed = S.selected !== id;
+    if (changed && window.SwarmSound) SwarmSound.cue('ui_open', 0.6);
     S.selected = id;
     if (follow) S.following = true;
     if (changed) {
@@ -937,6 +938,7 @@
 
   /* ================================================================== tabs */
   function showTab(name) {
+    if (window.SwarmSound && name !== S.tab) SwarmSound.cue('ui_tab', 0.6);
     S.tab = name;
     for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
     for (const p of document.querySelectorAll('.tabpane')) p.hidden = p.id !== 'tab-' + name;
@@ -1836,6 +1838,7 @@
       if (e.target.dataset.key) wish.drafts.set(e.target.dataset.key, e.target.value);
     });
     box.addEventListener('submit', (e) => {
+      if (window.SwarmSound) SwarmSound.cue('ui_send', 0.6);
       e.preventDefault();
       const form = e.target.closest('form');
       const li = form && form.closest('.wish');
@@ -1891,8 +1894,11 @@
     const credit = SK.name === 'limezu'
       ? 'Art: <a href="https://limezu.itch.io" target="_blank" rel="noopener" title="World art by LimeZu. UI glyphs: Kenney 1-Bit Pack (CC0).">LimeZu (limezu.itch.io)</a>'
       : 'Art: Kenney 1-Bit Pack (CC0)';
-    foot.innerHTML = `<span>${credit}</span>${link ? `<span>${link}</span>` : ''}`;
+    const sfx = window.SwarmSound && SwarmSound.samples ? '<span>Sound: ElvGames &amp; Pegonthetrack</span>' : '';
+    foot.innerHTML = `<span>${credit}</span>${sfx}${link ? `<span>${link}</span>` : ''}`;
   }
+
+  document.addEventListener('swarmsound-samples', renderCredit);
 
   function setPanel(open) {
     document.body.classList.toggle('panel-collapsed', !open);
@@ -1960,6 +1966,17 @@
     document.querySelector('[data-zoom="1"]').disabled = S.zoom.level >= ZOOMS[ZOOMS.length - 1];
   }
 
+  /** What a creature walks on, for the footstep sounds: a built floor or bridge is wood, else the terrain decides. */
+  const WOOD_OBJ = /floor|plank|bridge|boardwalk|dock|deck|wood/i, STONE_OBJ = /paving|brick|cobble|stone_floor|road/i;
+  const SURFACE = { g: 'grass', f: 'grass', d: 'dirt', s: 'sand', w: 'water', W: 'water', r: 'gravel' };
+  function surfaceAt(x, y) {
+    for (const o of S.objAt.get(x + ',' + y) || []) {
+      if (WOOD_OBJ.test(o.kind)) return 'wood';
+      if (STONE_OBJ.test(o.kind)) return 'stone';
+    }
+    return SURFACE[(S.tiles[y] || '')[x]] || 'grass';
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
@@ -1991,8 +2008,10 @@
       const p = lerpPos(e, now);
       e.rx = p.x; e.ry = p.y;
       e.moving = p.t < 1 && (e.fx !== e.tx || e.fy !== e.ty);
+      if (e.moving && window.SwarmSound) SwarmSound.step(e.d.id, p.x, p.y, surfaceAt(Math.round(p.x), Math.round(p.y)), S.cam, Z.view);
       list.push(e);
     }
+    if (window.SwarmSound && S.tick % 100 === 0) SwarmSound.forgetWalkers(S.cres);
     // back to front; the selected creature always on top of anyone sharing its tile
     list.sort((a, b) => (a.d.id === S.selected) - (b.d.id === S.selected) || a.ry - b.ry);
 
@@ -2684,8 +2703,8 @@
     });
 
     $('panel-toggle').addEventListener('click', () => setPanel(document.body.classList.contains('panel-collapsed')));
-    $('voice-btn').addEventListener('click', () => openVoice(!S.voice.open));
-    $('voice-form').addEventListener('submit', (e) => { e.preventDefault(); sendVoice(); });
+    $('voice-btn').addEventListener('click', () => { if (window.SwarmSound) SwarmSound.cue('ui_send', 0.5); openVoice(!S.voice.open); });
+    $('voice-form').addEventListener('submit', (e) => { e.preventDefault(); if (window.SwarmSound) SwarmSound.cue('ui_send', 0.6); sendVoice(); });
     $('voice-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); openVoice(false); } });
     $('voice-scope').addEventListener('click', (e) => {
       if (e.target.closest('[data-everyone]')) { S.voice.target = null; renderVoiceScope(); $('voice-input').focus(); }
@@ -2798,6 +2817,7 @@
     const t = $('toast');
     t.textContent = msg;
     t.dataset.kind = kind || '';
+    if (window.SwarmSound && (kind === 'ok' || kind === 'warn')) SwarmSound.cue(kind === 'ok' ? 'ui_ok' : 'ui_warn', 0.5);
     t.hidden = false;
     t.classList.remove('is-out');
     clearTimeout(toastTimer);
