@@ -450,3 +450,12 @@ def test_talking_while_working(world):
     sim.tick()
     assert a.inventory["berries"] >= 1
     assert any(e.kind == "say" and e.data.get("to_name") == "Mara" for e in world.events)
+
+
+def test_myth_can_become_an_invention(world):
+    c = creature(world)
+    c.inventory.update({"rope": 2, "berries": 2})
+    res = act(world, c, action="combine", target="berry-rope", items=["rope", "berries"])
+    assert not res.ok and "could invent it" in res.message
+    res = act(world, c, action="invent", target="berry-rope", items=["rope", "berries"], text="a warm rope rubbed with berries")
+    assert res.ok and "inv_berry_rope" in c.inventory

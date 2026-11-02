@@ -712,6 +712,10 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         if known:
             return ActionResult(False, f"You know how to make {world.catalog.name(wanted)}: {world.catalog.describe_recipe(known)}.")
         lacking = f" ({missing[0].rstrip('.')}.)" if missing else ""
+        dream = " ".join(_words(hint)) if hint and not world.catalog.resolve(hint) else ""
+        if dream and len(dream) > 2 and not find_creature(world, c, hint) and not find_object(world, c, hint):
+            return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it. No one has ever made a '{dream}'. "
+                                       f"If you believe in it, you could invent it with these things.{lacking}")
         if world.catalog.near_miss(ids):
             return ActionResult(False, f"You turn the {names_txt} over in your hands. They feel like part of something, but one more ingredient seems to be missing.{lacking}")
         return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it.{lacking}")
