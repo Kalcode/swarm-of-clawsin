@@ -403,6 +403,8 @@ def _next_hint(obj: WorldObject) -> str:
     return ""
 
 
+GENERIC_NAME = re.compile(r"^(new |an? |my |the )?(invention|device|thing|item|tool|creation|object|contraption|gadget|"
+                          r"machine|idea|something)( \d+)?$")
 NOT_A_THING = {"nothing", "none", "something", "anything", "everything", "thing", "things", "stuff", "item", "items",
                "ground", "floor", "air", "here", "inventory", "hand", "hands", "self", "myself", "me", "it", "them", "all",
                "new", "unknown", "idea", "materials", "resources", "mixture", "combination", "together", "random"}
@@ -1177,6 +1179,8 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
     name = " ".join(it.target.lower().split())
     if not NAME_RE.match(name or ""):
         return ActionResult(False, "Name your invention in target with a short plain name, like 'berry cake' or 'stone bench'.")
+    if GENERIC_NAME.match(name):
+        return ActionResult(False, f"'{name}' isn't a real name. What is it for? Call it that, like 'berry cake' or 'stone bench'.")
     existing = cat.resolve(name)
     if existing:  # they mean "make this": craft it if they know how, otherwise try the things they named
         verb = "craft" if existing in c.known_recipes else "combine"

@@ -167,6 +167,15 @@ def test_walk_to_and_gather_use_remembered_spots(world):
     assert c.inventory.get("stone", 0) > 0
 
 
+def test_inventions_need_a_real_name(world):
+    c = creature(world)
+    c.inventory.update({"stick": 2, "berries": 2, "plant_fiber": 2})
+    for name in ("new invention", "device", "a thing", "new tool"):
+        res = act(world, c, action="invent", target=name, items=["stick", "berries", "plant fiber"])
+        assert not res.ok and "real name" in res.message, name
+    assert act(world, c, action="invent", target="berry whisk", items=["stick", "berries", "plant fiber"]).ok
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
