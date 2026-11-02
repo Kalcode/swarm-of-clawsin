@@ -80,6 +80,20 @@ On the other machine: install [uv](https://docs.astral.sh/uv/) and a model serve
 
 The world server keeps every creature's memory. A machine that leaves just puts its creatures to sleep where they stand, in stasis: no hunger while their mind is away. They wake up when it rejoins, or when another machine with the same model adopts them. Right now four Qwen3.5 9B "elders" are asleep in the world, waiting for a machine with room for a 9B model. Only short text crosses the network.
 
+## Running it day to day
+
+The world itself is light; the minds are heavy. So the Mac hosts the world and the viewer, and another machine's GPU can do the thinking:
+
+```bash
+# minds on the gaming PC's Ollama (setup: docs/gaming-pc.md), world on this Mac
+MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
+```
+
+- **Deploying a change** is a restart: Ctrl-C saves, and starting again without `--fresh` resumes the same world. Pass the old `TOKEN=...` so joined machines get back in. Brain nodes reconnect on their own.
+- **Developing while it runs:** `uv run pytest` uses rule-based brains, no GPU. Never start a second world on port 7777 (`start-world.sh` refuses). For a throwaway world use another port and save file: `uv run python -m swarmworld.server --port 7791 --world /tmp/scratch.json --fresh`.
+- **Benchmarks** go to a machine that isn't thinking for the live world: `uv run python bench/world_bench.py --base-url http://<machine>:11434/v1 --model <name> --episodes 3`.
+- **Reviewing a run:** `uv run python scripts/review_world.py runs/<timestamp>` shows how each model spends its turns, its no-op and failure rates, and the unmet desires. The backlog lives in [issues/](issues/README.md).
+
 ## How a creature thinks
 
 Each creature wakes when something happens to it: it finished walking, someone spoke nearby, it got hungry, someone new came into view, or it has stood idle for 30 ticks. The world server then builds its prompt:
