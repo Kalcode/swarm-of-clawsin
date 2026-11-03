@@ -1,0 +1,21 @@
+# Cloudflare Tunnel config for the public Swarm World viewer.
+# Copy this file to ~/.cloudflared/swarm-world.yml and fill in the <...> parts
+# (tunnel id from `cloudflared tunnel create swarm-world`, your home directory, your hostname).
+# Steps: docs/public-viewer.md.
+#
+# THE ONE RULE: this tunnel carries plain HTTP to http://127.0.0.1:7777 for /public/* and nothing else.
+# The world tells public visitors from this machine by the proxy headers Cloudflare adds to HTTP traffic.
+# Anything that delivers traffic without them (a warp-routing block, a private-network route, a tcp:// or unix:
+# service) would arrive from 127.0.0.1 looking like you, with the steward actions open. Never add those.
+tunnel: <TUNNEL-ID>
+credentials-file: <HOME>/.cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  - hostname: <HOSTNAME>
+    path: ^/public/.*$
+    service: http://127.0.0.1:7777
+  # the world redirects a proxied "/" to /public/app/
+  - hostname: <HOSTNAME>
+    path: ^/$
+    service: http://127.0.0.1:7777
+  - service: http_status:404

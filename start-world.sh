@@ -11,6 +11,7 @@
 #   A model can name its own server: MODEL2="Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1" keeps it on this Mac.
 #   HARNESS: layers in this world, e.g. HARNESS=plan,disclose,recall; each goes to half of every model's creatures.
 #   HARNESS_ALL: layers every creature gets, e.g. HARNESS_ALL=plan.
+#   PUBLIC_LINK: the link in the public viewer's About panel (docs/public-viewer.md).
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
@@ -52,6 +53,7 @@ NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "
 [[ -n "${MODEL_SERVER:-}" ]] && NODE_ARGS+=(--model-server "$MODEL_SERVER")
 [[ -n "${HARNESS:-}" ]] && WORLD_ARGS+=(--harness "$HARNESS")
 [[ -n "${HARNESS_ALL:-}" ]] && WORLD_ARGS+=(--harness-all "$HARNESS_ALL")
+[[ -n "${PUBLIC_LINK:-}" ]] && WORLD_ARGS+=(--public-link "$PUBLIC_LINK")
 for a in ${ADOPT:-}; do NODE_ARGS+=(--adopt "$a"); done
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")
