@@ -14,6 +14,10 @@ swarmworld/data/packs/underground/).
 - What lies in the deep: iron and copper veins, coal seams, crystal clusters, cave mushrooms and loose rock on the cave
   floor, placed once (`_stock_deep`).
 
+- Climbing: the verb `climb` takes a creature from beside one end of a way to the other end (or the nearest free tile
+  beside it), and a creature that doesn't know where a way is walks to the nearest it saw, remembers or climbed.
+
+State: c.ext["underground"] = {"ways": [portal ids climbed or seen], "told": last way line}.
 State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
 "up": [x, y], "down": [x, y]}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
 roll their own random.Random, seeded from the deep's seed), so the surface's weather, animals and placement roll as
@@ -29,15 +33,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .. import perception
+from .. import actions, perception
 from ..caves import BORDER, carve_deep, carve_passage, tile_codes
 from ..catalog import DATA
 from ..model import SOLID_TILES, WATER_TILES
-from ..perception import direction, dist
-from ..registry import ANIMALS, BLOCKING, KINDS, register_landmarks, register_populate
+from ..perception import DARK_SIGHT, direction, dist
+from ..registry import (ANIMALS, BLOCKING, KINDS, Technique, register_handoff, register_landmarks, register_perception,
+                        register_populate, register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
-    from ..model import Region, World
+    from ..actions import ActionResult, Intention
+    from ..model import Creature, Region, World
 
 PACK = "underground"
 CONFIG = json.loads((DATA / "packs" / PACK / "underground.json").read_text())
@@ -332,3 +338,193 @@ perception.REMEMBERED_KINDS.update({"coal_seam", "crystal_cluster"})  # the deep
 perception.REMEMBERED_KINDS.update({k for ends in PORTAL_OBJECTS.values() for k in ends if k})  # ways to find again
 register_populate(PACK, _populate)
 register_landmarks(_places)
+
+
+# ------------------------------------------------------------------ climbing
+DOWN_WORDS = {"down", "deep", "underground", "below", "descend"}
+UP_WORDS = {"up", "surface", "daylight", "outside", "above", "ascend"}
+CLIMB_LINE = ('climb (target "down" or "up"): climb down into the deep at a cave mouth, shaft or open pit beside you, '
+              'or back up at a cave exit or ladder.')
+DEEP_PHRASES = {"deep", "underground", "caves below", "the deep below", "deep below", "the deep"}
+CROWDED_REACH = 2  # how far from a crowded end a creature may arrive
+
+
+def _words(text: str) -> set[str]:
+    return set(text.lower().replace("_", " ").split())
+
+
+def _level(world: World, x: int, y: int) -> int:
+    r = world.region_at(x, y)
+    return r.level if r else 0
+
+
+def _ways(c: Creature) -> list[str]:
+    return c.ext.setdefault(PACK, {}).setdefault("ways", [])
+
+
+def _ends_here(world: World, c: Creature) -> list[tuple[dict, str, tuple[int, int]]]:
+    """Every way end in the creature's own region: (portal, "up" or "down", (x, y))."""
+    return [(p, end, (p[end][0], p[end][1])) for p in portals(world) for end in ("up", "down")
+            if world.same_region((c.x, c.y), tuple(p[end]))]
+
+
+def _end_name(p: dict, end: str) -> str:
+    return p["name"] if end == "up" else f"the way up to {p['name']}"
+
+
+def _known_ends(world: World, c: Creature, sight_only: bool = False) -> list[tuple[int, dict, str, tuple[int, int]]]:
+    """The ends here the creature has in sight (and with sight_only False, also remembers or has climbed), nearest
+    first: (distance, portal, end, (x, y)). Ends in sight join its known ways."""
+    r = perception.sight_range(world, c)
+    spots = {(x, y) for x, y, _t in c.spots.values()}
+    climbed = set((c.ext.get(PACK) or {}).get("ways", ()))
+    seen, known = [], []
+    for p, end, pos in _ends_here(world, c):
+        d = dist(c.x, c.y, *pos)
+        if d <= r and pos in world.grid:
+            seen.append((d, p, end, pos))
+        elif pos in spots or p["id"] in climbed:
+            known.append((d, p, end, pos))
+    for _, p, _e, _pos in seen:
+        if p["id"] not in _ways(c):
+            _ways(c).append(p["id"])
+    if sight_only:
+        return sorted(seen, key=lambda t: t[0])
+    return sorted(seen or known, key=lambda t: t[0])
+
+
+def _arrival(world: World, c: Creature, pos: tuple[int, int]) -> tuple[int, int] | None:
+    """The tile to arrive on: the end itself if walkable and free, else the nearest free walkable tile within reach."""
+    best = None
+    for dy in range(-CROWDED_REACH, CROWDED_REACH + 1):
+        for dx in range(-CROWDED_REACH, CROWDED_REACH + 1):
+            x, y = pos[0] + dx, pos[1] + dy
+            if world.walkable(x, y) and world.same_region(pos, (x, y)) and not world.occupied(x, y, ignore=c.id):
+                key = (max(abs(dx), abs(dy)), abs(dx) + abs(dy), y, x)
+                if best is None or key < best[0]:
+                    best = (key, (x, y))
+    return best[1] if best else None
+
+
+def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
+    from ..actions import ActionResult, Intention, _adjacent_goals, _busy, start_walk
+    words = _words(it.target)
+    level = _level(world, c.x, c.y)
+    want = "down" if words & DOWN_WORDS else "up" if words & UP_WORDS else None
+    near = portal_near(world, c.x, c.y, 1)
+    if near:
+        p, end = near  # "up" is the end on the surface, which leads down
+        goes = "down" if end == "up" else "up"
+        if want and want != goes:
+            return ActionResult(False, "You're on the surface already; this is the way down." if goes == "down"
+                                else "This is the way up; there is nothing deeper.")
+        there = _arrival(world, c, tuple(p["down" if goes == "down" else "up"]))
+        if there is None:
+            return ActionResult(False, "Someone is in the way at the other end; you wait.")
+        c.x, c.y = there
+        c.energy = max(0.0, c.energy - 1)
+        if p["id"] not in _ways(c):
+            _ways(c).append(p["id"])
+        if goes == "down":
+            text = f"You climb down into the deep at {p['name']}."
+            if perception.light_range(world, c) == DARK_SIGHT:
+                text += " It is pitch dark."
+        else:
+            text = f"You climb back up to the surface at {p['name']}."
+        world.emit("climb", c.id, c.x, c.y, f"{c.name} climbed {goes} at {p['name']}.")
+        return _busy(c, 4, f"climbing {goes}", text)
+    want = want or ("down" if level >= 0 else "up")
+    if want == "down" and level < 0:
+        return ActionResult(False, "There is nothing deeper to climb down to.")
+    if want == "up" and level >= 0:
+        return ActionResult(False, "You're on the surface already.")
+    for d, p, end, pos in _known_ends(world, c):
+        goals = _adjacent_goals(world, *pos, include_self=world.walkable(*pos))
+        res = start_walk(world, c, goals, f"heading to {_end_name(p, end)}", f"You reach {_end_name(p, end)}.")
+        if c.activity:
+            c.activity["then"] = Intention("climb", target=want)
+        return res
+    if want == "down":
+        return ActionResult(False, "You don't know a way down. Cave mouths open in the rocky hills; with a pickaxe you could dig down.")
+    return ActionResult(False, "You don't know a way up from here. Look for a cave exit or a ladder, or dig your way.")
+
+
+def _way_to_region(world: World, c: Creature, region: Region) -> str:
+    below = region.level < _level(world, c.x, c.y)
+    text = ("The deep is below; climb down at a cave mouth or a mine shaft." if below
+            else "The surface is above; climb up at a cave exit or a ladder.")
+    known = _known_ends(world, c)
+    if known:
+        d, p, end, pos = known[0]
+        text += f" The nearest way you know: {_end_name(p, end)}, about {d} steps {direction(pos[0] - c.x, pos[1] - c.y)}."
+    return text
+
+
+def _handoff_climb(world: World, c: Creature, it: Intention) -> bool:
+    words = _words(it.target)
+    if words in ({"down"}, {"up"}):
+        return True
+    below = _level(world, c.x, c.y) < 0
+    if below:
+        return bool(words & {"surface", "daylight", "outside"})
+    phrase = " ".join(w for w in it.target.lower().replace("_", " ").split() if w != "the")
+    return phrase in DEEP_PHRASES  # "deep water" and the like stay plain walks
+
+
+def _climb_fits(world: World, c: Creature) -> float | None:
+    return 6.4 if portal_near(world, c.x, c.y, 1) else None
+
+
+def _way_line(world: World, c: Creature) -> str | None:
+    """The way down or up near you, said when it changes and when you wake."""
+    _known_ends(world, c, sight_only=True)  # notes the ends in sight as known ways
+    surface = _level(world, c.x, c.y) >= 0
+    near = sorted(((dist(c.x, c.y, *pos), p, end, pos) for p, end, pos in _ends_here(world, c)
+                   if dist(c.x, c.y, *pos) <= 3), key=lambda t: t[0])
+    line = None
+    if surface:
+        for d, p, end, pos in near:
+            if end != "up":
+                continue
+            where = perception._where(d, direction(pos[0] - c.x, pos[1] - c.y))
+            if p["kind"] == "cave":
+                line = f"A dark cave mouth opens {where}; cool air breathes out of it."
+                if not perception.carried_light(c)[0]:
+                    line += " Inside it is pitch dark: a torch (a stick, plant fiber and charcoal) would light the way."
+            elif p["kind"] == "shaft":
+                line = f"A mine shaft drops into the dark {where}; a ladder leads down."
+            elif d <= 1:
+                line = "You stand at the edge of an open pit; far below, the dark of the deep."
+            else:
+                line = f"An open pit gapes {where}; far below, the dark of the deep."
+            break
+    else:
+        for d, p, end, pos in near:
+            if end != "down":
+                continue
+            where = perception._where(d, direction(pos[0] - c.x, pos[1] - c.y))
+            line = (f"Grey daylight glimmers {where}: the way up to {p['name']}." if p["kind"] == "cave"
+                    else f"A ladder {where} leads up to {p['name']}.")
+            break
+        else:
+            known = [t for t in _known_ends(world, c) if t[2] == "down"]
+            if known:
+                d, p, end, pos = known[0]
+                line = (f"The nearest way up you know: {_end_name(p, end)}, about {max(5, 5 * round(d / 5))} steps "
+                        f"{direction(pos[0] - c.x, pos[1] - c.y)}.")
+            else:
+                line = "You don't know a way up from here."
+    mine = c.ext.get(PACK) or {}
+    if line is None or (line == mine.get("told") and c.wake_reason != "woke"):
+        if line is None:
+            mine.pop("told", None)
+        return None
+    c.ext.setdefault(PACK, {})["told"] = line
+    return line
+
+
+actions.way_to_region = _way_to_region
+register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "ascend", "go_down", "go_up"))
+register_handoff("walk_to", "climb", _handoff_climb)
+register_technique(Technique("climb", CLIMB_LINE, _climb_fits))
+register_perception(_way_line, priority=40)

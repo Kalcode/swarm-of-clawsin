@@ -84,7 +84,7 @@ def test_landmarks_stay_in_their_region(pair):
     assert landmark_elsewhere(w, top, "the old oak") is None
     assert find_landmark(w, low, "the dripping hall")["name"] == "the dripping hall"
     res = apply_intention(w, top, Intention("walk_to", target="the dripping hall"))
-    assert not res.ok and res.message == "You can't walk there from here." and top.activity is None
+    assert not res.ok and res.message.startswith("The deep is below") and top.activity is None
 
 
 def test_walk_to_a_place_below_says_how_to_get_there(pair, monkeypatch):
@@ -101,7 +101,7 @@ def test_remembered_spots_stay_in_their_region(pair):
     assert "You remember" not in perceive(w, top) and "You remember" not in perceive(w, low)
     assert actions._recall(w, top, "rock") is None and actions._recall(w, low, "bush") is None
     res = apply_intention(w, top, Intention("walk_to", target="rock"))
-    assert not res.ok and "can't walk there" in res.message
+    assert not res.ok and res.message.startswith("The deep is below")  # the underground pack tells the way
     top.spots["tree"] = (12, 18, w.tick)
     assert "You remember: oak tree" in perceive(w, top)
     assert actions._recall(w, top, "tree") == ("tree", 12, 18)
@@ -140,6 +140,7 @@ def test_voice_with_a_radius_stays_in_its_region():
 
 def test_handoff_routes_a_verb_case(pair):
     w, top, low = pair
+    before = list(registry.HANDOFFS)  # the packs' own (walk_to -> climb)
     with registry.sandbox():
         registry.register_handoff("wait", "rest", lambda w, c, it: it.target == "x")
         registry.register_handoff("wait", "gather", lambda w, c, it: True)
@@ -153,7 +154,7 @@ def test_handoff_routes_a_verb_case(pair):
         registry.register_handoff("wait", "rest", lambda w, c, it: 1 / 0)
         assert apply_intention(w, top, Intention("wait", target="x")).message == "waited"
         assert calls == ["rest", "gather", "wait"]
-    assert not registry.HANDOFFS
+    assert registry.HANDOFFS == before
 
 
 def test_landmark_sources_join_the_landmarks(pair):
@@ -246,3 +247,11 @@ def test_places_name_the_level_they_lie_on(pair):
     assert st._where_is(top, 12, 26) == "below, in the deep" and st._where_is(low, 12, 22) == "above, on the surface"
     assert st._where_is(top, 12, 22) == "right here" and st._where_is(top, 12, 18) == "about 4 steps north of you"
     assert st._where_is(top, 12, 24 + 100) == "in another place"
+
+
+def test_core_default_says_you_cannot_walk_there(pair, monkeypatch):
+    w, top, low = pair
+    monkeypatch.setattr(actions, "way_to_region", lambda world, c, region: "You can't walk there from here.")
+    w.landmarks = [{"name": "the dripping hall", "x": 12, "y": 28, "kind": "hall", "size": 1}]
+    res = apply_intention(w, top, Intention("walk_to", target="the dripping hall"))
+    assert not res.ok and res.message == "You can't walk there from here."
