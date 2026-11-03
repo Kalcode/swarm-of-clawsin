@@ -247,3 +247,11 @@ def test_places_name_the_level_they_lie_on(pair):
     assert st._where_is(top, 12, 26) == "below, in the deep" and st._where_is(low, 12, 22) == "above, on the surface"
     assert st._where_is(top, 12, 22) == "right here" and st._where_is(top, 12, 18) == "about 4 steps north of you"
     assert st._where_is(top, 12, 24 + 100) == "in another place"
+
+
+def test_core_default_says_you_cannot_walk_there(pair, monkeypatch):
+    w, top, low = pair
+    monkeypatch.setattr(actions, "way_to_region", lambda world, c, region: "You can't walk there from here.")
+    w.landmarks = [{"name": "the dripping hall", "x": 12, "y": 28, "kind": "hall", "size": 1}]
+    res = apply_intention(w, top, Intention("walk_to", target="the dripping hall"))
+    assert not res.ok and res.message == "You can't walk there from here."

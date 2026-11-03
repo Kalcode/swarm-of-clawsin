@@ -345,6 +345,7 @@ DOWN_WORDS = {"down", "deep", "underground", "below", "descend"}
 UP_WORDS = {"up", "surface", "daylight", "outside", "above", "ascend"}
 CLIMB_LINE = ('climb (target "down" or "up"): climb down into the deep at a cave mouth, shaft or open pit beside you, '
               'or back up at a cave exit or ladder.')
+DEEP_PHRASES = {"deep", "underground", "caves below", "the deep below", "deep below", "the deep"}
 CROWDED_REACH = 2  # how far from a crowded end a creature may arrive
 
 
@@ -464,7 +465,10 @@ def _handoff_climb(world: World, c: Creature, it: Intention) -> bool:
     if words in ({"down"}, {"up"}):
         return True
     below = _level(world, c.x, c.y) < 0
-    return bool(words & {"deep", "underground"}) and not below or bool(words & {"surface", "daylight", "outside"}) and below
+    if below:
+        return bool(words & {"surface", "daylight", "outside"})
+    phrase = " ".join(w for w in it.target.lower().replace("_", " ").split() if w != "the")
+    return phrase in DEEP_PHRASES  # "deep water" and the like stay plain walks
 
 
 def _climb_fits(world: World, c: Creature) -> float | None:
@@ -510,12 +514,12 @@ def _way_line(world: World, c: Creature) -> str | None:
                         f"{direction(pos[0] - c.x, pos[1] - c.y)}.")
             else:
                 line = "You don't know a way up from here."
-    mine = c.ext.setdefault(PACK, {})
+    mine = c.ext.get(PACK) or {}
     if line is None or (line == mine.get("told") and c.wake_reason != "woke"):
         if line is None:
             mine.pop("told", None)
         return None
-    mine["told"] = line
+    c.ext.setdefault(PACK, {})["told"] = line
     return line
 
 

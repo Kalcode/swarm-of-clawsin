@@ -49,10 +49,11 @@ def climb(w, c, target=""):
 def test_climb_down_and_back_up():
     w, p = world_with_mouth()
     c = person(w, "Ada", UP[0] + 1, UP[1])
+    c.energy = 80
     res = climb(w, c, "down")
     assert res.ok and res.message == "You climb down into the deep at the north cave. It is pitch dark."
     assert (c.x, c.y) == tuple(p["down"]) and w.region_at(c.x, c.y).level == -1
-    assert c.energy <= 99 and p["id"] in c.ext["underground"]["ways"]
+    assert c.energy == 79 and p["id"] in c.ext["underground"]["ways"]
     assert c.activity["ticks"] == 4
     finish(w, c)
     res = climb(w, c, "")  # none: the way the end beside you goes
@@ -186,3 +187,29 @@ def test_climb_tip_only_beside_a_way():
     assert near.line == CLIMB_LINE and near.trigger(w, c) == 6.4
     c.x = UP[0] + 4
     assert near.trigger(w, c) is None
+
+
+def test_walk_to_deep_water_and_up_north_stay_plain_walks():
+    w, _ = world_with_mouth()
+    c = person(w, "Ada", UP[0] + 1, UP[1])
+    for target in ("deep water", "deep forest", "up north"):
+        assert not apply_intention(w, c, Intention("walk_to", target=target)).message.startswith("You climb"), target
+    assert (c.x, c.y) == (UP[0] + 1, UP[1]) or w.region_at(c.x, c.y).level == 0
+    assert apply_intention(w, c, Intention("walk_to", target="deep")).message.startswith("You climb down")
+
+
+def test_no_way_line_leaves_no_trace_in_ext():
+    w, _ = world_with_mouth()
+    c = person(w, "Ada", 3, 3)
+    assert underground._way_line(w, c) is None and "underground" not in c.ext
+
+
+def test_shaft_line_within_three():
+    w, _ = world_with_mouth()
+    up = (UP[0] - 6, UP[1])
+    down = w.below(*up)
+    w.set_tile(*up, "g")
+    w.set_tile(*down, "c")
+    underground.add_portal(w, "shaft", "the east shaft", up, down)
+    c = person(w, "Ada", up[0] + 2, up[1])
+    assert underground._way_line(w, c) == "A mine shaft drops into the dark 2 steps west; a ladder leads down."
