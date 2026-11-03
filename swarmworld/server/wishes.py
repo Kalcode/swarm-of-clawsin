@@ -103,8 +103,13 @@ class Wishes:
         key = re.sub(r"(?<=[a-z]{3})s\b", "", thing)  # roofs ~ roof
         w = self.items.get(key)
         if w is None:
-            if len(self.items) >= MAX_WISHES:
-                return False
+            if len(self.items) >= MAX_WISHES:  # full: the oldest thing only ever reflected on makes room
+                stale = min((k for k, v in self.items.items() if v["status"] == "open" and v["kinds"]["reflected"]
+                             and not (v["kinds"]["wished"] + v["kinds"]["failed"] + v["kinds"]["said"])),
+                            key=lambda k: self.items[k]["last_tick"], default=None)
+                if stale is None:
+                    return False
+                del self.items[stale]
             self.seq += 1
             w = self.items[key] = {"id": f"w{self.seq}", "thing": thing, "kinds": dict.fromkeys(KINDS, 0), "by": {},
                                    "quotes": [], "first_tick": tick, "last_tick": tick, "status": "open",

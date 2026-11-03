@@ -18,7 +18,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 # Default minds: the newest distilled student (~/models/swarm-student-*) with all three harness layers, else Qwen3.5-9B alone.
 # (Gemma 4 E4B is out: it loops, issue 003.)
-STUDENT="$(ls -d "$HOME"/models/swarm-student-* 2>/dev/null | sort | tail -n 1 || true)"
+STUDENT="$(ls -d "$HOME"/models/swarm-student-*/ 2>/dev/null | sort | tail -n 1 || true)"; STUDENT="${STUDENT%/}"  # folders only
 if [[ -z "${MODEL:-}" && -n "$STUDENT" ]]; then
   MODEL="$(basename "$STUDENT")"
   HARNESS_ALL="${HARNESS_ALL-plan,disclose,recall}"

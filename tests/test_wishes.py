@@ -133,3 +133,23 @@ def test_explicit_wishes_beat_reflected_fragments_on_the_board():
     refl = [v for v in board if v["reflected_only"]]
     assert refl and len(refl) <= 30 and board[1:] == refl  # reflected-only sit after, in their own capped section
     assert len(w.ranked(60, 5)) == 6
+
+
+def test_a_full_board_makes_room_for_a_real_wish_by_dropping_the_oldest_reflection():
+    # reflection fragments (70+ a day) fill the store's 300 places; a prayer must still get in
+    from swarmworld.server.wishes import MAX_WISHES
+    w = Wishes(Catalog.load())
+    for i in range(MAX_WISHES):
+        assert w.add("Ann", f"fragment number{i}", "reflected", "if only...", i)
+    assert w.add("Mirth", "flint to light my fire", "wished", "I wish for a flint to light my fire!", 1000)
+    things = {v["thing"] for v in w.items.values()}
+    assert len(w.items) == MAX_WISHES and "flint to light my fire" in things and "fragment number0" not in things
+    assert w.ranked()[0]["thing"] == "flint to light my fire"
+
+
+def test_a_board_full_of_real_wishes_still_refuses_more():
+    from swarmworld.server.wishes import MAX_WISHES
+    w = Wishes(Catalog.load())
+    for i in range(MAX_WISHES):
+        w.add("Ann", f"wish number{i}", "wished", "I wish...", i)
+    assert not w.add("Bo", "one more thing", "wished", "I wish...", 1000) and len(w.items) == MAX_WISHES
