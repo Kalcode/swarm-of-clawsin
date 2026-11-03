@@ -6,17 +6,25 @@ Creatures gather wood, stone, fiber and berries. They discover recipes by experi
 
 Any computer in the house can join the same world and bring its own creatures, each driven by whatever model that machine runs.
 
+**Watch it live: https://swarm-world.4rc4de.com** (the public, read-only viewer).
+
+It shows a snapshot of the world every 3 seconds. Snapshots are cached at Cloudflare's edge, so watchers never load the Mac, and nothing public can change the world. To preview what the public sees, open `/public/app/` on your own world. The runbook is [docs/public-viewer.md](docs/public-viewer.md); the kill switch is `scripts/public-tunnel.sh stop`.
+
 ```
    ┌──────────────── world server (this Mac) ────────────────┐
    │  tiles · objects · creatures · memory · recipes · clock │
    │  world → text (first-person senses)                     │
    │  text → world (validated intentions)                    │
    │  Lua sandbox for terminals                              │
-   └──────┬──────────────────────┬───────────────────┬───────┘
-          │ WebSocket            │ WebSocket         │ WebSocket
-   brain node (Mac)       brain node (PC)       browser viewer (you)
-   oMLX · Gemma + Qwen    Ollama · any model    watch, click, follow
+   └──┬──────────────┬───────────────┬──────────────┬────────┘
+      │ WebSocket    │ WebSocket     │ WebSocket    │ HTTP snapshots
+ brain node (Mac) brain node (PC) brain node (Air) browser viewer (you)
+ oMLX · the       Ollama · gpt-oss oMLX · Qwen3.5-4B   watch, click, follow
+ distilled student                                  public viewer (everyone)
+                                                    Cloudflare's edge, cached
 ```
+
+The minds are gpt-oss on the gaming PC (Ollama), the distilled student on this Mac (oMLX) and Qwen3.5-4B on the MacBook Air. Gemma is out: it loops ([issue 003](issues/003-replace-gemma.md)).
 
 ## Setup (once)
 
@@ -30,7 +38,7 @@ for m in gemma-4-e4b-it-4bit Qwen3.5-4B-MLX-4bit Qwen3.5-9B-MLX-4bit; do uvx --f
 ## Quick start (this Mac)
 
 ```bash
-./start-world.sh                      # oMLX + world + 12 Gemma 4 E4B and 8 Qwen3.5 4B creatures, opens the viewer
+./start-world.sh                      # oMLX + world + 12 Gemma 4 E4B and 8 Qwen3.5 4B creatures, opens the viewer (the script's defaults; Gemma loops, so pick MODEL yourself)
 MODEL=Qwen3.5-9B-MLX-4bit CREATURES=10 MODEL2= ./start-world.sh   # fewer, smarter creatures
 ```
 
@@ -73,11 +81,11 @@ The model server, not the world, is the bottleneck. A load test with 150 rule-ba
 
 Open http://127.0.0.1:7777/. Drag to pan and scroll to zoom. Click a creature to follow it and read exactly what it senses, what it last thought, what it tried, and what happened. The **Events** tab is the world's story: speech, crafting, discoveries and failures. The **Swarm** tab compares the models that live in the world.
 
-**A voice from the sky:** you can speak into the world from the viewer, or with `curl -X POST localhost:7777/api/voice -d '{"text":"..."}'`. Add `"x"`, `"y"` and `"radius"` to speak to one area only. Creatures hear "A booming voice from the sky says: ...". It's a lever for experiments: seed an idea, then watch whether it spreads, changes plans or gets forgotten. It only works from this machine.
+**A voice from the sky:** you can speak into the world from the viewer, or with `curl -X POST localhost:7777/api/voice -d '{"text":"..."}'`. Add `"x"`, `"y"` and `"radius"` to speak to one area only. Creatures hear "A booming voice from the sky says: ...". It's a lever for experiments: seed an idea, then watch whether it spreads, changes plans or gets forgotten. Steward actions work from this machine and from any device on the home network (a phone in bed is fine). They never work through a tunnel or proxy: a request relayed by Cloudflare is refused, so the public can't use them.
 
-**Wishes:** creatures say what their world lacks ("I wish we had a proper roof"), fail to make things it has never heard of, or use the `wish` action, most of all at the wishing stone at the meadow's north edge. The **Wishes** tab ranks what they want. On this machine you can answer a wish from the sky, grant an item, or note it as something to build: the creatures' own feature-request board.
+**Wishes:** creatures say what their world lacks ("I wish we had a proper roof"), fail to make things it has never heard of, or use the `wish` action, most of all at the wishing stone at the meadow's north edge. The **Wishes** tab ranks what they want. From the home network you can answer a wish from the sky, grant an item, or note it as something to build: the creatures' own feature-request board.
 
-**Steward actions** (this machine only), for testing new content in the live world: `curl -X POST localhost:7777/api/admin/give -d '{"creature":"Mara","item":"rope","count":2}'`, and likewise `place` (`{"kind":"basket","x":30,"y":28}`), `remove` (`{"object":"o123"}`), `move` (`{"creature":"Mara","x":30,"y":29}`) and `weather` (`{"weather":"rain","ticks":300}`). Each shows up as a Steward event; interventions are logged in [docs/steward-log.md](docs/steward-log.md).
+**Steward actions** (home network only), for testing new content in the live world: `curl -X POST localhost:7777/api/admin/give -d '{"creature":"Mara","item":"rope","count":2}'`, and likewise `place` (`{"kind":"basket","x":30,"y":28}`), `remove` (`{"object":"o123"}`), `move` (`{"creature":"Mara","x":30,"y":29}`) and `weather` (`{"weather":"rain","ticks":300}`). Each shows up as a Steward event.
 
 Everything is also logged to `runs/<timestamp>/`. `events.jsonl` holds what happened. `thinks.jsonl` holds every model reply, which is useful for analysis and later for fine-tuning small models on successful behavior.
 
@@ -93,7 +101,9 @@ On the other machine: install [uv](https://docs.astral.sh/uv/) and a model serve
 .\join.ps1 --token TOKEN --model qwen3:8b:6     # Windows PowerShell (Ollama model names work)
 ```
 
-The world server keeps every creature's memory. A machine that leaves just puts its creatures to sleep where they stand, in stasis: no hunger while their mind is away. They wake up when it rejoins, or when another machine with the same model adopts them. Right now four Qwen3.5 9B "elders" are asleep in the world, waiting for a machine with room for a 9B model. Only short text crosses the network.
+The world server keeps every creature's memory. A machine that leaves just puts its creatures to sleep where they stand, in stasis: no hunger while their mind is away. They wake up when it rejoins, or when another machine with the same model adopts them. Only short text crosses the network.
+
+How `--adopt` counts: a node first takes back its own sleeping creatures, then adopts sleeping creatures of the models named in `--adopt`, and never more than the number it asks for in total. To adopt 4 on top of its own 8, ask for 12: `--model swarm-student-20261103:12 --adopt qwen3.5-9b=swarm-student-20261103`.
 
 ## Running it day to day
 
@@ -105,10 +115,13 @@ MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2
 ```
 
 - **New minds for old creatures:** a creature is tied to the model it was born with, so a new model normally brings newcomers and the old creatures sleep until their model returns. `ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b"` (or `--adopt OLD[=NEW]` on any node, including `join.ps1`) gives the sleeping creatures the new minds instead. They keep their bodies, memories and bonds; what they did before stays credited to the old model in the Swarm and History tabs. Ask for more creatures than there are to adopt and newcomers fill the rest.
+- **Harness layers:** `--harness plan,disclose,recall` (or `HARNESS=`) gives each layer to half of each model's creatures, so the two halves can be compared. `--harness-all` (or `HARNESS_ALL=`) gives every creature all the layers named; both are world server options. A distilled student must get `--harness-all plan,disclose,recall`, the layers it was trained with.
+- **One model per GPU** when speed matters. A student sharing a GPU with a bigger model slowed to 30 s per decision (see [docs/distillation.md](docs/distillation.md), section 5).
 - **Deploying a change** is a restart: Ctrl-C saves, and starting again without `--fresh` resumes the same world. Pass the old `TOKEN=...` so joined machines get back in. Brain nodes reconnect on their own.
 - **Developing while it runs:** `uv run pytest` uses rule-based brains, no GPU. Never start a second world on port 7777 (`start-world.sh` refuses). For a throwaway world use another port and save file: `uv run python -m swarmworld.server --port 7791 --world /tmp/scratch.json --fresh`.
 - **Benchmarks** go to a machine that isn't thinking for the live world: `uv run python bench/world_bench.py --base-url http://<machine>:11434/v1 --model <name> --episodes 3`.
 - **Reviewing a run:** `uv run python scripts/review_world.py runs/<timestamp>` shows how each model spends its turns, its no-op and failure rates, and the unmet desires. The backlog lives in [issues/](issues/README.md).
+- **The steward:** Claude watches the live world with the user's permission. Interventions (answering wishes, speaking from the sky, admin actions) are logged in [docs/steward-log.md](docs/steward-log.md); observations and proposals in [docs/watch-log.md](docs/watch-log.md).
 
 ## How a creature thinks
 
@@ -151,7 +164,25 @@ Curious, tinkerer and builder creatures sometimes get a vague **hunch** about so
 
 ## The land
 
-A fresh world is 128×128 tiles (older saves keep their size). The creatures start in a meadow at the center; around it lie open meadow with wildflowers, oak forest, pine forest climbing toward rocky hills (boulders, flint, streaked ore rock), and a lake with a sandy beach on one shore and a marsh of reeds, pools and clay where a stream comes in. Two streams run down from the hills to the lake and a river leaves it for the edge of the map. Rivers flow: anything dropped in one drifts downstream, and off the map at the edge. Flowers, reeds, mushrooms, shells, driftwood and flint are gathered like anything else; mushrooms come up again in the forests and shells and driftwood wash up on the beach. Bees and butterflies come out on fine days, fireflies at dusk; their glow lets a creature see a step farther in the dark. A creature is told the biome it is in when that changes (and when it wakes), and which way a river flows when it comes to one (`swarmworld/world/terrain.py`, pack `nature`).
+A fresh world is 128×288 tiles. The surface is rows 0-127, a band of solid rock fills rows 128-159, and the deep takes rows 160-287 (older saves gain the deep when they load). The surface is described here; the deep has its own section below. The creatures start in a meadow at the center; around it lie open meadow with wildflowers, oak forest, pine forest climbing toward rocky hills (boulders, flint, streaked ore rock), and a lake with a sandy beach on one shore and a marsh of reeds, pools and clay where a stream comes in. Two streams run down from the hills to the lake and a river leaves it for the edge of the map. Rivers flow: anything dropped in one drifts downstream, and off the map at the edge. Flowers, reeds, mushrooms, shells, driftwood and flint are gathered like anything else; mushrooms come up again in the forests and shells and driftwood wash up on the beach. Bees and butterflies come out on fine days, fireflies at dusk; their glow lets a creature see a step farther in the dark. A creature is told the biome it is in when that changes (and when it wakes), and which way a river flows when it comes to one (`swarmworld/world/terrain.py`, pack `nature`).
+
+## The deep and terraforming
+
+Under the whole surface lies the deep: caves and tunnels, an underground stream and pool, ore, and darkness. A few cave mouths on the surface lead down, and `climb` takes a creature up or down. Without light a creature sees almost nothing, so they need torches (stick, plant fiber and charcoal, lit at a campfire or from another torch). Down there they mine coal, iron, copper and crystal. Crystal makes a lamp that never burns out. One ancient terminal sits deep in the caves.
+
+On the surface, `dig` makes trenches and pits, and a trench beside water fills with water. A pit dug deep enough opens into the deep. `fill`, with dirt, stone or sand, raises the ground back up.
+
+In the viewer, the Surface/Underground switch (or the `U` key) changes which layer you see, and following a creature that climbs switches with it. The design is in [the spec](docs/superpowers/specs/2026-11-02-underground-design.md); the work is [issue 021](issues/021-underground-layer.md).
+
+## The almanac
+
+`/almanac.html` is the game's reference: a **Tech tree**, every **Thing** and **Verb**, a **Census** of what exists in this world now, the content **Packs**, and the **Roadmap**. The public copy has no Packs or Roadmap tabs. See [issue 022](issues/022-almanac.md).
+
+## A distilled mind
+
+[Issue 020](issues/020-distill-a-fast-mind.md) teaches a small model to play like the swarm's best. Steps: pick the best decisions from teacher runs (gpt-oss only; never Gemini outputs, which Google's terms forbid using this way), export them, train a small Apache-licensed student (Qwen3-1.7B, LoRA, on this Mac), then let it play in the live world.
+
+Round 1 (Nov 3): trained on 19,378 unique teacher decisions in 2 h 50 m. Live, 12 student creatures succeeded 88% of the time at a median 14.6 s per decision, against 98-99% and 8.5 s for gpt-oss on the PC. It acts on habit without checking the scene. Round 2 is planned. Details: [docs/distillation.md](docs/distillation.md); a visual explainer is in `docs/explainers/distilling-a-fast-mind.html`.
 
 ## Places and society
 
@@ -163,9 +194,11 @@ Every conversation, gift and teaching moment between two creatures is recorded. 
 
 Every 600 ticks (10 minutes at the default speed), a model reads what happened and writes a short storybook chapter: the Chronicle tab in the viewer, `GET /api/chronicle`, and `runs/<timestamp>/chronicle.md`. It's the "what happened while I was away" view.
 
-## Art
+## Art and sound
 
-The viewer uses your LimeZu packs (Modern Interiors, Exteriors, Farm, Serene Village) from `web/assets/limezu/`, with generated characters per creature. These packs are licensed to you, so that folder and `inbox/` are gitignored and must not be redistributed. Credit "Art: LimeZu (limezu.itch.io)" is shown in the viewer. Without them, for example on a fresh clone, the viewer falls back to Kenney's CC0 1-Bit Pack (`?skin=kenney`). `web/assets/limezu/CATALOG.md` lists what else is in the packs for future eras.
+The viewer uses LimeZu's art packs (Modern Interiors, Exteriors, Farm, Serene Village) and ElvGames and Pegonthetrack sound effects. These are the user's bought packs, and the user holds the licenses. Both show in the private viewer and in the public viewer, and are credited in the About panel and in the footer. Only the viewer's built sheets and clips are served; the original packs (`inbox/`) and the build scripts never are.
+
+None of it is in git: `web/assets/limezu/`, `web/assets/sfx/`, `inbox/` and `docs/media/` are gitignored and must not be redistributed. A fresh clone falls back to Kenney's CC0 1-Bit Pack (`?skin=kenney`) and synthesized sound. `web/assets/limezu/CATALOG.md` lists what else is in the packs for future eras.
 
 ## Inventions: creatures extend the world (rung 1)
 
@@ -214,15 +247,20 @@ uv run python bench/world_bench.py --model gemma-4-e4b-it-4bit --model Qwen3.5-4
 swarmworld/world/      catalog (items, recipes), terrain, perception (world→text), actions (text→world), simulation
 swarmworld/world/packs/ content packs: one module each, registering verbs, systems, perception lines (registry.py)
 swarmworld/mind/       memory, prompts
-swarmworld/server/     world server: tick loop, scheduler, metrics, WebSockets, REST
+swarmworld/server/     world server: tick loop, scheduler, metrics, WebSockets, REST, public snapshots
 swarmworld/node/       brain node: LLM + mock brains, join client, CLI
 swarmworld/scripting/  Lua sandbox + terminals
 swarmworld/net/        LAN discovery
 swarmworld/data/       items.json, recipes.json, objects.json (kinds), packs/<pack>/  ← edit these to grow the world
-web/                   the viewer (plain JS + Canvas; LimeZu art, Kenney CC0 fallback)
+web/                   the viewer, the public viewer and the almanac (plain JS + Canvas; LimeZu art, Kenney CC0 fallback)
 bench/                 model concurrency benchmark
-scripts/               analyze_run.py: compare models across runs
-docs/                  plan and run notes
+scripts/               analyze_run.py, review_world.py: compare models across runs
+                       teacher_runs.py, export_training.py, train_student.sh, check_student.py: the distillation pipeline
+                       public-tunnel.sh, public_load_test.py: the public viewer's tunnel and its load test
+deploy/                Cloudflare tunnel config and cache rules
+issues/                the backlog
+worlds/                the living world's saves (gitignored)
+docs/                  distillation, public-viewer, gaming-pc, second-mac, writing-a-pack, steward-log, watch-log, explainers/
 reports/               the research report behind the design
 ```
 

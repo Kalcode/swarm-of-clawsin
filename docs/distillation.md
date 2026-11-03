@@ -87,19 +87,88 @@ the student's own template again and lets it answer one held-out prompt.
 ## 4. Live trial
 
 The student was trained on prompts with every harness layer, so give the trial's creatures all of them
-(`HARNESS_ALL=plan,disclose,recall`). Transplant half of one model's creatures onto the student, e.g. 12 sleeping
-gpt-oss creatures, 6 staying with the teacher on the PC and 6 moving to the student on this Mac's oMLX:
+(`--harness-all plan,disclose,recall`, or `HARNESS_ALL=`). The first live trial accidentally split the layers; don't.
+
+How `--adopt` counts: a node takes back its own sleeping creatures first, then adopts sleeping creatures of the models
+named in `--adopt`, and never more than the number it asks for in total. So to adopt 4 on top of the student's own 8,
+ask for 12:
 
 ```sh
-HARNESS_ALL=plan,disclose,recall MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=6 \
-  MODEL2="swarm-student-20261103:6@http://127.0.0.1:8000/v1" ADOPT="gpt-oss:20b=swarm-student-20261103" ./start-world.sh
+uv run python -m swarmworld.node --model swarm-student-20261103:12 --adopt qwen3.5-9b=swarm-student-20261103
 ```
 
-The first model takes back its own 6; the student adopts the next 6 sleeping gpt-oss creatures (they keep their
-memories). After a day or two of world time compare the halves, plus thoughts per minute from `/api/metrics`:
+(`--harness-all` is a world server option, set when the world starts.)
+
+Adoption needs sleeping creatures of the old model. The Nov 3 trial did not use it: the world had been reset, so the
+student's creatures were newcomers (section 5). If you do have sleeping gpt-oss creatures, `start-world.sh` takes the
+same idea: `ADOPT="gpt-oss:20b=swarm-student-20261103"` with `MODEL2="swarm-student-20261103:6@http://127.0.0.1:8000/v1"`.
+Adopted creatures keep their memories.
+
+After a day or two of world time compare the halves, plus thoughts per minute from `/api/metrics`:
 
 ```sh
 uv run python scripts/review_world.py runs/<the trial's run> --split
 ```
 
 Log the trial and its outcome in [docs/steward-log.md](steward-log.md).
+
+## 5. Results: the first student (Nov 3)
+
+**Teacher data.** 12 finished episodes: 6 on this Mac's oMLX (gpt-oss-20b-mxfp4) and 6 on the PC's Ollama (gpt-oss:20b).
+
+- That gave 19,378 unique decisions: 26,320 train lines (after weighting) and 1,718 valid lines from 1 held-out episode
+  (seed 101).
+- Skipped: action failed 4,523; unfinished episode 2,518; not an act decision 2,039; no-op 1,056; unparsed 180.
+- The average prompt is 1,748 tokens and the average answer 78.
+
+**Training.** Qwen3-1.7B bf16 with LoRA (last 16 layers, rank 16), 4,000 steps at batch 1 with gradient accumulation 8,
+learning rate 2e-5 with cosine decay.
+
+- About 2.6 s per step on the M1 Max, so 2 h 50 m in all.
+- Validation loss went from 3.32 at the start to 0.357 (best, step 1,400) and ended at 0.389.
+- The adapter was fused and quantized to 8-bit: 1.9 GB at `~/models/swarm-student-20261103`.
+
+**Offline check** on 100 held-out decisions:
+
+| | Parsed | Action + target match | Action only | p50 latency |
+|---|---|---|---|---|
+| Student, final | 99 | 16 | 25 | 2.5 s |
+| Student, step 1,400 | 100 | 16 | 31 | 2.4 s |
+| Base Qwen3-1.7B | 100 | 10 | 37 | 1.9 s |
+
+The base model's lead on action alone was luck: it answers `walk_to` 67% of the time, and the held-out episode was
+unusually walk-heavy (36% walk_to, against 8% across the training episodes).
+
+**Live, alone on this Mac** with 6 creatures (10:35): 87% of actions succeeded, p50 2.8 s per decision. Over each
+creature's first 8 decisions, gpt-oss succeeds 97%.
+
+**Live, in the day's mixed world** (10:42 on, every creature with all harness layers):
+
+| Mind | Where | Success | p50 |
+|---|---|---|---|
+| gpt-oss:20b | the PC | 98-99% | 8.5 s |
+| The student, 12 creatures | this Mac | 88% | 14.6 s |
+| Qwen3.5-4B | the Air | 96% | 29 s |
+
+While the student shared this Mac's GPU with Qwen3.5-9B it slowed to 30 s, so Qwen-9B was moved off.
+
+**How it fails.** It acts on what usually works without checking the scene, such as gathering from a boulder that
+isn't in reach, or combining a rope with things that don't fit.
+
+**Lessons**
+
+- Use `--harness-all`. The first live trial accidentally split the layers.
+- Hold out several episodes, not one.
+- Doubling the weight of crafting decisions pushed `combine` from 18% to 31% of training lines and cut `walk_to` from
+  8% to 5%. Weight it less.
+- Run one model per GPU when speed is the point.
+- A small model's time goes on reading the prompt: shorter prompts and a cache-friendly prompt order are the speed
+  lever.
+
+**Round 2 plan**
+
+- DAgger: let the student play, have the teacher answer the student's own prompts, especially where it failed, and
+  train on that.
+- Several held-out episodes.
+- Lighter weighting.
+- Shorter prompts.
