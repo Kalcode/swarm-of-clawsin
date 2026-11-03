@@ -253,6 +253,21 @@ def prompt_lines() -> dict[str, str]:
     return out
 
 
+# pack id -> one plain sentence for a watcher (the public almanac); a pack with no entry shows nothing there, because the
+# docstring that describes it for developers names files and internals
+PACK_ABOUT: dict[str, str] = {
+    "core": "The meadow itself: terrain, the everyday actions, and the first items, recipes and creatures of the world.",
+    "building": "Tents, huts, storehouses, workshops, wells and bridges, raised by creatures working together.",
+    "digging": "Tunnels and shafts through the deep rock, and trenches and pits that reshape the surface.",
+    "food": "Fishing, hunting, foraging and cooking, and food that spoils unless it is kept.",
+    "nature": "What grows and lives in the land: flowers, reeds, shells, bees, butterflies and fireflies.",
+    "play": "Games, dancing, music and stories, and the joy they bring.",
+    "sound": "The noises of the world: chopping, splashing, crackling fires, crickets and a crowd talking.",
+    "underground": "A deep world below the meadow, with ways down to it and back up, and caves with names.",
+    "weather": "Rain, fog, wind, storms and heat, and how each changes the day.",
+    "invented": "What the creatures of this world invented themselves.",
+}
+
 # verb -> one plain sentence for a watcher (the public almanac); the prompt lines above are for the creatures
 VERB_ABOUT: dict[str, str] = {
     "walk_to": "Walks to stand beside something or someone the creature can see.",

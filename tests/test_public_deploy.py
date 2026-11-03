@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def fake_cloudflared(tmp_path):
     fake = tmp_path / "cloudflared"
-    fake.write_text(f'#!/bin/bash\necho "$@" > "{tmp_path}/marker"\nsleep 60 &\ntrap "kill $!; exit 0" TERM\nwait\n')
+    # exec -a keeps the path as the process's first word (ps shows it as it does for the real binary)
+    fake.write_text(f'#!/bin/bash\necho "$@" > "{tmp_path}/marker"\n'
+                    'exec -a "$0" bash -c \'sleep 60 & trap "kill $!; exit 0" TERM; wait\'\n')
     fake.chmod(0o755)
     yield fake
     pid = tmp_path / "cloudflared.pid"
@@ -67,7 +69,7 @@ def test_start_status_stop(tmp_path, fake_cloudflared):
     assert "running (pid" in tunnel(tmp_path, "status").stdout
     assert tunnel(tmp_path, "start", CONFIG=str(cfg)).returncode != 0  # already running
     out = tunnel(tmp_path, "stop").stdout
-    assert "nothing is public now" in out and "not running" in tunnel(tmp_path, "status").stdout
+    assert "nothing new is public" in out and "not running" in tunnel(tmp_path, "status").stdout
 
 
 def test_start_world_passes_the_public_link():
@@ -99,7 +101,11 @@ def test_a_faithful_copy_of_the_template_is_not_blocked_by_its_comments(tmp_path
 @pytest.mark.parametrize("bad", [
     "warp-routing:\n  enabled: true\n", "  - service: tcp://127.0.0.1:22\n", "  - service: unix:/tmp/s.sock\n",
     "  - service: ssh://127.0.0.1:22\n", "  - service: rdp://127.0.0.1:3389\n", "  - service: bastion\n",
-    "  - service: http://10.0.0.5:80\n", "  - service: http://localhost:7777\n", "# private-network is fine in a comment\nprivate-network: 1\n"])
+    "  - service: http://10.0.0.5:80\n", "  - service: http://localhost:7777\n", "# private-network is fine in a comment\nprivate-network: 1\n",
+    "originRequest:\n  proxyType: socks\n", "  - service: http://127.0.0.1:8000\n", "  - hostname: llm.example.com\n    service: http://127.0.0.1:8000\n",
+    "ingress: [{hostname: h, service: ssh://127.0.0.1:22}]\n", "  - {hostname: h, originRequest: {proxyType: socks}, service: http://127.0.0.1:7777}\n",
+    '"warp-routing": {enabled: true}\n', "'originRequest': x\n", "list: [a, b]\n", "originRequest: {proxyType: socks}\n", "  - hostname: x.example.com\n    originRequest: {noTLSVerify: true}\n    service: http://127.0.0.1:7777\n",
+    "proxyType: socks\n"])
 def test_start_refuses_a_config_that_could_expose_the_world(tmp_path, fake_cloudflared, bad):
     cfg = tmp_path / "cfg.yml"
     cfg.write_text(GOOD + bad)
@@ -118,7 +124,7 @@ def test_stop_with_no_tunnel_does_not_claim_success(tmp_path, fake_cloudflared):
     r = tunnel(tmp_path, "stop")
     out = r.stdout + r.stderr
     assert "no tunnel started by this script was running" in out and "pgrep -fl cloudflared" in out
-    assert "nothing is public now" not in out
+    assert "nothing new is public" not in out
 
 
 def test_stop_leaves_a_foreign_process_alone(tmp_path, fake_cloudflared):
@@ -140,8 +146,8 @@ def test_stop_fails_loudly_when_the_process_will_not_die(tmp_path, fake_cloudfla
     nokill = tmp_path / "nokill"
     nokill.write_text("#!/bin/bash\nexit 0\n")
     nokill.chmod(0o755)
-    r = tunnel(tmp_path, "stop", KILL=str(nokill), STOP_TICKS="5")
-    assert r.returncode == 1 and "nothing is public now" not in r.stdout and "still running" in r.stdout + r.stderr
+    r = tunnel(tmp_path, "stop", SWARM_TUNNEL_TEST_KILL=str(nokill), SWARM_TUNNEL_TEST_STOP_TICKS="5")
+    assert r.returncode == 1 and "nothing new is public" not in r.stdout and "still running" in r.stdout + r.stderr
     assert tunnel(tmp_path, "stop").returncode == 0  # the real kill works
 
 
@@ -150,3 +156,100 @@ def test_runbook_has_traversal_probes_and_stop_caveat():
     for s in ("--path-as-is", "/public/../api/state", "public%2F..%2Fapi%2Fstate", "/public/%2e%2e/api/state",
               "pgrep -fl cloudflared", "cloudflared service install"):
         assert s in doc, s
+
+
+@pytest.mark.parametrize("bad,key", [
+    ("warp-routing:\n  enabled: true\n", "warp-routing"), ("originRequest: {proxyType: socks}\n", "originRequest"),
+    ("ingress2:\n  - proxyType: socks\n", "ingress2"), ("private-network: 1\n", "private-network"),
+    ("  - hostname: x.example.com\n    originRequest:\n      proxyType: socks\n    service: http://127.0.0.1:7777\n", "originRequest")])
+def test_a_refused_key_is_named(tmp_path, fake_cloudflared, bad, key):
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text(GOOD + bad)
+    r = tunnel(tmp_path, "start", CONFIG=str(cfg))
+    assert r.returncode == 1 and key in r.stdout + r.stderr and not (tmp_path / "marker").exists()
+
+
+def test_a_hostname_or_path_that_merely_says_private_is_fine(tmp_path, fake_cloudflared):
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text("tunnel: abc\ningress:\n  - hostname: private.example.com\n    path: ^/public/private/.*$\n"
+                   "    service: http://127.0.0.1:7777\n  - service: http_status:404\n")
+    assert tunnel(tmp_path, "start", CONFIG=str(cfg)).returncode == 0
+    tunnel(tmp_path, "stop")
+
+
+def test_inline_comments_are_ignored_and_the_allowed_extras_pass(tmp_path, fake_cloudflared):
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text("tunnel: abc  # the id\nloglevel: info\nno-autoupdate: true\nprotocol: quic # fast\ningress:\n"
+                   "  - hostname: h.example.com # mine\n    service: http://127.0.0.1:7777 # the world\n"
+                   "  - service: http_status:404 # the rest\n")
+    assert tunnel(tmp_path, "start", CONFIG=str(cfg)).returncode == 0
+    tunnel(tmp_path, "stop")
+    cfg.write_text(GOOD.replace("http://127.0.0.1:7777", "http://10.0.0.5:7777 # lan"))
+    assert tunnel(tmp_path, "start", CONFIG=str(cfg)).returncode == 1  # a comment doesn't hide a bad service
+
+
+def test_a_process_that_only_mentions_cloudflared_is_not_ours(tmp_path, fake_cloudflared):
+    other = subprocess.Popen(["bash", "-c", "sleep 30; true", "cloudflared"])  # ps: "bash -c sleep 30; true cloudflared"
+    try:
+        ps = subprocess.run(["ps", "-p", str(other.pid), "-o", "command="], capture_output=True, text=True).stdout
+        assert ps.split()[0].endswith("bash") and "cloudflared" in ps  # the setup is what the test says it is
+        (tmp_path / "cloudflared.pid").write_text(str(other.pid))
+        out = tunnel(tmp_path, "stop").stdout
+        assert other.poll() is None and "no tunnel started by this script was running" in out
+    finally:
+        other.kill()
+        other.wait()
+
+
+def test_a_cloudflared_path_with_a_space_is_ours(tmp_path):
+    d = tmp_path / "My Tools"
+    d.mkdir()
+    fake = d / "cloudflared"
+    fake.write_text('#!/bin/bash\necho "$@" > "' + str(tmp_path) + '/marker"\nexec -a "$0" bash -c \'sleep 60 & trap "kill $!; exit 0" TERM; wait\'\n')
+    fake.chmod(0o755)
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text(GOOD)
+    try:
+        assert tunnel(tmp_path, "start", CONFIG=str(cfg), CLOUDFLARED=str(fake)).returncode == 0
+        assert "running (pid" in tunnel(tmp_path, "status", CLOUDFLARED=str(fake)).stdout
+    finally:
+        out = tunnel(tmp_path, "stop", CLOUDFLARED=str(fake)).stdout
+    assert "nothing new is public" in out
+
+
+def test_the_service_port_is_the_worlds(tmp_path, fake_cloudflared):
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text(GOOD.replace("7777", "7790"))
+    r = tunnel(tmp_path, "start", CONFIG=str(cfg))
+    assert r.returncode == 1 and "7790" in r.stdout and not (tmp_path / "marker").exists()
+    assert tunnel(tmp_path, "start", CONFIG=str(cfg), WORLD_PORT="7790").returncode == 0
+    tunnel(tmp_path, "stop")
+
+
+def test_the_stop_message_does_not_overstate():
+    text = (ROOT / "scripts/public-tunnel.sh").read_text()
+    assert "nothing is public now" not in text and "Purge Everything" in text and "Copies already cached" in text
+    doc = (ROOT / "docs/public-viewer.md").read_text()
+    assert "Purge Everything" in doc
+
+
+def test_each_traversal_probe_is_a_full_curl_command():
+    doc = (ROOT / "docs/public-viewer.md").read_text()
+    probes = re.findall(r"`(curl --path-as-is [^`]*)`", doc)
+    assert len(probes) == 3 and all("-w" in p and "https://<host>/" in p for p in probes), probes
+
+
+def test_the_cache_rules_are_host_scoped_and_the_query_rule_is_required():
+    rules = (ROOT / "deploy/cloudflare/cache-rules.md").read_text()
+    doc = (ROOT / "docs/public-viewer.md").read_text()
+    for text in (rules, doc):
+        assert 'http.host eq "' in text and "Optional rule" not in text and "Optional second rule" not in text
+        for s in ("almanac.json", "history.json", "creature/", "rate limit"):
+            assert s in text, s
+    assert "never" in rules.lower() and "static.json" in rules
+
+
+def test_rule_2_covers_the_pages_and_says_what_the_origin_does():
+    for text in ((ROOT / "deploy/cloudflare/cache-rules.md").read_text(), (ROOT / "docs/public-viewer.md").read_text()):
+        assert "/public/app/almanac.html" in text and "20 requests per 10 seconds" in text and "never get that far" not in text
+    assert "never a redirect" in (ROOT / "deploy/cloudflare/cache-rules.md").read_text()

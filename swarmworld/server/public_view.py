@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..world.events import Event
+from .almanac import PACK_ABOUT
 
 if TYPE_CHECKING:
     from .state import ServerState
@@ -252,7 +253,7 @@ def public_almanac(full: dict) -> dict:
     out["kinds"] = pick_all(full.get("kinds", []), KIND_KEYS)
     out["verbs"] = [{**pick(v, VERB_KEYS), **({"used": pick(v["used"], VERB_USED_KEYS)} if "used" in v else {})}
                     for v in full.get("verbs", [])]
-    out["packs"] = pick_all(full.get("packs", []), PACK_KEYS)
+    out["packs"] = [{**p, "about": PACK_ABOUT.get(p.get("id"), "")} for p in pick_all(full.get("packs", []), PACK_KEYS)]
     tree = pick(full.get("tree", {}), TREE_KEYS)
     out["tree"] = {"nodes": pick_all(tree.get("nodes", []), TREE_NODE_KEYS),
                    "edges": pick_all(tree.get("edges", []), TREE_EDGE_KEYS)}

@@ -238,3 +238,18 @@ def test_static_and_live_parts_keep_only_listed_fields(busy):
     assert pv.public_chronicle([chapter]) == [{"tick": 1, "day": 1, "phase": "dawn", "text": "It began."}]
     assert pv.public_buildings([{"id": "b1", "design": "hut", "secret": 1}]) == [{"id": "b1", "design": "hut"}]
     assert pv.public_landmarks(init["landmarks"]) == [{"name": "a cave", "x": 1, "y": 2, "kind": "cave", "size": 1}]
+
+
+def test_public_almanac_pack_descriptions_are_plain_words(busy, issues_dir):
+    from swarmworld.server.almanac import PACK_ABOUT
+    a = public_almanac(build(busy, issues_dir))
+    text = json.dumps(a)
+    for bad in ("swarmworld/", ".json", ".py", "Simulation", "_weather", "data:", "Data:"):
+        assert bad not in text, bad
+    by = {p["id"]: p["about"] for p in a["packs"]}
+    assert {"core", "building", "weather", "digging"} <= set(by) and all(by[k] == PACK_ABOUT[k] for k in by if k in PACK_ABOUT)
+    assert all(len(v) < 200 and v.endswith(".") for v in PACK_ABOUT.values())
+    # a pack with no entry shows nothing, not its docstring
+    full = build(busy, issues_dir)
+    full["packs"].append({"id": "homebrew", "about": "Internals in swarmworld/x.py", "items": 0, "recipes": 0, "kinds": 0, "verbs": 0, "designs": 0})
+    assert {p["id"]: p["about"] for p in public_almanac(full)["packs"]}["homebrew"] == ""

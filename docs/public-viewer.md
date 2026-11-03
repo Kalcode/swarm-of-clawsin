@@ -32,12 +32,13 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
 4. `cp deploy/cloudflare/tunnel.yml ~/.cloudflared/swarm-world.yml`, then replace `<TUNNEL-ID>` (twice), `<HOME>` (your home directory, absolute) and `<HOSTNAME>` (twice) with `<host>`. Leave the ingress rules as they are. `scripts/public-tunnel.sh start` refuses to run while any `<` remains.
 5. Cache rule, in the Cloudflare dashboard (details and reasons in [deploy/cloudflare/cache-rules.md](../deploy/cloudflare/cache-rules.md)):
    1. Select the domain, then Caching > Cache Rules > Create rule.
-   2. Name it `Swarm World public`. Choose Custom filter expression > Edit expression, and enter `starts_with(http.request.uri.path, "/public/")`.
+   2. Name it `Swarm World public`. Choose Custom filter expression > Edit expression, and enter `http.host eq "<host>" and starts_with(http.request.uri.path, "/public/")` (scoped to your hostname so it cannot touch other services in the zone).
    3. Cache eligibility: Eligible for cache.
    4. Edge TTL: "Use cache-control header if present, bypass cache if not".
    5. Browser TTL: Respect origin.
    6. Deploy.
-   7. Optional second rule (ignore the query string): expression `http.request.uri.path eq "/public/live.json" or starts_with(http.request.uri.path, "/public/creature/")`, with Cache key > Query string > Ignore.
+   7. Second rule, required, `Swarm World ignore query string`: expression `http.host eq "<host>" and (http.request.uri.path eq "/public/live.json" or http.request.uri.path eq "/public/almanac.json" or http.request.uri.path eq "/public/history.json" or starts_with(http.request.uri.path, "/public/creature/") or http.request.uri.path in {"/public/app/" "/public/app/index.html" "/public/app/almanac.html"})`, with Cache eligibility and TTLs as in rule 1 and Cache key > Query string > Ignore. Never for `static.json` or `chronicle.json`: their `?v=` is the version. The world serves the same document whatever the query, so this rule is what stops made-up keys from reaching it. Without it every made-up `?x=...` is an edge miss that reaches the Mac.
+   8. A rate limit (Security > WAF > Rate limiting rules), scoped to `http.host eq "<host>" and starts_with(http.request.uri.path, "/public/")`: per IP, 120 requests per minute, Block for a minute. On the Free plan the period is limited (10 seconds): use 20 requests per 10 seconds per IP, and drop the `http.host` clause if it is not offered; the options vary by plan. A watcher makes about 25 requests a minute.
 6. Caching > Tiered Cache > turn on Smart Tiered Caching.
 
 ## Posting day
@@ -50,29 +51,35 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
   The same goes for `https://<host>/public/static.json?v=<version>` (the version is in `live.json`).
 - [ ] 5. Nothing private is reachable. Each of these should print `404`:
   `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/api/state` (and `/ws/view`, `/public/app/assets/limezu/manifest.json`, `/api/almanac`).
-  Path traversal through the real hostname must also print `404` for each of these:
-  `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public/../api/state`, `https://<host>/public%2F..%2Fapi%2Fstate`, `https://<host>/public/%2e%2e/api/state`.
+  Path traversal through the real hostname must also print `404` for each of these three:
+  `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public/../api/state`
+  `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public%2F..%2Fapi%2Fstate`
+  `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public/%2e%2e/api/state`
 - [ ] 6. Watch the Mac: `curl -s http://127.0.0.1:7777/api/metrics` (look at `tick_ms`) and `top -pid <world pid>`.
 
 ## The kill switch
 
-`scripts/public-tunnel.sh stop` stops the tunnel this script started, at once (TERM, then KILL after 5 s). It checks that the process is really gone and exits 1 with an error if it is not; it only touches a pid that is really `cloudflared`. If it says "no tunnel started by this script was running", a `cloudflared` started another way (for example `cloudflared service install`, or a terminal) may still be serving: run `pgrep -fl cloudflared` and stop that one yourself. The world keeps running; nothing is public once no cloudflared is left. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
+`scripts/public-tunnel.sh stop` stops the tunnel this script started, at once (TERM, then KILL after 5 s). It checks that the process is really gone and exits 1 with an error if it is not; it only touches a pid that is really `cloudflared`. If it says "no tunnel started by this script was running", a `cloudflared` started another way (for example `cloudflared service install`, or a terminal) may still be serving: run `pgrep -fl cloudflared` and stop that one yourself. The world keeps running and nothing new reaches the public once no cloudflared is left.
+
+The stop does not recall what is already out there: copies cached at Cloudflare's edge stay until they expire (live data within seconds, but `static.json`, `chronicle.json` and the page files for up to a year), and browsers keep what they have loaded. To take content down, also use Caching > Configuration > Purge Everything in the Cloudflare dashboard; the copies in browsers that already have them stay until the visitor reloads. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
 
 ## Load test
 
-`nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at a56b912 plus the script; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).
+`nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at 816181a, with the query redirects and gzip app files, run under `nice -n 10`; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).
 
 | | baseline | 200 pollers |
 |---|---|---|
-| tick p50 (ms) | 12.0 | 14.5 |
-| tick p95 (ms) | 20.7 | 25.6 |
-| tick max (ms) | 24.3 | 31.3 |
-| ticks per second | 0.983 | 0.983 |
-| server CPU % | 1.5 | 4.0 |
-| requests / errors | - | 6796 / 0 |
-| request latency p95 (ms) | - | 1.7 |
+| tick p50 (ms) | 12.8 | 13.8 |
+| tick p95 (ms) | 23.0 | 31.8 |
+| tick max (ms) | 26.5 | 41.9 |
+| ticks per second | 0.983 | 1.0 |
+| server CPU % | 1.5 | 3.9 |
+| requests / errors | - | 6793 / 0 |
+| request latency p95 (ms) | - | 1.5 |
 
-Pass (limit for tick p95 was 25.9 ms). A first run of the same command had load p95 26.6 ms against a baseline of 19.9 ms (limit 24.9) and failed by 1.7 ms; the rerun passed. Both showed the same shape: about +2.5 ms median and +5 ms p95 tick time with 200 pollers (they share the world's event loop), no errors, ticks per second unchanged, CPU up about 2.5 points.
+Pass. The verdict needs 0 errors, ticks per second at least 0.97 x baseline, request latency p95 at most 50 ms, and tick p95 at most the larger of 1.25 x baseline and baseline + 10 ms (here 33.0 ms). The last 60 s of each phase are judged, so `--seconds` below 60 is refused. A first run of the same command failed on tick p95 alone: 31.9 ms against a baseline of 19.3 (limit 29.3), with 0 errors, 6786 requests, latency p95 1.7 ms and 0.983 ticks per second; the rerun passed. Both showed the same shape: about +1 to +2 ms median and +9 ms p95 tick time with 200 pollers, no errors, ticks per second unchanged, CPU up about 2.5 points. The baseline p95 itself moved between 19 and 23 ms with teacher runs using the Mac.
+
+**Reading it:** the extra tick milliseconds are mostly request handling, which runs on the world's event loop while the tick waits on its sends. Ticks per second and request latency are the health signals; a few extra tick milliseconds are not. Behind the tunnel the Mac sees about one request per cache interval per Cloudflare location, far fewer than this test sends.
 
 ## Troubleshooting
 

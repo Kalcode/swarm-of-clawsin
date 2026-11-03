@@ -49,6 +49,18 @@ async def raw_get(client, target: str, headers: bytes = b"") -> tuple[int, bytes
     return int(head.split()[1]), body
 
 
+async def raw_head(client, target: str) -> tuple[int, dict, bytes]:
+    """As raw_get, plus the response headers (names lowercased): the target reaches the server exactly as written."""
+    reader, writer = await asyncio.open_connection(client.server.host, client.server.port)
+    writer.write(f"GET {target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode())
+    await writer.drain()
+    data = await reader.read()
+    writer.close()
+    head, _, body = data.partition(b"\r\n\r\n")
+    lines = head.decode().split("\r\n")
+    return int(lines[0].split()[1]), {k.lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}, body
+
+
 def test_all_proxy_headers_are_sampled():
     assert set(PROXIED) == set(PROXY_HEADERS)
 
@@ -103,14 +115,15 @@ async def test_only_the_current_static_version_is_cached_for_good(client):
     now = await client.get(f"/public/static.json?v={v}")
     assert now.headers["Cache-Control"] == "public, max-age=31536000, immutable"
     for url in ("/public/static.json?v=old-1", "/public/static.json"):
-        r = await client.get(url)
-        assert r.headers["Cache-Control"].startswith("public, max-age=2") and (await r.json())["version"] == v
+        r = await client.get(url, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}" and await r.read() == b""
+        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
     cv = (await (await client.get("/public/live.json")).json())["chronicle_version"]
     now = await client.get(f"/public/chronicle.json?v={cv}")
     assert now.headers["Cache-Control"] == "public, max-age=31536000, immutable" and await now.json() == []
     for url in ("/public/chronicle.json?v=old-1", "/public/chronicle.json"):
-        r = await client.get(url)
-        assert r.headers["Cache-Control"].startswith("public, max-age=2") and await r.json() == []
+        r = await client.get(url, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/chronicle.json?v={cv}"
 
 
 async def test_one_encode_per_interval_under_concurrent_requests(client):
@@ -326,3 +339,80 @@ async def test_publishing_off_still_keeps_public_paths_off_the_file_server(aioht
 def test_the_cli_has_the_public_flags():
     out = subprocess.run([sys.executable, "-m", "swarmworld.server", "--help"], capture_output=True, text=True).stdout
     assert "--public-every" in out and "--public-link" in out
+
+
+async def test_a_lone_surrogate_does_not_break_the_creature_route(client):
+    from .test_public_snapshots import poison
+    st = client.app[STATE]
+    cid = poison(st)
+    client.app[PUBLISHER].publish()
+    r = await client.get(f"/public/creature/{cid}.json")
+    assert r.status == 200 and (await r.json())["id"] == cid
+    assert (await client.get("/public/live.json")).status == 200
+
+
+async def test_a_creature_document_that_fails_to_build_is_a_short_cached_503(client, monkeypatch, caplog):
+    cid = "anyid"
+
+    def boom(self, cid):
+        raise RuntimeError("secret traceback text")
+    monkeypatch.setattr(type(client.app[PUBLISHER]), "creature_doc", boom)
+    for _ in range(3):
+        r = await client.get(f"/public/creature/{cid}.json")
+        assert r.status == 503
+        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
+        body = await r.text()
+        assert json.loads(body) and "traceback" not in body and "RuntimeError" not in body
+    assert len([x for x in caplog.records if "creature document" in x.getMessage()]) == 1  # once a minute
+
+
+async def test_cache_busting_queries_get_a_small_redirect_not_a_body(client):
+    v = (await (await client.get("/public/live.json")).json())["static"]
+    r = await client.get("/public/static.json?v=random123", allow_redirects=False)
+    assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}" and len(await r.read()) == 0
+    assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
+    assert (await client.get(f"/public/static.json?v={v}", allow_redirects=False)).status == 200
+    for extra in (f"?v={v}&x=1", f"?x=1&v={v}", f"?v={v}&v={v}"):
+        r = await client.get("/public/static.json" + extra, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}", extra
+    for extra in ("?x=1", "?v=whatever", "?", "?x=1&y=2", "?%76=1"):
+        for path in ("live.json", "almanac.json", "history.json", "creature/nobody.json"):
+            bare = await client.get(f"/public/{path}", allow_redirects=False)
+            r = await client.get(f"/public/{path}{extra}", allow_redirects=False)
+            assert r.status == bare.status and r.status in (200, 404), (path, extra)  # never a 3xx
+            assert await r.read() == await bare.read()
+            for h in ("Cache-Control", "ETag", "Vary", "Content-Encoding"):
+                assert r.headers.get(h) == bare.headers.get(h), (path, extra, h)
+
+
+async def test_raw_query_is_compared_exactly(client):
+    v = (await (await client.get("/public/live.json")).json())["static"]
+    cv = (await (await client.get("/public/live.json")).json())["chronicle_version"]
+    for name, ver in (("static", v), ("chronicle", cv)):
+        enc = ver.replace("-", "%2D")
+        assert enc != ver
+        assert (await client.get(f"/public/{name}.json?v={ver}", allow_redirects=False)).status == 200
+        for q in (f"v={ver}&", f"v={ver}&&&", f"&v={ver}", f"%76={ver}", f"v={enc}", f"v={ver}&v={ver}", "v=", "&"):
+            status, h, body = await raw_head(client, f"/public/{name}.json?{q}")
+            assert status == 302 and h["location"] == f"/public/{name}.json?v={ver}" and body == b"", (name, q)
+            assert h["cache-control"] == "public, max-age=2, s-maxage=3"
+    status, h, _ = await raw_head(client, "/%70ublic/static.json?v=bogus")
+    assert status == 404 or (status == 302 and h["location"] == f"/public/static.json?v={v}")
+
+
+async def test_the_viewer_only_asks_for_urls_the_origin_answers_directly():
+    """web/public.js and web/almanac.js: the only queries are ?v= on static.json and chronicle.json."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parent.parent / "web" / "public.js").read_text()
+    urls = re.findall(r"/public/[A-Za-z0-9_./${}()\[\]-]*\?[^`'\"]*", src)
+    assert urls and all(u.startswith(("/public/static.json?v=", "/public/chronicle.json?v=")) for u in urls), urls
+    assert "?" not in re.search(r"/public/almanac\.json[^'\"`]*", (pathlib.Path(__file__).resolve().parent.parent / "web" / "almanac.js").read_text())[0]
+
+
+async def test_redirects_obey_the_proxy_guard(client):
+    for path in ("/static.json?v=1", "/api/state?v=1", "/viewer.js?v=1", "/public/../api/state?v=1"):
+        for headers in (TUNNEL, PROXIED):
+            r = await client.get(path, headers=headers, allow_redirects=False)
+            assert r.status == 404, path
+    r = await client.get("/public/live.json?x=1", headers=TUNNEL, allow_redirects=False)
+    assert r.status == 200 and (await client.get("/public/static.json?v=x", headers=TUNNEL, allow_redirects=False)).status == 302

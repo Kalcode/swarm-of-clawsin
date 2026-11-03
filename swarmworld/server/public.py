@@ -46,7 +46,7 @@ class Doc:
 
 
 def encode(obj, etag: str) -> Doc:
-    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
+    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode()  # a lone surrogate (a model can write one) must not fail the build
     return Doc(body, gzip.compress(body, 6, mtime=0), etag)
 
 
@@ -119,6 +119,12 @@ class Publisher:
 
     def publish(self) -> None:
         now = self.clock()
+        try:
+            self._publish(now)
+        finally:
+            self._last_publish = now  # a failing build is retried at the next interval, not at every tick
+
+    def _publish(self, now: float) -> None:
         w = self.st.world
         shape = (len(w.catalog.items), len(w.regions))
         if (self._static is None or now - self._static_at >= STATIC_EVERY_S or self._deltas() > STATIC_MAX_DELTAS
@@ -126,17 +132,18 @@ class Publisher:
             self._build_static(now, shape)
         self.seq += 1
         self._live = self._build_live()
-        self._last_publish = now
         self._last_tick = w.tick
         self._creatures, self._creatures_seq = {}, self.seq
         for cid in [c for c in self._trails if c not in w.creatures]:
             del self._trails[cid]
 
     def _build_static(self, now: float, shape: tuple) -> None:
-        self._static_n += 1
-        parts = {"schema": SCHEMA, "type": "static", "version": self.static_version,
+        n = self._static_n + 1  # taken only once the build has worked: a failed one leaves the version as it was
+        version = f"{self.boot}-{n}"
+        parts = {"schema": SCHEMA, "type": "static", "version": version,
                  **public_static(self.st.world.to_init()), "inventions": public_inventions(self.st)}
-        self._static = encode({k: parts[k] for k in STATIC_KEYS if k in parts}, self.static_version)
+        self._static = encode({k: parts[k] for k in STATIC_KEYS if k in parts}, version)
+        self._static_n = n
         self._static_at, self._static_shape = now, shape
         self._upsert.clear()
         self._removed.clear()
@@ -226,4 +233,3 @@ class Publisher:
 
 
 PUBLISHER = web.AppKey("publisher", Publisher)
-PUBLIC_LINK = web.AppKey("public_link", str)
