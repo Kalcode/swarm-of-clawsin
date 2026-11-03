@@ -85,9 +85,10 @@ def test_fresh_world_has_all_biomes(seed):
              if biome_at(w, x, y) == "rocky hills" and w.tile(x, y) not in "wW"]
     assert sum(w.tile(x, y) == "r" for x, y in hilly) >= 0.8 * len(hilly)
     k = Counter(o.kind for o in w.objects.values())
-    assert k["terminal"] == 2 and k["wishing_stone"] == 1
+    surface = [o for o in w.objects.values() if w.region_at(o.x, o.y) is w.region("surface")]
+    assert sum(o.kind == "terminal" for o in surface) == 2 and k["wishing_stone"] == 1
     cx, cy = w.center
-    assert all(max(abs(o.x - cx), abs(o.y - cy)) <= 45 for o in w.objects.values() if o.kind == "terminal")
+    assert all(max(abs(o.x - cx), abs(o.y - cy)) <= 45 for o in surface if o.kind == "terminal")
 
 
 def test_generation_is_deterministic_and_saves_the_land(tmp_path):

@@ -20,6 +20,10 @@ swarmworld/data/packs/underground/).
   beside it), and a creature that doesn't know where a way is walks to the nearest it saw, remembers or climbed.
   Climbing down into a shaft's or a pit's chamber that is still sealed in the rock, it is told so.
 
+- Coal, the crystal lamp and the ancient terminal: coal feeds a campfire (FUEL 1800), a crystal lamp glows 3 steps
+  placed or carried and never burns out, and one ordinary terminal with a hint-tablet stands on the deep floor farthest
+  (by walking) from every cave exit; world.ext["underground"]["terminal"] = {"x", "y"}.
+
 State: c.ext["underground"] = {"ways": [portal ids climbed or seen], "told": last way line}.
 State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
 "up": [x, y], "down": [x, y], and for a shaft or pit "chamber": [[x, y], ...], the chamber dug below it}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
@@ -322,15 +326,55 @@ def _stock_deep(world: World) -> None:
             placed += 1
 
 
+ANCIENT_TABLET = ("Worn letters, older than any above: 'WE CAME UP FROM THE DEEP AND LEFT OUR MACHINES IN THE LIGHT. "
+                  "THIS ONE STAYED BELOW. LIKE THEM IT OBEYS LUA: program it, and it can say, scan, find, time and print.'")
+
+
+def _place_terminal(world: World) -> None:
+    """Set the ancient terminal, once (ext "terminal": {"x", "y"}), an ordinary terminal with a tablet beside it, on the
+    floor tile farthest by walking from every cave exit (ties go to the first in row order). Rolls nothing."""
+    from ..terrain import TERMINAL_READY
+    mine = _mine(world)
+    deep = world.region("deep")
+    if "terminal" in mine or deep is None or not portals(world):
+        return
+    walkable = _walker(world)
+    free = lambda x, y: walkable(x, y) and (x, y) not in world.grid  # noqa: E731
+    far = {tuple(p["down"]): 0 for p in portals(world)}
+    todo = list(far)
+    for x, y in todo:  # breadth first from all the exits at once
+        for dx, dy in STEPS:
+            n = (x + dx, y + dy)
+            if n not in far and walkable(*n):
+                far[n] = far[(x, y)] + 1
+                todo.append(n)
+    best = None
+    for (x, y), d in sorted(far.items(), key=lambda t: (t[0][1], t[0][0])):
+        if (best is None or d > best[0]) and free(x, y) and _blocks_nothing(walkable, x, y):
+            spot = next(((x + dx, y + dy) for dx, dy in STEPS if free(x + dx, y + dy)), None)
+            if spot:
+                best = (d, x, y, spot)
+    if best is None:
+        return
+    _, x, y, (tx, ty) = best
+    world.add_object("terminal", x, y, code="", memory={}, label="ancient terminal",
+                     screen=["THE ANCIENT TERMINAL HUMS IN THE DARK. ITS SCREEN GLOWS GREEN.", *TERMINAL_READY[1:]])
+    world.add_object("tablet", tx, ty, text=ANCIENT_TABLET)
+    mine["terminal"] = {"x": x, "y": y}
+
+
 def _populate(world: World, rng, fresh: bool) -> None:  # new worlds and old saves alike; never rolls the rng given
     grow_deep(world)
     _stock_deep(world)
+    _place_terminal(world)
 
 
 # ------------------------------------------------------------------ landmarks
 def _places(world: World) -> list[dict]:
     mine = world.ext.get(PACK) or {}
     out = [{"name": c["name"], "x": c["x"], "y": c["y"], "kind": "cave"} for c in mine.get("caves", ())]
+    if "terminal" in mine:
+        out.append({"name": "the ancient terminal", "x": mine["terminal"]["x"], "y": mine["terminal"]["y"], "kind": "terminal"})
     for p in mine.get("portals", ()):
         out.append({"name": p["name"], "x": p["up"][0], "y": p["up"][1], "kind": "way down"})
         out.append({"name": f"the way up to {p['name']}", "x": p["down"][0], "y": p["down"][1], "kind": "way up"})
@@ -562,6 +606,8 @@ TORCH_TICKS = 800
 TORCH_EVERY = 10
 TORCH_LOW, TORCH_GUTTERING = 200, 60
 LIGHT_ITEMS["lit_torch"] = 4
+LIGHT_ITEMS["crystal_lamp"] = 3  # a carried crystal lamp, which never burns down
+actions.FUEL["coal"] = 1800  # a campfire burns coal longest
 LIGHT_LINE = ("light (target): light the torch you carry at a burning campfire beside you, or from someone's lit torch; "
               "it burns a while and lights the dark.")
 FIRE_WORDS = {"fire", "campfire"}

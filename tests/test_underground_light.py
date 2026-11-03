@@ -42,7 +42,8 @@ def deep_world():
     w = generate_world(7, 48, 48)
     deep = w.region("deep")
     ys, xs = [(y, x) for y in range(deep.y0, deep.y1) for x in range(w.width)
-              if all(w.tile(x + dx, y) == "c" for dx in range(0, 4)) and not any((x + dx, y) in w.grid for dx in range(4))][0]
+              if all(w.tile(x + dx, y) == "c" for dx in range(0, 4))
+              and not any((x + dx, y + dy) in w.grid for dx in range(-4, 8) for dy in range(-4, 5))][0]  # nothing near: dark
     return w, xs, ys
 
 

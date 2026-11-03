@@ -236,7 +236,8 @@ def test_surface_unchanged_by_the_underground_pack():
 
 # ------------------------------------------------------------------ Task 7: what lies in the deep
 SURFACE_VEINS = ("iron_vein", "copper_vein")
-DEEP_KINDS = {"iron_vein", "copper_vein", "coal_seam", "crystal_cluster", "cave_mushrooms", "rock", "cave_exit", "ladder"}
+DEEP_KINDS = {"iron_vein", "copper_vein", "coal_seam", "crystal_cluster", "cave_mushrooms", "rock", "cave_exit", "ladder",
+             "terminal", "tablet"}  # the ancient terminal and its tablet
 
 
 def count_kinds(w, region):
