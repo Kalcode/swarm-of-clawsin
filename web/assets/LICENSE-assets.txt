@@ -15,12 +15,22 @@ Third-party art used by the Swarm World viewer
 
 2) assets/limezu/   (NOT committed: listed in .gitignore)
    Art by LimeZu (https://limezu.itch.io): Modern Exteriors, Modern
-   Interiors, Modern Farm and Serene Village (16x16 versions), licensed to
-   the project owner. Use and editing in this project are allowed;
+   Interiors, Modern Farm, Serene Village and Modern User Interface (16x16
+   versions), licensed to the project owner. Use and editing in this project are allowed;
    redistribution is not; credit is required ("Art: LimeZu
    (limezu.itch.io)" is shown in the viewer's side panel). Do not copy these
    files elsewhere, publish or upload them. See assets/limezu/CATALOG.md and
    assets/limezu/manifest.json. When the folder is missing the viewer falls
-   back to the Kenney art automatically.
+   back to the Kenney art automatically. The Modern User Interface pieces
+   (assets/limezu/ui.png) dress the viewer's chrome in the LimeZu skin; when
+   they are missing the chrome stays the plain dark one.
+
+3) assets/fonts/Jersey10-Regular.woff2   (committed)
+   "Jersey 10" by Sarah Cadigan-Fried, The Soft Type Project Authors
+   (https://github.com/scfried/soft-type-jersey), from Google Fonts,
+   subset to Latin. License: SIL Open Font License 1.1, which allows
+   bundling and redistribution; the license ships next to the font as
+   assets/fonts/OFL-Jersey10.txt. The LimeZu chrome's pixel face (titles,
+   tabs, labels, numbers); the browser loads it only in that skin.
 
 Crediting Kenney is appreciated but not required.
