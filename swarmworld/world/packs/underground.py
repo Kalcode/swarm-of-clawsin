@@ -14,6 +14,8 @@ swarmworld/data/packs/underground/).
 - What lies in the deep: iron and copper veins, coal seams, crystal clusters, cave mushrooms and loose rock on the cave
   floor, placed once (`_stock_deep`).
 
+- Torches: a torch (stick, plant fiber, charcoal) is lit at a burning campfire or from someone's lit torch, burns
+  TORCH_TICKS carried (c.ext["underground"]["torch_until"]) and lights the dark; then it is a stick.
 - Climbing: the verb `climb` takes a creature from beside one end of a way to the other end (or the nearest free tile
   beside it), and a creature that doesn't know where a way is walks to the nearest it saw, remembers or climbed.
 
@@ -36,10 +38,10 @@ import numpy as np
 from .. import actions, perception
 from ..caves import BORDER, carve_deep, carve_passage, tile_codes
 from ..catalog import DATA
-from ..model import SOLID_TILES, WATER_TILES
+from ..model import LIGHT_ITEMS, SOLID_TILES, WATER_TILES
 from ..perception import DARK_SIGHT, direction, dist
-from ..registry import (ANIMALS, BLOCKING, KINDS, Technique, register_handoff, register_landmarks, register_perception,
-                        register_populate, register_technique, register_verb)
+from ..registry import (ANIMALS, BLOCKING, KINDS, STORES, Technique, register_handoff, register_landmarks, register_perception,
+                        register_populate, register_system, register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..actions import ActionResult, Intention
@@ -528,3 +530,112 @@ register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "as
 register_handoff("walk_to", "climb", _handoff_climb)
 register_technique(Technique("climb", CLIMB_LINE, _climb_fits))
 register_perception(_way_line, priority=40)
+
+
+# ------------------------------------------------------------------ light: torches
+TORCH_TICKS = 800
+TORCH_EVERY = 10
+TORCH_LOW, TORCH_GUTTERING = 200, 60
+LIGHT_ITEMS["lit_torch"] = 4
+LIGHT_LINE = ("light (target): light the torch you carry at a burning campfire beside you, or from someone's lit torch; "
+              "it burns a while and lights the dark.")
+FIRE_WORDS = {"fire", "campfire"}
+
+
+def _lit_friend(world: World, c: Creature, reach: int) -> bool:
+    return any(o is not c and not o.collapsed and o.inventory.get("lit_torch") and dist(c.x, c.y, o.x, o.y) <= reach
+               and world.same_region((c.x, c.y), (o.x, o.y)) for o in world.creatures.values())
+
+
+def _light(world: World, c: Creature, it: Intention) -> ActionResult:
+    from ..actions import ActionResult, _busy
+    if c.inventory.get("lit_torch"):
+        return ActionResult(False, "Your torch is already burning.")
+    if not c.inventory.get("torch"):
+        return ActionResult(False, "You have no torch to light. (A torch is a stick, plant fiber and charcoal.)")
+    at_fire = actions.station_near(world, c, "campfire", 1)
+    if not (at_fire or _lit_friend(world, c, 1)):
+        return ActionResult(False, "There's no fire beside you to light it from: a burning campfire, or someone's lit torch.")
+    c.inventory["torch"] -= 1
+    if c.inventory["torch"] <= 0:
+        del c.inventory["torch"]
+    c.inventory["lit_torch"] += 1
+    mine = c.ext.setdefault(PACK, {})
+    mine["torch_until"] = world.tick + TORCH_TICKS
+    mine["torch_said"] = 0
+    text = "You light your torch at the campfire." if at_fire else "You light your torch from a friend's."
+    return _busy(c, 2, "lighting a torch", text + " It burns a good while and lights the dark around you.")
+
+
+def _handoff_light(world: World, c: Creature, it: Intention) -> bool:
+    """"Light the campfire" feeds it when there is no torch to light."""
+    return bool(_words(it.target) & FIRE_WORDS) and not c.inventory.get("torch")
+
+
+def _torch_out(sim, c: Creature) -> None:
+    w = sim.world
+    c.inventory["lit_torch"] -= 1
+    if c.inventory["lit_torch"] <= 0:
+        del c.inventory["lit_torch"]
+    c.inventory["stick"] += 1
+    mine = c.ext[PACK]
+    mine.pop("torch_until", None)
+    text = "Your torch burned out, leaving a charred stick."
+    if not w.under_sky(c.x, c.y) and perception.light_range(w, c) == DARK_SIGHT:
+        text += " It is pitch dark."
+    sim.remember(c, text, 2)
+
+
+def _torches(sim, t: int) -> None:
+    w = sim.world
+    for c in w.creatures.values():
+        mine = c.ext.get(PACK) or {}
+        if c.collapsed or c.asleep:  # a body in stasis or collapsed burns nothing: the torch waits
+            if "torch_until" in mine:
+                mine["torch_until"] += TORCH_EVERY
+            continue
+        if not c.inventory.get("lit_torch"):
+            mine.pop("torch_until", None)
+        elif "torch_until" not in mine:  # lit when it came to this holder: a fresh burn
+            m = c.ext.setdefault(PACK, {})
+            m["torch_until"], m["torch_said"] = t + TORCH_TICKS, 0
+        elif t >= mine["torch_until"]:
+            _torch_out(sim, c)
+    for (x, y), pile in list(w.ground.items()):  # a lit torch not carried gutters out
+        n = pile.get("lit_torch", 0)
+        if n:
+            w.take_items(x, y, "lit_torch", n)
+            w.drop_items(x, y, Counter(stick=n))
+    for o in w.objects.values():
+        if o.kind in STORES and o.data.get("items", {}).get("lit_torch"):
+            items = o.data["items"]
+            items["stick"] = items.get("stick", 0) + items.pop("lit_torch")
+            w.changed_objects.add(o.id)
+
+
+def _torch_line(world: World, c: Creature) -> str | None:
+    mine = c.ext.get(PACK) or {}
+    if not c.inventory.get("lit_torch") or "torch_until" not in mine:
+        return None
+    left, said = mine["torch_until"] - world.tick, mine.get("torch_said", 0)
+    if left < TORCH_GUTTERING and said < 2:
+        mine["torch_said"] = 2
+        return "Your torch is guttering; it will go out any moment."
+    if left < TORCH_LOW and said < 1:
+        mine["torch_said"] = 1
+        return "Your torch is burning low."
+    return None
+
+
+def _light_fits(world: World, c: Creature) -> float | None:
+    if c.inventory.get("torch") and not c.inventory.get("lit_torch") and (
+            actions.station_near(world, c, "campfire", 3) or _lit_friend(world, c, 3)):
+        return 5.6
+    return None
+
+
+register_verb("light", _light, aliases=("light_torch", "kindle", "ignite"))
+register_handoff("light", "give", _handoff_light)
+register_system("underground torches", TORCH_EVERY, _torches)
+register_perception(_torch_line, priority=35)
+register_technique(Technique("light", LIGHT_LINE, _light_fits))
