@@ -1,0 +1,6 @@
+{
+  "coal": {"name": "coal", "aliases": ["coal", "lump of coal", "coal lump", "black rock"], "tags": ["fuel"],
+           "desc": "A black lump that burns long and hot."},
+  "crystal": {"name": "crystal", "aliases": ["crystals", "glowing crystal", "quartz"], "tags": ["material"],
+              "desc": "A clear crystal that holds a faint light of its own."}
+}

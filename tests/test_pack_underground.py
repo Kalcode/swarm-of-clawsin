@@ -14,6 +14,7 @@ from swarmworld.mind.prompts import build_act_messages
 from swarmworld.server.persistence import restore, save
 from swarmworld.server.state import ServerState
 from swarmworld.world import registry
+from swarmworld.world.actions import Intention, apply_intention, step_activity
 from swarmworld.world.caves import carve_deep
 from swarmworld.world.model import Creature
 from swarmworld.world.packs import underground
@@ -220,7 +221,7 @@ def test_surface_unchanged_by_the_underground_pack():
     assert a.tiles == b.tiles[:48]
     ends = {o.id for o in b.objects.values() if "portal" in o.data}
     assert ends and sorted((o.kind, o.x, o.y) for o in a.objects.values()) == sorted(
-        (o.kind, o.x, o.y) for o in b.objects.values() if o.id not in ends)
+        (o.kind, o.x, o.y) for o in b.objects.values() if o.id not in ends and o.y < 48)  # the deep's own things aside
     persona = {"traits": ["curious", "patient"], "drive": "curious", "initiative": "proactive"}
     tams = [person(w, "Tam", *w.center, persona=dict(persona)) for w in (a, b)]
     for w in (a, b):
@@ -230,3 +231,156 @@ def test_surface_unchanged_by_the_underground_pack():
     assert views[0] == views[1]
     msgs = [build_act_messages(w, c, Memory(), v) for w, c, v in zip((a, b), tams, views)]
     assert msgs[0] == msgs[1]
+
+
+# ------------------------------------------------------------------ Task 7: what lies in the deep
+SURFACE_VEINS = ("iron_vein", "copper_vein")
+DEEP_KINDS = {"iron_vein", "copper_vein", "coal_seam", "crystal_cluster", "cave_mushrooms", "rock", "cave_exit", "ladder"}
+
+
+def count_kinds(w, region):
+    y0, y1 = w.region(region).y0, w.region(region).y1
+    return Counter(o.kind for o in w.objects.values() if y0 <= o.y < y1)
+
+
+def gather(w, c, target):
+    res = apply_intention(w, c, Intention("gather", target=target))
+    while c.activity:
+        step_activity(w, c)
+    return res
+
+
+def test_deep_objects_lie_on_cave_floor_only():
+    w = generate_world(7)
+    y0, y1 = w.region("deep").y0, w.region("deep").y1
+    things = [o for o in w.objects.values() if o.y >= y0]
+    assert things and {o.kind for o in things} <= DEEP_KINDS
+    assert {o.kind for o in things} >= DEEP_KINDS - {"ladder"}
+    assert all(y0 <= o.y < y1 and w.tile(o.x, o.y) == "c" for o in things)
+    n = count_kinds(w, "deep")
+    assert n["crystal_cluster"] >= 2 and n["coal_seam"] >= 2 and n["cave_mushrooms"] >= 2
+    spots = [(o.x, o.y) for o in things if o.kind not in ("cave_exit", "ladder")]
+    exits = [(o.x, o.y) for o in things if o.kind == "cave_exit"]
+    assert all(dist(*a, *b) >= 2 for a in spots for b in exits)
+    for o in things:
+        if o.kind in ("iron_vein", "copper_vein", "coal_seam", "crystal_cluster"):
+            assert any(w.tile(o.x + dx, o.y + dy) in "R" for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))), o
+            if "vein" in o.kind:
+                assert o.data["ore"] == 8
+
+
+def test_the_deep_keeps_its_caves_connected_around_what_lies_in_it():
+    w = generate_world(7)
+    start = tuple(underground.portals(w)[0]["down"])
+    open_floor = {(x, y) for y in range(w.region("deep").y0, w.region("deep").y1) for x in range(w.width)
+                  if w.walkable(x, y)}
+    assert all(p in reachable(w, start) for p in [tuple(q["down"]) for q in underground.portals(w)])
+    assert len(reachable(w, start)) >= 0.9 * len(open_floor)
+
+
+def test_the_deep_is_richer_in_ore():
+    w = generate_world(7)
+    top, low = count_kinds(w, "surface"), count_kinds(w, "deep")
+    for kind in SURFACE_VEINS:
+        assert low[kind] > top[kind], kind
+
+
+def test_coal_and_crystal_are_mined_with_any_pickaxe(two_levels):
+    w = two_levels(24)
+    c = person(w, "Tam", 5, 5)
+    w.add_object("coal_seam", 6, 5)
+    w.add_object("crystal_cluster", 5, 6)
+    res = gather(w, c, "coal seam")
+    assert not res.ok and res.message == "You'd need a pickaxe to gather from the coal seam."
+    assert not c.inventory.get("coal")
+    c.inventory["copper_pickaxe"] = 1
+    assert gather(w, c, "coal seam").ok and 1 <= c.inventory["coal"] <= 2
+    assert gather(w, c, "crystal cluster").ok and c.inventory["crystal"] == 1
+    d = person(w, "Bo", 8, 8)
+    d.inventory["stone_pickaxe"] = 1
+    w.add_object("coal_seam", 9, 8)
+    assert gather(w, d, "coal seam").ok and d.inventory["coal"] >= 1
+
+
+def test_coal_means_coal_not_charcoal(two_levels):
+    cat = two_levels(8).catalog
+    assert cat.resolve("coal") == "coal" and cat.resolve("charcoal") == "charcoal"
+    for alias in ("lump of coal", "coal lump", "black rock"):
+        assert cat.resolve(alias) == "coal"
+    assert "fuel" in cat.items["coal"].tags
+    assert cat.name("crystal") == "crystal" and all(cat.resolve(a) == "crystal" for a in ("crystals", "glowing crystal", "quartz"))
+    for kind, glow in (("coal_seam", None), ("crystal_cluster", 2)):
+        assert registry.KINDS[kind]["blocking"] and registry.KINDS[kind].get("glow") == glow
+        assert kind in REMEMBERED_KINDS
+
+
+def test_cave_mushrooms_glow_and_regrow(two_levels):
+    w = two_levels(24)
+    c = person(w, "Tam", 5, 5)
+    assert registry.KINDS["cave_mushrooms"]["glow"] == 1 and "glowcaps" in registry.KINDS["cave_mushrooms"]["aliases"]
+    patch = w.add_object("cave_mushrooms", 6, 5)
+    sim = Simulation(w)
+    for _ in range(3):
+        assert gather(w, c, "cave mushrooms").ok
+    assert patch.kind == "cave_mushrooms_picked" and c.inventory["mushroom"] >= 3
+    assert not gather(w, c, "cave mushrooms").ok
+    back = patch.data["regrow_at"]
+    assert back - w.tick == 900
+    sim._regrow(back - 1)
+    assert patch.kind == "cave_mushrooms_picked"
+    sim._regrow(back)
+    assert patch.kind == "cave_mushrooms" and gather(w, c, "cave mushrooms").ok
+
+
+def test_deep_things_placed_once(prepack_save, tmp_path):
+    st = ServerState(seed=1)
+    restore(st, prepack_save)
+    first = Counter(o.kind for o in st.world.objects.values())
+    assert st.world.ext["underground"]["placed"] and first["coal_seam"] >= 2 and first["crystal_cluster"] >= 2
+    save(st, tmp_path / "a.json")
+    st2 = ServerState(seed=9)
+    restore(st2, tmp_path / "a.json")
+    assert Counter(o.kind for o in st2.world.objects.values()) == first
+    assert sorted((o.kind, o.x, o.y) for o in st2.world.objects.values()) == sorted(
+        (o.kind, o.x, o.y) for o in st.world.objects.values())
+
+
+def test_placement_rolls_the_packs_own_dice():
+    a, b = generate_world(7, 48, 48), generate_world(7, 48, 48)
+    deep = lambda w: sorted((o.kind, o.x, o.y) for o in w.objects.values() if o.y >= w.region("deep").y0)
+    assert deep(a) == deep(b)
+    n = count_kinds(a, "deep")
+    assert all(n[k] >= 2 for k in ("iron_vein", "copper_vein", "coal_seam", "crystal_cluster", "cave_mushrooms", "rock"))
+
+
+def test_ore_clusters_near_their_named_caves():
+    w = generate_world(7)
+    marks = {c["name"]: c for c in w.ext["underground"]["caves"]}
+    for kind, cave in (("crystal_cluster", "the crystal cave"), ("coal_seam", "the black seam")):
+        mine = [o for o in w.objects.values() if o.kind == kind]
+        near = [o for o in mine if dist(o.x, o.y, marks[cave]["x"], marks[cave]["y"]) <= 6]
+        assert len(near) >= 4, kind  # a third were asked for, as many as the room allows
+
+
+def test_portal_ids_are_never_reused(two_levels):
+    w = two_levels(24, gap=0)
+    a = underground.add_portal(w, "shaft", "a", (5, 23), (5, 47))
+    b = underground.add_portal(w, "shaft", "b", (9, 23), (9, 47))
+    underground.remove_portal(w, b["id"])
+    c = underground.add_portal(w, "shaft", "c", (12, 23), (12, 47))
+    assert (a["id"], b["id"], c["id"]) == ("p1", "p2", "p3")
+    assert w.ext["underground"]["next_portal"] == 4
+    del w.ext["underground"]["next_portal"]  # an older state: counts on from the highest there is
+    assert underground.add_portal(w, "shaft", "d", (15, 23), (15, 47))["id"] == "p4"
+
+
+def test_named_caves_stand_on_dry_floor_apart():
+    for seed in (7, 8, 9):
+        w = generate_world(seed)
+        caves = w.ext["underground"]["caves"]
+        spots = [(c["x"], c["y"]) for c in caves]
+        assert all(w.tile(*s) == "c" for s in spots), seed
+        assert len(set(spots)) == len(spots)
+        ends = {tuple(p["down"]) for p in underground.portals(w)}
+        assert not ends & set(spots)
+        assert all(w.region_at(*s).name == "deep" for s in spots)

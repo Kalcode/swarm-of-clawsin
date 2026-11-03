@@ -1,4 +1,5 @@
 {
   "cave_names": ["the dripping hall", "the crystal cave", "the black seam", "the echoing gallery"],
-  "pool_name": "the still pool"
+  "pool_name": "the still pool",
+  "counts": {"iron_vein": 36, "copper_vein": 36, "coal_seam": 40, "crystal_cluster": 20, "cave_mushrooms": 40, "rock": 30}
 }
