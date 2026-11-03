@@ -111,7 +111,8 @@ FILL_TICKS = 3
 FILL_ENERGY = 1
 HOLE_WORDS = {"trench", "ditch", "pit", "hole"}
 NATURAL = "Only a trench's water can be filled in; the river and the lake are too much."
-NOTHING = "There's no trench or pit beside you to fill."
+NOTHING = "There's no trench or pit beside you; dirt fills holes."
+SOMEONE_BELOW = "Someone is down there; you can't fill the pit while they're below."
 NO_EARTH = "You'd need dirt or stone to fill it with."
 FILL_LINE = ("fill_in (target): fill the trench or pit beside you back in, a step at a time, with dirt or stone you "
              "carry.")
@@ -505,15 +506,32 @@ def _fillable(world: World, x: int, y: int) -> bool:
     return t in RAISE or (t == "w" and _key(x, y) in _kept(world, "made_water"))
 
 
+def _pits(world: World) -> list[dict]:
+    from .underground import portals  # here, not at the top: see the module's docstring
+    return [p for p in portals(world) if p["kind"] == "pit"]
+
+
+def _pit_at(world: World, x: int, y: int) -> dict | None:
+    """The open pit whose surface end is (x, y), or None."""
+    return next((p for p in _pits(world) if tuple(p["up"]) == (x, y)), None)
+
+
+def _someone_below(world: World, x: int, y: int) -> bool:
+    """A creature (awake, asleep or collapsed) is in the chamber under the open pit at (x, y): filling the pit would
+    take away its ladder and shut it in the rock."""
+    p = _pit_at(world, x, y)
+    chamber = {tuple(t) for t in (p or {}).get("chamber") or ()}
+    return any((o.x, o.y) in chamber for o in world.creatures.values())
+
+
 def _close_pit(world: World, x: int, y: int) -> None:
     """The open pit at (x, y) is a way down no more: its portal and its ends go, and its sky but where another open
     pit's reaches. The chamber below stays."""
-    from .underground import portals, remove_portal  # here, not at the top: see the module's docstring
-    pits = [p for p in portals(world) if p["kind"] == "pit"]
-    p = next((p for p in pits if tuple(p["up"]) == (x, y)), None)
+    from .underground import remove_portal  # here, not at the top: see the module's docstring
+    p = _pit_at(world, x, y)
     if p is None:
         return
-    others = set().union(*(_skylit(world, q) for q in pits if q is not p))
+    others = set().union(*(_skylit(world, q) for q in _pits(world) if q is not p))
     world.skylight -= _skylit(world, p) - others
     remove_portal(world, p["id"])
 
@@ -550,6 +568,8 @@ def _fill_in(world: World, c: Creature, it: Intention) -> ActionResult:
     if spot is None:
         wet = any(world.in_bounds(*p) and world.tile(*p) in WATER_TILES for p in spots)
         return ActionResult(False, NATURAL if wet else NOTHING)
+    if world.tile(*spot) == "O" and _someone_below(world, *spot):
+        return ActionResult(False, SOMEONE_BELOW)
     earth = _earth(world, c, it)
     if earth is None:
         return ActionResult(False, NO_EARTH)
@@ -614,6 +634,8 @@ def _dug_line(world: World, c: Creature) -> str | None:
         return None
     if line is None:
         del c.ext[PACK]["told"]
+        if not c.ext[PACK]:
+            del c.ext[PACK]
         return None
     c.ext.setdefault(PACK, {})["told"] = line
     return line

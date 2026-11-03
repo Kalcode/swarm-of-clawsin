@@ -549,7 +549,9 @@ def _way_line(world: World, c: Creature) -> str | None:
 
 
 actions.way_to_region = _way_to_region
-register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "ascend", "go_down", "go_up"))
+register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "ascend", "go_down", "go_up"),
+              alias_targets={"climb_down": "down", "descend": "down", "go_down": "down",
+                             "climb_up": "up", "ascend": "up", "go_up": "up"})
 register_handoff("walk_to", "climb", _handoff_climb)
 register_technique(Technique("climb", CLIMB_LINE, _climb_fits))
 register_perception(_way_line, priority=40)

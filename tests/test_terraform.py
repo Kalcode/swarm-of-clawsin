@@ -24,7 +24,7 @@ NIGHT = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)
 P = (12, 24)  # where the open pit opens, on generate_world(7, 48, 48): 12 steps west of the meadow's heart
 OPENED = "Your pickaxe breaks through! Daylight falls into the dark below: the pit opens into the deep (climb down)."
 NATURAL = "Only a trench's water can be filled in; the river and the lake are too much."
-NOTHING = "There's no trench or pit beside you to fill."
+NOTHING = "There's no trench or pit beside you; dirt fills holes."
 EDGE = "You stand at the edge of an open pit; far below, the dark of the deep."
 SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -182,6 +182,9 @@ def test_trench_from_the_river_fills_with_water(two_levels):
     mine = w.ext["digging"]
     assert mine["made_water"] == {"6,10": 120} and "6,10" not in mine["dug"] and mine["filling"] == {}
     assert "A trench beside you runs full of water." in perceive(w, bo)
+    bo.x, bo.y = 20, 2  # away from every trench: nothing to say, and nothing kept
+    assert "trench" not in perceive(w, bo) and "digging" not in bo.ext
+    bo.x, bo.y = 6, 11
     flood(w, 5, start=6)
     assert w.tile(7, 10) == "t" and mine["filling"] == {"7,10": 100}
     flood(w, 1, start=11)
@@ -359,6 +362,17 @@ def test_filling_an_open_pit_closes_the_way():
     c = person(w, "Ada", P[0] + 1, P[1], "stone_pickaxe")
     open_pit(w, c)
     chamber = [tuple(t) for t in underground.portals(w)[-1]["chamber"]]
+    below = "Someone is down there; you can't fill the pit while they're below."
+    bo = person(w, "Bo", bx, by)  # on the ladder: filling would shut them in the rock for good
+    cy = person(w, "Cy", bx + 2, by)
+    cy.collapsed_until = w.tick + 100
+    before = (dict(c.inventory), c.energy, dict(w.grid), set(w.skylight), [dict(p) for p in underground.portals(w)])
+    for who in (bo, cy):
+        res = apply_intention(w, c, Intention("fill_in", target="west"))
+        assert not res.ok and res.message == below and c.activity is None
+        assert w.tile(*P) == "O" and before == (dict(c.inventory), c.energy, dict(w.grid), set(w.skylight),
+                                                [dict(p) for p in underground.portals(w)])
+        who.x, who.y = 30, 30  # out of the chamber, back on the surface
     res = act(w, c, "fill_in", "the pit to the west")
     assert res.message == "You throw 1 dirt into the open pit to the west; it is a pit again, its way into the deep closed."
     assert w.tile(*P) == "h" and w.walkable(*P) and w.object_at(*P) is None and w.object_at(bx, by) is None
@@ -479,8 +493,9 @@ def test_dig_down_and_dig_trench_aliases_say_where():
             registry.register_verb("probe_dig", lambda *a: None, aliases=("probe_a",), alias_targets={"probe_b": "x"})
         registry.register_verb("probe_go", lambda *a: None, aliases=("probe_up",), alias_targets={"probe_up": "up"})
         assert parse_intention({"action": "probe_up"}).target == "up"
-    assert "probe_up" not in registry.ALIAS_TARGETS and registry.ALIAS_TARGETS == {"dig_down": "down",
-                                                                                  "dig_trench": "trench"}
+    assert "probe_up" not in registry.ALIAS_TARGETS
+    assert {a: t for a, t in registry.ALIAS_TARGETS.items() if a.startswith("dig")} == {"dig_down": "down",
+                                                                                        "dig_trench": "trench"}
 
 
 def test_digging_survives_a_save(tmp_path):
