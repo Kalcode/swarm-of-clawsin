@@ -27,3 +27,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **admin:** the Air's Qwen3.5-4B node answers in about 33 s per decision (p50) with 3 slots: slow but alive. The Air's
   node runs inside its Claude session, so it stops if that session ends.
 - **mod:** 16 wishes already by tick 441. Read and answer the ones worth answering (steward policy).
+- **tweak (wishes):** by tick ~800 there are 36 "wishes", and every one was pulled from a reflection; no creature has
+  made an explicit wish. Many are fragments: "steady supply", "tool", "world had more of the right kind",
+  "group to keep trading fibers opal should". Taking wishes from reflections is noisy. Options:
+  - take only explicit wish phrasing;
+  - group the fragments by the item they name;
+  - show the reflected ones apart from real wishes, in the panel and on the public page.
+- **mod (balance, watching):** fiber and rope are the early bottleneck: about 20 of the 36 are about fiber, rope, grass
+  or sticks; others ask for stone or a place to trade. Nothing granted. It's early, and finding tall grass is part of the
+  game. If fiber is still the theme by day 2, consider faster grass regrowth or a bigger fiber yield.
