@@ -15,6 +15,7 @@ from ..mind.recall import embed_pending
 from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
+from .public import PUBLIC_EVERY, PUBLIC_LINK, PUBLISHER, Publisher
 from .state import ServerState
 
 log = logging.getLogger("swarmworld.server")
@@ -49,6 +50,7 @@ def is_home_network(request: web.Request) -> bool:
 async def tick_loop(app: web.Application) -> None:
     st = app[STATE]
     loop = asyncio.get_running_loop()
+    last_pub_log = [-60.0]
     while True:
         started = loop.time()
         try:
@@ -61,8 +63,20 @@ async def tick_loop(app: web.Application) -> None:
                     await node.ws.send_json(job)
                 except Exception:  # node vanished mid-send; disconnect handler cleans up
                     pass
+            msg = st.tick_dict(new_events)
+            pub = app.get(PUBLISHER)
+            if pub is not None:
+                try:
+                    pub.observe(msg, new_events)
+                    if pub.due():
+                        pub.publish()
+                except Exception:
+                    now = loop.time()
+                    if now - last_pub_log[0] >= 60.0:
+                        last_pub_log[0] = now
+                        log.exception("publishing failed")
             if st.viewers:
-                payload = st.tick_message(new_events)
+                payload = json.dumps(msg)
                 metrics = st.metrics_message() if st.world.tick % 10 == 0 else None
                 for ws in list(st.viewers):
                     try:
@@ -71,10 +85,9 @@ async def tick_loop(app: web.Application) -> None:
                             await ws.send_str(metrics)
                     except Exception:
                         st.viewers.discard(ws)
-            else:
-                st.tick_message(new_events)  # still log events and clear object deltas
         except Exception:
             log.exception("tick failed")
+        st.record_tick((loop.time() - started) * 1000)
         await asyncio.sleep(max(0.0, st.tick_seconds - (loop.time() - started)))
 
 
@@ -276,7 +289,8 @@ async def static_file(request: web.Request) -> web.StreamResponse:
 def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.5,
                run_dir: Path | None = None, start_loop: bool = True, world_path: Path | None = None,
                resume: bool = True, harness: Harness | None = None, embedder=None,
-               log_prompts: bool = False) -> web.Application:
+               log_prompts: bool = False, public_every: float = PUBLIC_EVERY,
+               public_link: str | None = None) -> web.Application:
     app = web.Application()
     st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness,
                      log_prompts=log_prompts)
@@ -287,6 +301,14 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
         log.info("resumed world from %s at tick %d with %d creatures", world_path, st.world.tick, len(st.world.creatures))
     app[STATE] = st
     app[ALMANAC] = Almanac()
+    if public_link:
+        app[PUBLIC_LINK] = public_link
+    if public_every > 0:
+        app[PUBLISHER] = pub = Publisher(st, app[ALMANAC], every=public_every)
+        try:
+            pub.publish()  # the documents exist from the start
+        except Exception:
+            log.exception("publishing failed")
     app.router.add_get("/ws/node", node_ws)
     app.router.add_get("/ws/view", view_ws)
     app.router.add_get("/api/state", api_state)

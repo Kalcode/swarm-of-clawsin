@@ -126,6 +126,7 @@ class ServerState:
         self.relations: dict[str, Counter] = {}
         self.history: list[dict] = []  # a snapshot every HISTORY_EVERY ticks, for charts  # "a|b" (sorted ids) -> counts of talk, gift, teach
         self.chronicle: list[dict] = []
+        self.tick_times: deque = deque(maxlen=3600)  # (wall time, ms) of each tick
         self.sky_words: list[dict] = []  # recent words from the sky: {"text", "tick", "who": [ids] or None, "wish"}
         self.wishes = Wishes(self.world.catalog)
         self.chronicle_due = self.world.tick + CHRONICLE_EVERY
@@ -822,6 +823,9 @@ class ServerState:
         }
 
     def tick_message(self, new_events: list) -> str:
+        return json.dumps(self.tick_dict(new_events))
+
+    def tick_dict(self, new_events: list) -> dict:
         w = self.world
         if w.tick % HISTORY_EVERY == 0:
             self.record_history()
@@ -843,7 +847,19 @@ class ServerState:
             "buildings": w.take_building_changes(),  # all of them, when one went up or came down; else None
             "events": [e.to_dict() for e in new_events if e.kind != "fire_out" or True],
         }
-        return json.dumps(msg)
+        return msg
+
+    def record_tick(self, ms: float) -> None:
+        self.tick_times.append((time.time(), ms))
+
+    def tick_stats(self, window_s: float = 60.0) -> dict:
+        """How long the world's ticks took lately, in ms."""
+        cutoff = time.time() - window_s
+        xs = sorted(ms for t, ms in self.tick_times if t >= cutoff)
+        if not xs:
+            return {"p50": 0.0, "p95": 0.0, "max": 0.0, "n": 0}
+        at = lambda q: round(xs[min(len(xs) - 1, int(q * len(xs)))], 1)  # noqa: E731
+        return {"p50": at(0.5), "p95": at(0.95), "max": round(xs[-1], 1), "n": len(xs)}
 
     def metrics_message(self) -> str:
-        return json.dumps(self.metrics.snapshot(self.world, self.started))
+        return json.dumps({**self.metrics.snapshot(self.world, self.started), "tick_ms": self.tick_stats()})
