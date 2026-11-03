@@ -2,6 +2,8 @@
 
 State: world.weather (the kind) and world.weather_until (the tick it ends) stay where older saves and the steward API
 expect them; world.ext["weather"] holds the derived bits ("sight": a cap on how far anyone sees, in fog).
+Weather happens only under the sky (world.under_sky): thunder strikes the surface, wind fans only the fires out in it,
+the heat hungers only those out in it, and no weather line reaches anyone below.
 """
 
 from __future__ import annotations
@@ -96,22 +98,24 @@ def _step(sim, t: int) -> None:
     if t % 10 == 0:
         if kind in WINDY:
             for o in w.objects.values():
-                if o.kind == "campfire" and o.data.get("lit"):
+                if o.kind == "campfire" and o.data.get("lit") and w.under_sky(o.x, o.y):
                     o.data["lit_until"] = o.data.get("lit_until", 0) - FIRE_EXTRA
         if kind == "storm":
             _storm(w, t)
         _burn(w, t)
     if t % 48 == 0 and kind == "heat":  # the heat saps appetite faster: about half again as hungry
         for c in w.creatures.values():
-            if not c.collapsed and not c.asleep:
+            if not c.collapsed and not c.asleep and w.under_sky(c.x, c.y):
                 c.satiety = max(0.0, c.satiety - 1)
 
 
 def _storm(w: World, t: int) -> None:
     if w.rng.random() >= THUNDER_CHANCE:
         return
-    x, y = w.rng.randrange(w.width), w.rng.randrange(w.height)
-    trees = [o for o in w.objects.values() if o.kind in ("tree", "pine") and not o.data.get("burning")]
+    x0, y0, x1, y1 = w.region_bounds("surface")
+    x, y = w.rng.randrange(x0, x1), w.rng.randrange(y0, y1)
+    trees = [o for o in w.objects.values()
+             if o.kind in ("tree", "pine") and not o.data.get("burning") and y0 <= o.y < y1]
     struck = None
     if trees and w.rng.random() < STRIKE_CHANCE:
         struck = w.rng.choice(trees)
@@ -147,6 +151,8 @@ def _burn(w: World, t: int) -> None:
 
 
 def _weather_line(world: World, c) -> str | None:
+    if not world.under_sky(c.x, c.y):
+        return None
     if wet(world, drizzle=True) and perception.roof_over(world, c.x, c.y):  # the building's line says it's wet out
         return None
     return LINES.get(current(world))

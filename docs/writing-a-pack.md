@@ -112,7 +112,8 @@ def _place_reeds(world: World, rng, fresh: bool) -> None:           # populate: 
     mine = world.ext.setdefault("marsh", {})
     if mine.get("reeds_placed"):  # idempotent: once per world
         return
-    shore = [(x, y) for y in range(world.height) for x in range(world.width)
+    x0, y0, x1, y1 = world.region_bounds("surface")  # the surface only: see Regions below
+    shore = [(x, y) for y in range(y0, y1) for x in range(x0, x1)
              if world.tile(x, y) in "gd" and (x, y) not in world.grid and _water_beside(world, x, y)]
     for x, y in rng.sample(shore, min(12, len(shore))):
         world.add_object("reed_bed", x, y)
@@ -155,6 +156,21 @@ def test_something_test_only():
     with registry.sandbox():                      # anything registered here is undone afterwards
         ...
 ```
+
+## Regions
+
+The map is one grid in bands of rows: the surface on top, then, past a band of solid rock (`REGION_GAP` rows of `R`),
+regions below it, like the deep (`world.regions`, `world.region_at(x, y)`). A pack's world stays on the surface unless
+it is meant for below:
+- Scan and sample `world.region_bounds("surface")` (`x0, y0, x1, y1`, half-open), never `range(world.height)` or
+  `rng.randrange(world.height)`: `world.height` counts every region and the rock between them. Counts per area (how
+  many of a kind a world holds) use the surface's area. On a world with only a surface, `rng.randrange(y0, y1)` draws
+  exactly what `rng.randrange(world.height)` did, so the world's rolls don't change.
+- Anything about the sky (weather, the time of day, daylight, night) asks `world.under_sky(x, y)` for the spot it
+  touches: no rain, wind, heat or thunder below.
+- Sensing already stays in a region: sight, `hearers` (sounds and speech), landmarks, remembered spots and terminals
+  never cross one. Your own distance checks between two things add `world.same_region(a, b)`.
+- Water to drink, fill a pot at or fish in is `model.WATER_TILES` (`w`, `W` and cave water `u`), not `"wW"`.
 
 Rules of thumb:
 - **Imports.** At its top a pack module imports only from `swarmworld.world` (`actions`, `model`, `perception`,

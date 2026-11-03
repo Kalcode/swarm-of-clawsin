@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from .. import perception
 from ..actions import FILLER, SOURCE_HINT, ActionResult, Intention, start_walk
 from ..catalog import DATA
-from ..model import DAY_TICKS, wet
+from ..model import DAY_TICKS, WATER_TILES, wet
 from ..perception import article, dist, direction, sight_range
 from ..registry import (ANIMALS, BLOCKING, HANDLERS, KINDS, STORES, Technique, register_perception, register_system,
                         register_technique, register_verb)
@@ -331,6 +331,8 @@ def _crossing(world: World, c: Creature, d: dict) -> tuple[dict | None, str]:
 
 def _lay_out(world: World, c: Creature, key: str) -> ActionResult:
     d = DESIGNS[key]
+    if world.region_at(c.x, c.y) is not world.region("surface"):
+        return ActionResult(False, "There's no room to raise a building down here; build up on the surface.")
     for sid, site in _read(world, "sites").items():
         if site.get("started_by") == c.id and sid in world.objects:
             where = _where(c, site)
@@ -453,7 +455,7 @@ def _free_spot(world: World, x: int, y: int, avoid: set, r: int = 4) -> tuple[in
     for k in range(1, r + 1):
         ring = [(x + dx, y + dy) for dx in range(-k, k + 1) for dy in range(-k, k + 1) if max(abs(dx), abs(dy)) == k]
         for p in sorted(ring, key=lambda p: (abs(p[0] - x) + abs(p[1] - y), p[1], p[0])):
-            if p not in avoid and world.walkable(*p) and world.tile(*p) not in "wW" and not world.object_at(*p) \
+            if p not in avoid and world.walkable(*p) and world.tile(*p) not in WATER_TILES and not world.object_at(*p) \
                     and not any(c.x == p[0] and c.y == p[1] for c in world.creatures.values()):
                 return p
     return None

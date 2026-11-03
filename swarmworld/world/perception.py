@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from .model import ANIMALS, LIGHT_ITEMS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject, wet
+from .model import ANIMALS, LIGHT_ITEMS, OBJECT_NAMES, TILE_NAMES, WATER_TILES, Creature, World, WorldObject, wet
 from .registry import KINDS, STORES, YIELDS, extra_perception
 
 DAY_SIGHT = 6
@@ -93,7 +93,7 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
             nearest[o.kind] = (d, o.x, o.y)
     for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
-            if world.in_bounds(x, y) and world.tile(x, y) in "wW":
+            if world.in_bounds(x, y) and world.tile(x, y) in WATER_TILES:
                 d = dist(c.x, c.y, x, y)
                 if "water" not in nearest or d < nearest["water"][0]:
                     nearest["water"] = (d, x, y)
@@ -293,7 +293,7 @@ def _far_features(world: World, c: Creature, r: int) -> str:
             if not world.in_bounds(x, y) or (x == c.x and y == c.y):
                 continue
             t = world.tile(x, y)
-            key = {"w": "water", "W": "water", "r": "rocky ground", "f": "forest", "s": "sand"}.get(t)
+            key = {"w": "water", "W": "water", "u": "water", "r": "rocky ground", "f": "forest", "s": "sand"}.get(t)
             if not key:
                 continue
             d = dist(c.x, c.y, x, y)

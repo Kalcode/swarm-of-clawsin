@@ -6,6 +6,7 @@ that flow); this pack keeps that in world.ext["nature"] and fills it (data: swar
 - bees by the flowers and butterflies by day, fireflies at dusk and night (a soft glow: see perception.near_glow);
   none in the rain;
 - things dropped in a river drift downstream; at the edge of the map the river carries them off;
+- all of it on the surface (world.region_bounds("surface")): nothing grows, flies or drifts in a deep below;
 - two short perception lines: the biome you're in (when it changes, or when you wake) and which way the river beside
   you flows (when you come to it).
 
@@ -23,7 +24,8 @@ from weakref import WeakKeyDictionary
 from .. import model
 from ..perception import DAY_SIGHT, DIRS
 from ..registry import register_perception, register_populate, register_system
-from ..terrain import FLOW_STEP, NEIGHBORS, SIZE, STILL, derive_biomes, derive_flow, flow_at, water_near
+from ..terrain import (FLOW_STEP, NEIGHBORS, SIZE, STILL, derive_biomes, derive_flow, flow_at, land_code, surface_rows,
+                       water_near)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..model import Creature, World
@@ -57,22 +59,24 @@ OLD_WORLD_DENSITY = 0.5  # plants in a world from before this pack, which its cr
 
 # ------------------------------------------------------------------------------------------- reading the land
 def _free(world: World, x: int, y: int) -> bool:
-    return (world.in_bounds(x, y) and (x, y) not in world.grid and world.tile(x, y) not in "wW"
-            and not world.occupied(x, y))
+    """A free tile of the surface's dry land."""
+    return (0 <= x < world.width and y in surface_rows(world) and (x, y) not in world.grid
+            and world.tile(x, y) not in model.WATER_TILES and not world.occupied(x, y))
 
 
 _CACHE: WeakKeyDictionary = WeakKeyDictionary()  # world -> its habitats and its ambient randomness (not saved)
 
 
 def _ambient(world: World) -> dict:
-    """Per world: tiles each kind of thing lives on, and a random source of its own (so ambience never shifts the
-    world's own rolls). Recomputed when the world's biome rows change (a restore)."""
+    """Per world: tiles of the surface each kind of thing lives on, and a random source of its own (so ambience never
+    shifts the world's own rolls). Recomputed when the world's biome rows change (a restore)."""
     rows = (world.ext.get("nature") or {}).get("biomes")
     got = _CACHE.get(world)
     if got is None or got["rows"] is not rows:
         tiles: dict[str, list[tuple[int, int]]] = {"forest": [], "beach": [], "meadow": [], "firefly": []}
         damp = water_near(world, 2)
-        for y in range(world.height if rows else 0):
+        surface = surface_rows(world)
+        for y in surface if rows else ():
             row, trow = rows[y], world.tiles[y]
             for x in range(world.width):
                 t, b = trow[x], row[x]
@@ -86,7 +90,7 @@ def _ambient(world: World) -> dict:
                     tiles["meadow"].append((x, y))
                 if b in "ko" or damp[y, x]:
                     tiles["firefly"].append((x, y))
-        rng = got["rng"] if got else random.Random(world.width * 7919 + world.height)
+        rng = got["rng"] if got else random.Random(world.width * 7919 + len(surface))
         got = {"rows": rows, "tiles": tiles, "firefly": set(tiles["firefly"]), "rng": rng}
         _CACHE[world] = got
     return got
@@ -133,7 +137,7 @@ def _place_plants(world: World, rng, fresh: bool) -> dict[str, int]:
     cx, cy = world.center
     wet = water_near(world)
     placed: Counter = Counter()
-    for y in range(world.height):
+    for y in surface_rows(world):
         row, trow = rows[y], world.tiles[y]
         for x in range(world.width):
             t = trow[x]
@@ -160,6 +164,11 @@ def populate(world: World, rng, fresh: bool) -> None:
 
 
 # ------------------------------------------------------------------------------------------- systems
+def insect_cap(world: World, kind: str) -> int:
+    """How many of an insect kind the surface holds at most: INSECT_CAP on a fresh map, scaled by the surface's area."""
+    return round(INSECT_CAP[kind] * world.width * len(surface_rows(world)) / (SIZE * SIZE))
+
+
 def _spot_near(world: World, rng: random.Random, x: int, y: int, r: int) -> tuple[int, int] | None:
     opts = [(x + dx, y + dy) for dx in range(-r, r + 1) for dy in range(-r, r + 1) if dx or dy]
     rng.shuffle(opts)
@@ -215,17 +224,17 @@ def insects_step(sim: Simulation, t: int) -> None:
     amb = _ambient(w)
     phase = w.clock()["phase"]
     rainy = model.wet(w, drizzle=True)  # the insects shelter from it
-    scale = w.width * w.height / (SIZE * SIZE)
+    surface = surface_rows(w)
     flowers, have = [], {k: [] for k in INSECTS}
     for o in w.objects.values():
-        if o.kind == "flower_patch":
+        if o.kind == "flower_patch" and o.y in surface:
             flowers.append(o)
         elif o.kind in have:
             have[o.kind].append(o)
     day = phase == "day" and not rainy
-    want = {"honeybee": min(round(INSECT_CAP["honeybee"] * scale), len(flowers) // FLOWERS_PER_BEE) if day else 0,
-            "butterfly": round(INSECT_CAP["butterfly"] * scale) if day else 0,
-            "firefly": round(INSECT_CAP["firefly"] * scale) if phase in ("dusk", "night") and not rainy else 0}
+    want = {"honeybee": min(insect_cap(w, "honeybee"), len(flowers) // FLOWERS_PER_BEE) if day else 0,
+            "butterfly": insect_cap(w, "butterfly") if day else 0,
+            "firefly": insect_cap(w, "firefly") if phase in ("dusk", "night") and not rainy else 0}
     rng = amb["rng"]
     for kind, objs in have.items():
         extra = len(objs) - want[kind]
@@ -255,18 +264,19 @@ def _move_pile(w: World, src: tuple[int, int], dst: tuple[int, int] | None) -> N
 
 def drift_step(sim: Simulation, t: int) -> None:
     """Whatever lies in flowing water moves a tile downstream; into shallow still water it settles, against deep water
-    it snags; off the edge of the map the river carries it away."""
+    it snags; off the edge of the surface the river carries it away. Only the surface's rivers flow."""
     w = sim.world
-    flow = (w.ext.get("nature") or {}).get("flow")
-    if not flow or not w.ground:
+    if not (w.ext.get("nature") or {}).get("flow") or not w.ground:
         return
+    surface = surface_rows(w)
     moves = []
     for x, y in w.ground:
-        if w.in_bounds(x, y) and flow[y][x] != STILL:
-            dx, dy = FLOW_STEP[DIRS[int(flow[y][x])]]
+        code = land_code(w, "flow", x, y)
+        if code not in (None, STILL):
+            dx, dy = FLOW_STEP[DIRS[int(code)]]
             moves.append(((x, y), (x + dx, y + dy)))
     for src, (nx, ny) in moves:
-        if not w.in_bounds(nx, ny):
+        if not w.in_bounds(nx, ny) or ny not in surface:
             _move_pile(w, src, None)
         elif w.tile(nx, ny) == "w":
             _move_pile(w, src, (nx, ny))
@@ -300,15 +310,16 @@ def renew_step(sim: Simulation, t: int) -> None:
 # ------------------------------------------------------------------------------------------- perception
 def biome_around(world: World, x: int, y: int, was: str | None = None) -> str | None:
     """The biome code of the land around (x, y): what most of it within BIOME_REACH steps is, except that you're still
-    in the biome you were in while at least BIOME_KEEP of the ground around is that (so a ragged edge doesn't flap)."""
-    rows = (world.ext.get("nature") or {}).get("biomes")
-    if not rows:
+    in the biome you were in while at least BIOME_KEEP of the ground around is that (so a ragged edge doesn't flap).
+    None off the surface: a deep below has no biomes."""
+    if land_code(world, "biomes", x, y) is None:
         return None
     seen: Counter = Counter()
     for yy in range(y - BIOME_REACH, y + BIOME_REACH + 1):
         for xx in range(x - BIOME_REACH, x + BIOME_REACH + 1):
-            if world.in_bounds(xx, yy) and world.tile(xx, yy) not in "wW":
-                seen[rows[yy][xx]] += 1
+            code = land_code(world, "biomes", xx, yy)
+            if code is not None and world.tile(xx, yy) not in "wW":
+                seen[code] += 1
     if not seen:
         return None
     if was in seen and seen[was] >= BIOME_KEEP * sum(seen.values()):
