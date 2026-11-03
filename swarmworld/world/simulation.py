@@ -499,6 +499,8 @@ class Simulation:
         from .actions import station_near
         from .perception import near_lit_fire
         w = self.world
+        if not w.under_sky(c.x, c.y):
+            return None
         night = w.clock()["phase"] == "night"
         rain = wet(w)
         if not (night or rain):
