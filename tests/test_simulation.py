@@ -198,6 +198,19 @@ def test_a_starving_creature_beside_a_berry_bush_eats_by_reflex():
     assert c.satiety > 30 and bush.data["berries"] < 6
 
 
+def test_a_starving_creature_beside_a_mushroom_patch_eats_by_reflex():
+    from collections import Counter
+    w = World(20, 20, [["g"] * 20 for _ in range(20)], Catalog.load())
+    w.tick = START_TICK + 100
+    c = Creature("c1", "Mika", 5, 5, asleep=False)
+    c.satiety, c.inventory = 5.0, Counter({"rope": 3})  # no food carried, no bush: only the patch in reach
+    w.creatures[c.id] = c
+    patch = w.add_object("mushroom_patch", 6, 5)
+    Simulation(w).tick()
+    assert c.satiety > 5 and (patch.id not in w.objects or patch.data["uses"] < 2)
+    assert any(e.kind == "eat" and "mushroom" in e.text for e in w.events)
+
+
 def test_starving_is_the_first_thing_a_creature_senses():
     from swarmworld.world.catalog import Catalog
     from swarmworld.world.model import START_TICK, Creature, World

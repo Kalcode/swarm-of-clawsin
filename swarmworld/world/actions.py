@@ -932,6 +932,13 @@ def _craft(world: World, c: Creature, it: Intention) -> ActionResult:
     return _try_recipe(world, c, r, it.count, "craft")
 
 
+def yield_source(world: World, c: Creature, item: str) -> tuple[WorldObject, int, str] | None:
+    """The nearest thing in sight whose yields (objects.json) give this item and that has some left: a mushroom patch
+    for mushrooms. (object, distance, direction)"""
+    return next(((o, d, dirn) for o, d, dirn in visible_objects(world, c)
+                 if o.kind in YIELDS and item in YIELDS[o.kind]["items"] and not _spent(o)), None)
+
+
 def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
     name = it.target or (it.items[0] if it.items else "")
     if not name:
@@ -962,6 +969,20 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
             c.inventory.update(_harvest(world, crop))
             ate = _eat(world, c, Intention("eat", target=world.catalog.name(iid), count=it.count))
             return ActionResult(ate.ok, f"You pull up the ripe {world.catalog.name(iid)}. {ate.message}")
+        # "eat mushroom" beside a mushroom patch: pick some and eat them; farther off, say where they grow
+        found = yield_source(world, c, iid) if world.catalog.items[iid].food > 0 else None
+        if found is not None:
+            patch, d, dirn = found
+            if d > 1:
+                return ActionResult(False, f"You don't have any {world.catalog.name(iid)}. You can pick some from the "
+                                           f"{patch.name} {d} steps {dirn}; walk there first.")
+            got: Counter = Counter()
+            res = _gather_yields(world, c, patch, got)
+            if isinstance(res, ActionResult):
+                return res
+            c.inventory.update(got)
+            ate = _eat(world, c, Intention("eat", target=world.catalog.name(iid), count=it.count))
+            return ActionResult(ate.ok, f"You pick {_items_text(world, got)} from the {patch.name}. {ate.message}")
     iid, err = _resolve_held(world, c, name if iid is None else world.catalog.name(iid))
     if not iid:
         return ActionResult(False, err)
