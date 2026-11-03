@@ -510,7 +510,7 @@
     if (mb) mb.addEventListener('click', (e) => { e.stopPropagation(); setMusic(!state.music); });
     window.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName) || '';
-      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag)) setOn(!(state.on && !pendingStart));
+      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(tag) && !(e.target && e.target.closest && e.target.closest('dialog'))) setOn(!(state.on && !pendingStart));
     });
     // a remembered "on" resumes with the first gesture, as browsers require
     const first = (e) => {
