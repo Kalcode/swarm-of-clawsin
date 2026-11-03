@@ -689,7 +689,7 @@ def test_gathering_stone_from_the_stone_tablet_says_where_stone_comes_from(world
     world.add_object("tablet", 11, 10)
     res = act(world, c, action="gather", target="stone tablet")
     assert not res.ok and "can't gather anything from the stone tablet" in res.message
-    assert "Stone: knock it off boulders." in res.message
+    assert "Stone: knock it off boulders, or pick up loose stone in the caves below" in res.message
 
 
 def test_an_unrelated_refusal_adds_no_hint(world):
