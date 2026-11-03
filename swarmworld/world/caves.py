@@ -217,7 +217,9 @@ def carve_passage(world: World, start: tuple[int, int],
                   avoid: set[tuple[int, int]] = frozenset()) -> list[tuple[int, int]]:
     """Dig the shortest orthogonal path through the region's interior from `start` to the main cave system: the
     largest connected group of cave floor and water outside `avoid`. Its rock tiles become cave floor; returns them.
-    Nothing changes when start is already in the main system or there is none to reach."""
+    Nothing changes when start is already in the main system or there is none to reach, or lies off the map."""
+    if not 0 <= start[0] < world.width:  # the flat index below needs start's column on the map
+        return []
     box = _interior(world, *start)
     if box is None:
         return []

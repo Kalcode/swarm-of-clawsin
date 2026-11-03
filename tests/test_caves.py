@@ -124,3 +124,13 @@ def test_carve_passage_avoid_sends_it_to_the_other_group(two_levels):
     assert start in _reach(open_, far[0])
     assert all(w.tile(*p) == "c" for p in near)
     assert (start[0], start[1] - 1) not in near
+
+
+def test_carve_passage_from_off_the_map_changes_nothing(two_levels):
+    w, y0 = _rock_deep(two_levels)
+    for p in [(x, y0 + y) for x in range(14, 20) for y in range(4, 10)]:
+        w.set_tile(*p, "c")
+    before = [row[:] for row in w.tiles]
+    for start in ((-1, y0 + 12), (w.width, y0 + 12), (w.width + 5, y0 + 12)):
+        assert carve_passage(w, start) == []
+    assert w.tiles == before

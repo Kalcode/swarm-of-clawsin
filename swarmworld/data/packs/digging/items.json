@@ -1,0 +1,14 @@
+{
+  "dirt": {
+    "name": "dirt",
+    "aliases": [
+      "earth",
+      "soil",
+      "clod of earth"
+    ],
+    "tags": [
+      "earth"
+    ],
+    "desc": "Loose earth, dug out of the ground."
+  }
+}

@@ -18,6 +18,7 @@ swarmworld/data/packs/underground/).
   TORCH_TICKS carried (c.ext["underground"]["torch_until"]) and lights the dark; then it is a stick.
 - Climbing: the verb `climb` takes a creature from beside one end of a way to the other end (or the nearest free tile
   beside it), and a creature that doesn't know where a way is walks to the nearest it saw, remembers or climbed.
+  Climbing down into a shaft's or a pit's chamber that is still sealed in the rock, it is told so.
 
 State: c.ext["underground"] = {"ways": [portal ids climbed or seen], "told": last way line}.
 State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
@@ -349,6 +350,7 @@ CLIMB_LINE = ('climb (target "down" or "up"): climb down into the deep at a cave
               'or back up at a cave exit or ladder.')
 DEEP_PHRASES = {"deep", "underground", "caves below", "the deep below", "deep below", "the deep"}
 CROWDED_REACH = 2  # how far from a crowded end a creature may arrive
+POCKET = 40  # open tiles: fewer than this, shut in by rock, is a sealed pocket (a shaft's or a pit's new chamber)
 
 
 def _words(text: str) -> set[str]:
@@ -408,6 +410,22 @@ def _arrival(world: World, c: Creature, pos: tuple[int, int]) -> tuple[int, int]
     return best[1] if best else None
 
 
+def _sealed(world: World, pos: tuple[int, int]) -> bool:
+    """The open ground reached from pos (orthogonal steps, in its region) is a pocket of fewer than POCKET tiles shut
+    in by rock: a chamber below a shaft or a pit that nobody has dug out of yet."""
+    seen, todo = {pos}, [pos]
+    while todo:
+        x, y = todo.pop()
+        for dx, dy in STEPS:
+            n = (x + dx, y + dy)
+            if n not in seen and world.tile(*n) not in SOLID_TILES and world.same_region(pos, n):
+                seen.add(n)
+                if len(seen) >= POCKET:
+                    return False
+                todo.append(n)
+    return True
+
+
 def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
     from ..actions import ActionResult, Intention, _adjacent_goals, _busy, start_walk
     words = _words(it.target)
@@ -431,6 +449,8 @@ def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
             text = f"You climb down into the deep at {p['name']}."
             if perception.light_range(world, c) == DARK_SIGHT:
                 text += " It is pitch dark."
+            if p["kind"] != "cave" and _sealed(world, there):
+                text += " Solid stone all around: dig your way out."
         else:
             text = f"You climb back up to the surface at {p['name']}."
         world.emit("climb", c.id, c.x, c.y, f"{c.name} climbed {goes} at {p['name']}.")
