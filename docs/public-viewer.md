@@ -42,7 +42,7 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
 
 ## Posting day
 
-- [ ] 1. Start the world with real minds. The GPU budget versus training is your call. Set `PUBLIC_LINK` (the link shown in the About panel), which needs a world restart: `PUBLIC_LINK=https://<host>/ ./start-world.sh`.
+- [ ] 1. Start the world with real minds. The GPU budget versus training is your call. Set `PUBLIC_LINK` (the link shown in the About panel), which needs a world restart: stop the running world first (`start-world.sh` refuses a second copy), then `PUBLIC_LINK=https://<host>/ ./start-world.sh`.
 - [ ] 2. Start the tunnel: `scripts/public-tunnel.sh start` (`status` to check; log in `runs/cloudflared.log`).
 - [ ] 3. Compare `https://<host>/public/app/` with the local preview.
 - [ ] 4. Check the cache is hitting. Run this twice within 3 seconds; the second should say `HIT`:
@@ -50,11 +50,13 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
   The same goes for `https://<host>/public/static.json?v=<version>` (the version is in `live.json`).
 - [ ] 5. Nothing private is reachable. Each of these should print `404`:
   `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/api/state` (and `/ws/view`, `/public/app/assets/limezu/manifest.json`, `/api/almanac`).
+  Path traversal through the real hostname must also print `404` for each of these:
+  `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public/../api/state`, `https://<host>/public%2F..%2Fapi%2Fstate`, `https://<host>/public/%2e%2e/api/state`.
 - [ ] 6. Watch the Mac: `curl -s http://127.0.0.1:7777/api/metrics` (look at `tick_ms`) and `top -pid <world pid>`.
 
 ## The kill switch
 
-`scripts/public-tunnel.sh stop` stops the tunnel at once. The world keeps running; nothing is public. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
+`scripts/public-tunnel.sh stop` stops the tunnel this script started, at once (TERM, then KILL after 5 s). It checks that the process is really gone and exits 1 with an error if it is not; it only touches a pid that is really `cloudflared`. If it says "no tunnel started by this script was running", a `cloudflared` started another way (for example `cloudflared service install`, or a terminal) may still be serving: run `pgrep -fl cloudflared` and stop that one yourself. The world keeps running; nothing is public once no cloudflared is left. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
 
 ## Load test
 

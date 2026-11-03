@@ -8,7 +8,7 @@ Click-by-click steps are in [docs/public-viewer.md](../../docs/public-viewer.md)
 
 - When: custom filter expression `starts_with(http.request.uri.path, "/public/")`
 - Cache eligibility: **Eligible for cache**. Cloudflare does not cache JSON by default, so without this every watcher reaches the Mac.
-- Edge TTL: **Use cache-control header if present, bypass cache if not**. The world sets `s-maxage=3` on `live.json` and a year on versioned files; the edge must follow it, and anything without a header stays uncached by mistake-proofing.
+- Edge TTL: **Use cache-control header if present, bypass cache if not**. The world sets `s-maxage=3` on `live.json` and a year on versioned files; the edge must follow it, and a response without a header is not cached.
 - Browser TTL: **Respect origin**. Browsers then honour `max-age=2` / `immutable` as the world intends.
 
 ## Optional rule: ignore the query string on live documents
