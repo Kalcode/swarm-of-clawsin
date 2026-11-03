@@ -19,8 +19,10 @@ from swarmworld.world.actions import Intention, apply_intention, bfs_path, step_
 from swarmworld.world.events import hearers
 from swarmworld.world.model import DAY_TICKS, Creature
 from swarmworld.world.packs import underground
+from swarmworld.world.packs.digging import why_not_dig
 from swarmworld.world.perception import (
     DAY_SIGHT,
+    dist,
     light_range,
     perceive,
     visible_creatures,
@@ -28,7 +30,7 @@ from swarmworld.world.perception import (
 from swarmworld.world.terrain import flow_at
 
 DEEP_KINDS = {"coal_seam", "iron_vein", "copper_vein", "crystal_cluster", "cave_mushrooms", "rock", "cave_exit",
-              "terminal", "tablet", "ladder", "campfire", "lit_torch"}
+              "terminal", "tablet", "ladder"}  # what can stand in the deep in this story
 SIDES = ((1, 0), (-1, 0), (0, 1), (0, -1))
 EXIT = (62, 252)  # the south cave's exit, below its mouth at (62, 92)
 COAL, IRON, TUNNEL = (51, 251), (50, 255), (58, 253)  # a coal seam, an iron vein, a rock wall with open floor beyond
@@ -63,6 +65,13 @@ def beside(w, c, x, y):
     assert path is not None, f"no walk from {(c.x, c.y)} to beside {(x, y)}"
     if path:
         c.x, c.y = path[-1]
+
+
+def walk_to(w, c, x, y):
+    """Set c down on (x, y), which bfs_path shows it could have walked to from where it stands (as /api/admin/move)."""
+    path = bfs_path(w, (c.x, c.y), {(x, y)}, limit=20000)
+    assert path is not None, f"no walk from {(c.x, c.y)} to {(x, y)}"
+    c.x, c.y = x, y
 
 
 def flood(w, start):
@@ -114,11 +123,21 @@ def test_the_whole_story(prepack_save, tmp_path):
     restore(old, prepack_save)
     assert old.world.region("deep") is not None and underground.portals(old.world)
     assert old.world.height > 64
+    old_kinds = {o.kind for o in deep_objects(old.world)}
+    assert {"terminal", "coal_seam", "cave_mushrooms"} <= old_kinds, "an upgraded old save lacks its deep's contents"
 
     # ---- on the surface: carry the makings, make a torch, set the fire, light the torch
     ada = person(w, "Ada", *w.center, "stick", "stick", "stick", "plant_fiber", "charcoal", "stone_pickaxe", "hoe",
                  "campfire")
     act(w, ada, "place", "campfire")
+    assert w.tile(*PIT) in "gdsf" and why_not_dig(w, ada, *PIT, True) is None, "seed-7 fixture moved: re-find PIT"
+    below = w.below(*PIT)
+    assert below is not None and w.region_at(*below) is deep and w.tile(*below) == "R", "seed-7 fixture moved: re-find PIT"
+    assert w.tile(*SHAFT) == "r" and dist(*SHAFT, *w.center) >= 7, "seed-7 fixture moved: re-find SHAFT"
+    assert why_not_dig(w, ada, *SHAFT, True) is None, "seed-7 fixture moved: re-find SHAFT"
+    assert w.tile(*RIVER) == "w" and flow_at(w, *RIVER) is not None, "seed-7 fixture moved: re-find RIVER"
+    assert [w.tile(x, 79) for x in (59, 60)] != ["w", "w"] and all(
+        w.tile(x, 79) in "gdsf" and w.object_at(x, 79) is None for x in (59, 60)), "seed-7 fixture moved: re-find TRENCH"
     fire = next(o for o in w.objects.values() if o.kind == "campfire")
     assert fire.data["lit"]
     res = act(w, ada, "combine", items=["stick", "plant fiber", "charcoal"])
@@ -145,6 +164,9 @@ def test_the_whole_story(prepack_save, tmp_path):
     act(w, bo, "say", text="Ada, can you hear me?")
     st.sim._process_events()
     assert not st.sim.heard[ada.id]
+    act(w, ada, "say", text="Bo, can you hear me?")
+    st.sim._process_events()
+    assert not st.sim.heard[bo.id]  # and nothing carries up through the ground either
     w.weather = "rain"
     assert st.sim.exposure(ada) is None and "Rain" not in perceive(w, ada) and "rain" not in perceive(w, ada).lower()
     w.weather = "clear"
@@ -159,13 +181,14 @@ def test_the_whole_story(prepack_save, tmp_path):
     assert ada.inventory["iron_ore"] >= 1
 
     # ---- dig a tunnel through a wall (two tiles of rock, open floor beyond)
-    ada.x, ada.y = TUNNEL
-    assert (w.tile(59, 253), w.tile(60, 253), w.tile(61, 253)) == ("R", "R", "c")
+    assert w.tile(*TUNNEL) == "c" and TUNNEL in cave, "seed-7 fixture moved: re-find TUNNEL"
+    assert (w.tile(59, 253), w.tile(60, 253), w.tile(61, 253)) == ("R", "R", "c"), "seed-7 fixture moved: re-find TUNNEL"
+    walk_to(w, ada, *TUNNEL)
     for n in range(3):
         res = act(w, ada, "dig", "east")
     assert res.message.startswith("You break through the rock wall to the east") and w.tile(59, 253) == "c"
     assert bfs_path(w, TUNNEL, {(59, 253)}, limit=20000) == [(59, 253)]
-    ada.x = 59  # a step into the new tunnel
+    walk_to(w, ada, 59, 253)  # a step into the new tunnel
     for n in range(3):
         res = act(w, ada, "dig", "east")
     assert w.tile(60, 253) == "c" and len(bfs_path(w, TUNNEL, {(61, 253)}, limit=20000)) == 3
@@ -183,9 +206,7 @@ def test_the_whole_story(prepack_save, tmp_path):
     assert ada.y < 128
 
     # ---- dig a shaft of her own on rocky ground, climb down it and up again
-    assert w.tile(*SHAFT) == "r"
-    beside(w, ada, *SHAFT)
-    ada.x, ada.y = SHAFT
+    walk_to(w, ada, *SHAFT)
     for n in range(4):
         assert "You dig down where you stand" in act(w, ada, "dig", "down").message
     res = act(w, ada, "dig", "down")
@@ -197,15 +218,14 @@ def test_the_whole_story(prepack_save, tmp_path):
     assert act(w, ada, "climb", "up").message == "You climb back up to the surface at Ada's shaft."
 
     # ---- a trench from the river fills with water
-    assert w.tile(*RIVER) == "w" and flow_at(w, *RIVER) is not None and w.tile(60, 79) in "gdsf"
-    ada.x, ada.y = TRENCH
+    walk_to(w, ada, *TRENCH)
     act(w, ada, "dig", "here")  # the tile beside the water
-    ada.x = 61
+    walk_to(w, ada, 61, 79)
     act(w, ada, "dig", "west")  # and the next one out
     assert [w.tile(x, 79) for x in (59, 60)] == ["t", "t"]
     tick_to(st, w.tick + 130)
     assert [w.tile(x, 79) for x in (59, 60)] == ["w", "t"]  # the water comes in from the river, one tile at a time
-    ada.x, ada.y = 61, 79  # beside the second tile, two from the first
+    walk_to(w, ada, 61, 79)  # beside the second tile, two from the first
     tick_to(st, w.tick + 40)
     assert "Water is seeping into the trench beside you." in perceive(w, ada)
     tick_to(st, w.tick + 120)
@@ -213,7 +233,7 @@ def test_the_whole_story(prepack_save, tmp_path):
     assert "A trench beside you runs full of water." in perceive(w, ada)
 
     # ---- fill a pit back in with dirt
-    ada.x, ada.y = PIT[0] + 1, PIT[1]
+    walk_to(w, ada, PIT[0] + 1, PIT[1])
     act(w, ada, "dig", "west")
     act(w, ada, "dig", "west")
     assert w.tile(*PIT) == "h"
@@ -236,7 +256,9 @@ def test_the_whole_story(prepack_save, tmp_path):
     assert [PIT[0], PIT[1], "O"] in msg["tiles"] and msg["clock"]["phase"] == "day"
     pit = underground.portals(w)[-1]
     assert pit["kind"] == "pit" and pit["name"] == "Ada's pit"
-    ada.x, ada.y = PIT[0], PIT[1] - 1
+    walk_to(w, ada, PIT[0], PIT[1] - 1)
+    walker = person(w, "Di", PIT[0] + 1, PIT[1])  # on the surface, at the pit's edge
+    assert "You stand at the edge of an open pit; far below, the dark of the deep." in perceive(w, walker)
     act(w, ada, "climb", "down")
     assert w.region_at(ada.x, ada.y) is deep
     view = perceive(w, ada)
@@ -252,7 +274,7 @@ def test_the_whole_story(prepack_save, tmp_path):
     tiles = Counter(c for row in w.tiles[deep.y0:deep.y1] for c in row)
     assert tiles.keys() <= {"c", "u", "R"}
     assert set(Counter(o.kind for o in deep_objects(w))) <= DEEP_KINDS
-    assert all(w.region_at(c.x, c.y).name == "surface" or c.id in (ada.id, other.id) for c in w.creatures.values())
+    assert {c.id for c in w.creatures.values() if w.region_at(c.x, c.y) is deep} == {ada.id, other.id}
 
     # ---- save, load, save: the same world
     first, second = tmp_path / "a.json", tmp_path / "b.json"
