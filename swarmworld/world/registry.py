@@ -421,6 +421,32 @@ def run_populate(world: "World", rng, fresh: bool, skip: Iterable[str] = ()) -> 
             call_safely(f"populate '{p.name}'", p.fn, world, rng, fresh)
 
 
+# ------------------------------------------------------------------ moving the map under the world
+@dataclass(frozen=True)
+class ShiftHook:
+    name: str
+    fn: Callable[["World", int], None]
+    stores: tuple[str, ...] = ()  # the world state it moves, named for the canary test ("ext.food.piles")
+
+
+SHIFT_HOOKS: list[ShiftHook] = []
+
+
+def register_shift_hook(name: str, fn: Callable[["World", int], None], stores: tuple[str, ...] = ()) -> None:
+    """fn(world, n) moves every x a pack keeps in its own state by +n, when new land is laid down west of the map
+    (World.shift_x). Hooks run in registration order; one that raises is logged and skipped. `stores` names what it
+    moves."""
+    source = _caller()
+    _check_free("shift hook", name, source)
+    _OWNERS[("shift hook", name)] = source
+    SHIFT_HOOKS.append(ShiftHook(name, fn, tuple(stores)))
+
+
+def shift_stores() -> set[str]:
+    """Every store some shift hook says it moves."""
+    return {s for h in SHIFT_HOOKS for s in h.stores}
+
+
 # ------------------------------------------------------------------ loading packs, and tests
 def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
     """Import every module in these folders as package.<name>, sorted by name (names starting with _ are skipped),
@@ -435,7 +461,7 @@ def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
 def sandbox():
     """Everything registered inside the block is undone when it ends (for tests)."""
     live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, ALIAS_TARGETS, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE,
-            LANDMARK_SOURCES, HANDOFFS)
+            LANDMARK_SOURCES, HANDOFFS, SHIFT_HOOKS)
     saved = [list(x) if isinstance(x, list) else dict(x) for x in live]
     try:
         yield

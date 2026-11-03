@@ -52,7 +52,7 @@ class Simulation:
         self._returned_cursor = len(world.events)   # events already handed back to the caller of tick()
         self.on_result: Callable[[Creature, ActionResult], None] | None = None
         self.inspiration = True  # occasional vague hunches for curious minds; off = purely unassisted
-        self._lake_cache: tuple[tuple[int, int], tuple[int, int] | None] | None = None  # see _lake
+        self._lake_cache: tuple[tuple[int, int, int], tuple[int, int] | None] | None = None  # see _lake
 
     # ------------------------------------------------------------------
     def wake(self, c: Creature, reason: str, addressed: bool = False) -> None:
@@ -485,12 +485,12 @@ class Simulation:
         w.landmarks = camps + fixed
 
     def _lake(self) -> tuple[int, int] | None:
-        """The middle of all deep water, worked out again only when the land changes (World.set_tile)."""
+        """The middle of the deep water in the home lands, worked out again only when the land changes (World.set_tile)."""
         w = self.world
-        key = (id(w.tiles), w.tiles_version)
+        key = (id(w.tiles), w.tiles_version, w.origin_x)
         if self._lake_cache is None or self._lake_cache[0] != key:
-            y0, y1 = w.region_bounds()[1::2]  # the surface's rows: deep water is no lake
-            water = [(x, y) for y in range(y0, y1) for x, t in enumerate(w.tiles[y]) if t == "W"]
+            x0, y0, x1, y1 = w.home_bounds()  # the home lands' rows and columns: deep water is no lake, nor is new land's
+            water = [(x, y) for y in range(y0, y1) for x in range(x0, x1) if w.tiles[y][x] == "W"]
             at = (sum(x for x, _ in water) // len(water), sum(y for _, y in water) // len(water)) if water else None
             self._lake_cache = (key, at)
         return self._lake_cache[1]

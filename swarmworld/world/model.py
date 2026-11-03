@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 from .catalog import Catalog
 from .events import Event
 # Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
-from .registry import ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, STORES  # noqa: F401
+from .registry import (ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, SHIFT_HOOKS, STORES,  # noqa: F401
+                       call_safely)
 
 VIEW_KIND_FIELDS = ("look", "glyph", "glow")  # what the viewer's art reads from a kind's data, besides its name
 
@@ -25,6 +26,15 @@ WET = SOAKING + ("drizzle",)  # weather that wets the land: plants grow faster, 
 def wet(world, drizzle: bool = False) -> bool:
     """Rain or a storm is falling (with drizzle=True, a drizzle counts too)."""
     return getattr(world, "weather", "clear") in (WET if drizzle else SOAKING)
+
+
+CORE_SHIFT_STORES: tuple[str, ...] = ("object.data.home",)  # object data that World.shift_x moves itself
+
+
+def shift_key(key: str, n: int) -> str:
+    """An "x,y" key (as packs keep them in their state) with x moved by n."""
+    x, y = key.split(",")
+    return f"{int(x) + n},{y}"
 
 
 # Tiles: g grass, d dirt, s sand, w shallow water (wadeable), W deep water, r rocky ground, f forest floor;
@@ -148,7 +158,69 @@ class World:
     @property
     def center(self) -> tuple[int, int]:
         s = self.region("surface")
-        return self.width // 2, (s.y0 + s.y1) // 2
+        return self.origin_x + self.home_width // 2, (s.y0 + s.y1) // 2
+
+    @property
+    def origin_x(self) -> int:
+        """Where the home lands begin: 0 until new land is laid down west of them. Reading it creates nothing."""
+        return self.ext.get("frontier", {}).get("origin_x", 0)
+
+    @property
+    def home_width(self) -> int:
+        return self.ext.get("frontier", {}).get("home_width", self.width)
+
+    def frontier_record(self) -> dict:
+        """ext["frontier"], made when absent. Callers make it before the width changes."""
+        return self.ext.setdefault("frontier", {"origin_x": 0, "home_width": self.width})
+
+    def home_bounds(self) -> tuple[int, int, int, int]:
+        """x0, y0, x1, y1 of the home lands on the surface, half-open."""
+        s = self.region("surface")
+        return self.origin_x, s.y0, self.origin_x + self.home_width, s.y1
+
+    def shift_x(self, n: int) -> None:
+        """New land went in west of the map: every x in the world moves n to the east (tiles, width, regions and
+        home_width stay as they are, nothing is rolled), then the packs' shift hooks move their own state."""
+        if n < 1:
+            raise ValueError(f"shift_x needs n >= 1, got {n}")
+
+        def pos(p):
+            return (p[0] + n, *p[1:])
+
+        def step(p):
+            return type(p)((p[0] + n, *p[1:]))
+
+        rec = self.frontier_record()
+        for c in self.creatures.values():
+            c.x += n
+            c.seen_pos = {k: pos(v) for k, v in c.seen_pos.items()}
+            c.spots = {k: pos(v) for k, v in c.spots.items()}
+            if c.activity and c.activity.get("path"):
+                c.activity["path"] = [step(p) for p in c.activity["path"]]
+        for o in self.objects.values():
+            o.x += n
+            home = o.data.get("home")
+            if isinstance(home, list) and len(home) == 2:
+                o.data["home"] = [home[0] + n, home[1]]
+        self.grid = {(x + n, y): oid for (x, y), oid in self.grid.items()}
+        self.ground = {(x + n, y): pile for (x, y), pile in self.ground.items()}
+
+        def pile_id(oid: str) -> str:
+            if not oid.startswith("pile:"):
+                return oid
+            _, x, y = oid.split(":")
+            return f"pile:{int(x) + n}:{y}"
+        self.changed_objects = {pile_id(oid) for oid in self.changed_objects}
+        self.removed_objects = {pile_id(oid) for oid in self.removed_objects}
+        self.changed_tiles = {(x + n, y): t for (x, y), t in self.changed_tiles.items()}
+        self.skylight = {(x + n, y) for x, y in self.skylight}
+        for lm in getattr(self, "landmarks", ()):
+            lm["x"] += n
+        for ev in self.events:
+            ev.x += n
+        rec["origin_x"] += n
+        for hook in list(SHIFT_HOOKS):
+            call_safely(f"shift hook '{hook.name}'", hook.fn, self, n)
 
     # --- regions -------------------------------------------------------
     def region(self, name: str) -> Region | None:
