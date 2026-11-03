@@ -244,12 +244,12 @@ def test_a_linked_folder_is_never_followed(tmp_path, web):
 
 
 def test_the_real_web_folder_serves_exactly_these_files():
-    """Pinned: every file added to the public build is a deliberate change here (Task 6 adds public.js)."""
+    """Pinned: every file added to the public build is a deliberate change here (Task 5 added public.js)."""
     assert PublicApp(WEB_DIR).paths() == [
         "almanac.css", "almanac.html", "almanac.js", "ascii.js",
         "assets/fonts/Jersey10-Regular.woff2", "assets/fonts/OFL-Jersey10.txt",
         "assets/kenney-1bit/License.txt", "assets/kenney-1bit/colored_transparent_packed.png",
-        "effects.js", "index.html", "layers.js", "limezu.js", "motion.js", "roofs.js", "sound.js", "style.css",
+        "effects.js", "index.html", "layers.js", "limezu.js", "motion.js", "public.js", "roofs.js", "sound.js", "style.css",
         "tiles.js", "viewer.js",
     ]
 
