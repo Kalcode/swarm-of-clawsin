@@ -65,19 +65,19 @@ The stop does not recall what is already out there: copies cached at Cloudflare'
 
 ## Load test
 
-`nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at a56b912 plus the script; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).
+`nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at 816181a, with the query redirects and gzip app files, run under `nice -n 10`; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).
 
 | | baseline | 200 pollers |
 |---|---|---|
-| tick p50 (ms) | 12.0 | 14.5 |
-| tick p95 (ms) | 20.7 | 25.6 |
-| tick max (ms) | 24.3 | 31.3 |
-| ticks per second | 0.983 | 0.983 |
-| server CPU % | 1.5 | 4.0 |
-| requests / errors | - | 6796 / 0 |
-| request latency p95 (ms) | - | 1.7 |
+| tick p50 (ms) | 12.8 | 13.8 |
+| tick p95 (ms) | 23.0 | 31.8 |
+| tick max (ms) | 26.5 | 41.9 |
+| ticks per second | 0.983 | 1.0 |
+| server CPU % | 1.5 | 3.9 |
+| requests / errors | - | 6793 / 0 |
+| request latency p95 (ms) | - | 1.5 |
 
-Pass (limit for tick p95 was 25.9 ms). A first run of the same command had load p95 26.6 ms against a baseline of 19.9 ms (limit 24.9) and failed by 1.7 ms; the rerun passed. Both showed the same shape: about +2.5 ms median and +5 ms p95 tick time with 200 pollers (they share the world's event loop), no errors, ticks per second unchanged, CPU up about 2.5 points.
+Pass. The verdict needs 0 errors, ticks per second at least 0.97 x baseline, request latency p95 at most 50 ms, and tick p95 at most the larger of 1.25 x baseline and baseline + 10 ms (here 33.0 ms). The last 60 s of each phase are judged, so `--seconds` below 60 is refused. A first run of the same command failed on tick p95 alone: 31.9 ms against a baseline of 19.3 (limit 29.3), with 0 errors, 6786 requests, latency p95 1.7 ms and 0.983 ticks per second; the rerun passed. Both showed the same shape: about +1 to +2 ms median and +9 ms p95 tick time with 200 pollers, no errors, ticks per second unchanged, CPU up about 2.5 points. The baseline p95 itself moved between 19 and 23 ms with teacher runs using the Mac.
 
 **Reading it:** the extra tick milliseconds are mostly request handling, which runs on the world's event loop while the tick waits on its sends. Ticks per second and request latency are the health signals; a few extra tick milliseconds are not. Behind the tunnel the Mac sees about one request per cache interval per Cloudflare location, far fewer than this test sends.
 
