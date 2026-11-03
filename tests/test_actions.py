@@ -654,3 +654,29 @@ def test_one_set_of_water_kinds_for_drinking_and_filling(world):
     c = creature(world)
     world.add_object("well", 11, 10)
     assert act(world, c, action="drink").message == "You drink cool water and feel refreshed."
+
+
+def test_eating_something_inedible_says_where_food_is(world):
+    # the student loops on "eat grass" when hungry; the refusal should point at food, not just say no
+    c = creature(world)
+    c.satiety = 20
+    c.inventory["plant_fiber"] = 2
+    world.add_object("bush", 13, 10)
+    res = act(world, c, action="eat", target="grass")
+    assert not res.ok and "can't eat plant fiber" in res.message
+    assert "berry bush" in res.message and "3 steps east" in res.message
+
+
+def test_having_nothing_to_eat_says_where_food_is(world):
+    c = creature(world)
+    c.satiety = 20
+    world.add_object("mushroom_patch", 10, 12)
+    res = act(world, c, action="eat")
+    assert not res.ok and "nothing to eat" in res.message and "mushroom patch" in res.message and "2 steps south" in res.message
+
+
+def test_with_no_food_in_sight_it_says_what_food_is(world):
+    c = creature(world)
+    c.inventory["plant_fiber"] = 1
+    res = act(world, c, action="eat", target="plant fiber")
+    assert not res.ok and "Berries" in res.message and "mushrooms" in res.message
