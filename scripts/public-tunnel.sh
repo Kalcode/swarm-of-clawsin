@@ -3,43 +3,54 @@
 #   start   run cloudflared in the background (needs ~/.cloudflared/swarm-world.yml; docs/public-viewer.md)
 #   stop    the kill switch: stop the tunnel this script started; the world keeps running
 #   status  running (pid N) or not running; no network
-# Environment: CONFIG, CLOUDFLARED, PIDFILE, LOG (and KILL, STOP_TICKS for tests)
+# Environment: CONFIG, CLOUDFLARED, PIDFILE, LOG (and SWARM_TUNNEL_TEST_KILL, SWARM_TUNNEL_TEST_STOP_TICKS for tests)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-$HOME/.cloudflared/swarm-world.yml}"
 CLOUDFLARED="${CLOUDFLARED:-cloudflared}"
 PIDFILE="${PIDFILE:-runs/cloudflared.pid}"
 LOG="${LOG:-runs/cloudflared.log}"
-KILL="${KILL:-kill}"
-STOP_TICKS="${STOP_TICKS:-50}"  # tenths of a second to wait after TERM (5 s)
+KILL="${SWARM_TUNNEL_TEST_KILL:-kill}"
+STOP_TICKS="${SWARM_TUNNEL_TEST_STOP_TICKS:-50}"  # tenths of a second to wait after TERM (5 s)
 
-# The pid in the pidfile, only if it is alive and really is our cloudflared (a reused pid is never trusted).
+# The keys a config may use: the template's, plus a few harmless settings. Anything else (originRequest, warp-routing,
+# private-network routes, ...) could deliver traffic without the proxy headers, so it is refused by name.
+ALLOWED_KEYS=" tunnel credentials-file ingress hostname path service logfile loglevel metrics protocol no-autoupdate retries grace-period "
+
+# The pid in the pidfile, only if it is alive and its command (the first word of ps's line) is our cloudflared: a reused
+# pid, or a process that merely mentions the name in its arguments, is never trusted.
 running_pid() {
-  local pid cmd
+  local pid cmd first
   [[ -f "$PIDFILE" ]] || return 1
   pid="$(cat "$PIDFILE")"
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
   cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  [[ "$cmd" == *"$(basename "$CLOUDFLARED")"* ]] || return 1
+  first="${cmd#"${cmd%%[![:space:]]*}"}"  # trim leading space
+  first="${first%%[[:space:]]*}"
+  [[ -n "$first" && "$(basename "$first")" == "$(basename "$CLOUDFLARED")" ]] || return 1
   echo "$pid"
 }
 
 # A config may only carry plain HTTP to this machine's world (docs/public-viewer.md, "The one rule").
 check_config() {
-  local code bad
+  local code bad key
   if [[ ! -f "$CONFIG" ]]; then
     echo "Fill in $CONFIG first (copy deploy/cloudflare/tunnel.yml; see docs/public-viewer.md)"
     return 1
   fi
-  code="$(grep -v '^[[:space:]]*#' "$CONFIG" || true)"
+  # no comment lines, no trailing " # comment"
+  code="$(grep -v '^[[:space:]]*#' "$CONFIG" | sed -E 's/[[:space:]]+#.*$//' || true)"
   if grep -q '<' <<<"$code"; then
     echo "Fill in $CONFIG first (copy deploy/cloudflare/tunnel.yml; see docs/public-viewer.md)"
     return 1
   fi
-  if grep -qiE 'warp-routing|private|tcp://|unix:|ssh://|rdp://|bastion' <<<"$code"; then
-    echo "Refusing to start: $CONFIG has warp-routing, a private-network route or a non-HTTP service (docs/public-viewer.md, \"The one rule\")."
-    return 1
-  fi
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    if [[ "$ALLOWED_KEYS" != *" $key "* ]]; then
+      echo "Refusing to start: $CONFIG has the key \"$key\", which is not one the tunnel template uses (docs/public-viewer.md, \"The one rule\")."
+      return 1
+    fi
+  done < <(sed -nE 's/^[[:space:]-]*([A-Za-z0-9_-]+):.*$/\1/p' <<<"$code")
   bad="$(grep -E '^[[:space:]]*-?[[:space:]]*service:' <<<"$code" | sed -E 's/^[[:space:]]*-?[[:space:]]*service:[[:space:]]*//; s/[[:space:]]+$//' | grep -vE '^(http://127\.0\.0\.1:[0-9]+/?|http_status:[0-9]+)$' || true)"
   if [[ -n "$bad" ]]; then
     echo "Refusing to start: $CONFIG has a service other than http://127.0.0.1:<port> or http_status:<code>: $bad"
@@ -81,7 +92,8 @@ case "${1:-}" in
       exit 1
     fi
     rm -f "$PIDFILE"
-    echo "Tunnel stopped. The world keeps running; nothing is public now."
+    echo "Tunnel stopped. The world keeps running; nothing new is public through it."
+    echo "Copies already cached at Cloudflare's edge and in browsers stay until they expire (the live data within seconds, the map, chronicle and page files for up to a year): to take content down, use Caching > Configuration > Purge Everything in the Cloudflare dashboard."
     echo "(A cloudflared started another way would not be affected: check 'pgrep -fl cloudflared'.)"
     ;;
   status)
