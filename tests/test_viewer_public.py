@@ -69,7 +69,7 @@ function rig(lives, statics, extra) {
     }
     if (url.startsWith('/public/static.json')) {
       const s = statics[Math.min(t.staticN++, statics.length - 1)];
-      return respond(s);
+      return s === 'fail' ? Promise.reject(new Error('net')) : respond(s);
     }
     if (url.startsWith('/public/creature/')) return respond({ id: 'c1', detail: true });
     return respond({ url });
@@ -217,6 +217,54 @@ SCENARIOS = {
       await t.advance(1000);
       await t.advance(3000);
       out.v = { open: t.sock.readyState === 1, ticks: t.msgs.filter((m) => m.type === 'tick').length };""",
+    "static_fails": """
+      const t = rig([LIVE1, Object.assign({}, LIVE2, { static: 'b-2' })], [STATIC, 'fail']);
+      await t.open();
+      await t.advance(3000);
+      const open = t.sock.readyState === 1;
+      await t.advance(1000);
+      out.v = { open_after_one: open, closed: t.sock.readyState === 3, statics: t.urls.filter((u) => u.startsWith('/public/static')).length };""",
+    "static_wedged": """
+      const t = rig([LIVE1, Object.assign({}, LIVE2, { static: 'b-2' })], [STATIC]);
+      await t.open();
+      await t.advance(3000);
+      await t.advance(30000);
+      out.v = { closed: t.sock.readyState === 3, statics: t.urls.filter((u) => u.startsWith('/public/static')).length,
+                ticks: t.msgs.filter((m) => m.type === 'tick').length };""",
+    "reload_twice": """
+      const store = new Map();
+      global.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
+      let reloads = 0;
+      const extra = { reload: () => { reloads++; } };
+      const a = rig([LIVE1, D.LIVE_SCHEMA2], [STATIC], extra);
+      await a.open();
+      await a.advance(3000);
+      const after_first = reloads;
+      const b = rig([LIVE1, D.LIVE_SCHEMA2], [STATIC], extra);
+      await b.open();
+      await b.advance(3000);
+      out.v = { after_first, reloads };""",
+    "close_in_retry": """
+      const t = rig([D.LIVE_STALE], [STATIC]);
+      await t.open();
+      const n = t.urls.length;
+      t.sock.close();
+      await t.advance(10000);
+      out.v = { more: t.urls.length - n, timers: t.timers.length };""",
+    "one_timer": """
+      const t = rig([LIVE1], [STATIC]);
+      for (let i = 0; i < 3; i++) { await t.open(); t.sock.close(); }
+      const closed = t.timers.length;
+      await t.open();
+      out.v = { closed, open: t.timers.length };""",
+    "bad_id": """
+      const t = rig([LIVE1], [STATIC]);
+      await t.open();
+      let p, threw = false;
+      try { p = SP.api('/api/creature/%E0%A4%A'); } catch (e) { threw = true; }
+      let msg = null;
+      if (p) await p.catch((e) => { msg = e.message; });
+      out.v = { threw, msg };""",
     "api": """
       const t = rig([LIVE1], [STATIC]);
       await t.open();
@@ -369,3 +417,35 @@ def test_api_maps_to_public_documents(tmp_path):
     assert out["metrics"] == LIVE1["metrics"] and out["inventions"] == STATIC["inventions"]
     assert out["no_fetch_for_local"] and out["all_public"]
     assert out["state_rejected"] == "HTTP 404" and out["post_status"] == 403 and out["fetches_for_reject"] == 0
+
+
+@needs_node
+def test_a_persistent_static_failure_closes_the_socket_after_two_polls(tmp_path):
+    out = run_public(tmp_path, "static_fails")
+    assert out == {"open_after_one": True, "closed": True, "statics": 3}
+
+
+@needs_node
+def test_a_static_that_keeps_naming_an_older_version_closes_after_the_retries(tmp_path):
+    out = run_public(tmp_path, "static_wedged")
+    assert out["closed"] and out["statics"] == 1 + 4 and out["ticks"] == 1   # the open, then more than STATIC_TRIES skips
+
+
+@needs_node
+def test_a_later_schema_bump_in_the_same_tab_reloads_again(tmp_path):
+    assert run_public(tmp_path, "reload_twice") == {"after_first": 1, "reloads": 2}
+
+
+@needs_node
+def test_closing_during_the_static_retry_window_fetches_nothing_more(tmp_path):
+    assert run_public(tmp_path, "close_in_retry") == {"more": 0, "timers": 0}
+
+
+@needs_node
+def test_sockets_opened_and_closed_in_a_row_leave_one_timer(tmp_path):
+    assert run_public(tmp_path, "one_timer") == {"closed": 0, "open": 1}
+
+
+@needs_node
+def test_a_malformed_creature_id_rejects_instead_of_throwing(tmp_path):
+    assert run_public(tmp_path, "bad_id") == {"threw": False, "msg": "HTTP 404"}

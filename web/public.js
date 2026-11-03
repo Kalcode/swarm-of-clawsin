@@ -131,6 +131,12 @@
     if (!stamped) reload();
   }
 
+  /** A socket opened with the schema this script speaks: a later schema bump in this tab may reload again. */
+  function clearReloadStamp() {
+    reloaded = false;
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(RELOAD_KEY); } catch (e) { /* blocked */ }
+  }
+
   function createSocket(opts) {
     opts = opts || {};
     const doFetch = opts.fetch || ((...a) => window.fetch(...a));
@@ -147,7 +153,7 @@
     };
     const docs = { live: null, static: null, fetch: doFetch };
     let boot = null, seenSeq = -1, at = null, view = null, every = 3;
-    let pollTimer = null, failures = 0, unchanged = false, staticTries = 0;
+    let pollTimer = null, openTimer = null, failures = 0, unchanged = false, staticTries = 0, staticSkips = 0;
     let queue = [];   // frames still to deliver: {h, msg}
     let busy = false;
 
@@ -159,6 +165,7 @@
       if (sock.readyState === 3) return;
       sock.readyState = 3;
       clearT(pollTimer);
+      clearT(openTimer);
       for (const q of queue) clearT(q.h);
       queue = [];
       if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisible);
@@ -226,16 +233,17 @@
       } catch (e) {
         if (sock.readyState === 3) return;
         failures++;
-        if (failures >= 2) shut(); else setT(open, RETRY_MS);
+        if (failures >= 2) shut(); else openTimer = setT(open, RETRY_MS);
         return;
       }
       if (sock.readyState === 3) return;
       if (!st || st.version !== live.static) {
         if (++staticTries > STATIC_TRIES) { shut(); return; }
-        setT(open, RETRY_MS);
+        openTimer = setT(open, RETRY_MS);
         return;
       }
       failures = 0;
+      clearReloadStamp();
       boot = live.boot;
       docs.live = live;
       docs.static = st;
@@ -262,15 +270,22 @@
         let live;
         try { live = await getLive(); } catch (e) { busy = false; if (sock.readyState === 1) fail(); return; }
         if (sock.readyState !== 1) return;
-        failures = 0;
         if (!acceptable(live)) return;
-        if (live.seq <= seenSeq) { unchanged = true; schedule(nextDelay()); return; }
+        if (live.seq <= seenSeq) { failures = 0; unchanged = true; schedule(nextDelay()); return; }
         let st = docs.static;
         if (live.static !== st.version) {
           try { st = await getStatic(live.static); } catch (e) { fail(); return; }
           if (sock.readyState !== 1) return;
-          if (!st || st.version !== live.static) { unchanged = true; schedule(nextDelay()); return; }
+          if (!st || st.version !== live.static) {
+            // a cache still serving an older static: skip this snapshot, but not forever
+            if (++staticSkips > STATIC_TRIES) { shut(); return; }
+            unchanged = true;
+            schedule(nextDelay());
+            return;
+          }
         }
+        failures = 0;
+        staticSkips = 0;
         unchanged = false;
         const next = viewOf(st, live);
         const changes = diffViews(view, next);
@@ -292,7 +307,7 @@
       if (!isHidden() && sock.readyState === 1) { clearT(pollTimer); poll(); }
     }
 
-    setT(open, 0);
+    openTimer = setT(open, 0);
     return sock;
   }
 
@@ -305,7 +320,11 @@
     const d = current;
     const notFound = () => Promise.reject(new Error('HTTP 404'));
     let m;
-    if ((m = p.match(/^\/api\/creature\/([^/]+)$/))) return fetchPublic(`/public/creature/${encodeURIComponent(decodeURIComponent(m[1]))}.json`);
+    if ((m = p.match(/^\/api\/creature\/([^/]+)$/))) {
+      let id;
+      try { id = decodeURIComponent(m[1]); } catch (e) { return notFound(); }
+      return fetchPublic(`/public/creature/${encodeURIComponent(id)}.json`);
+    }
     if (p === '/api/history') return fetchPublic('/public/history.json');
     if (!d || !d.live) return notFound();
     switch (p) {
