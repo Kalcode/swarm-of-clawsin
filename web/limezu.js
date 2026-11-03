@@ -653,7 +653,11 @@
   /* --------------------------------------------------------------------- ui */
   // Modern User Interface pieces from the manifest ("ui"): each becomes its own small image (CSS border-image
   // can't cut a sheet), published as CSS variables --lz-<piece> with the html class "lz-ui"; and the speech
-  // bubbles on the map are drawn as 9-slices of the "button" piece. Without them the chrome stays as it is.
+  // bubbles on the map are drawn as 9-slices of the "button" piece. The class (which turns on the whole LimeZu
+  // chrome in style.css) needs every piece the chrome uses: with an older build, or none, the chrome stays as it is.
+  const UI_NEEDS = ['panel', 'board', 'well', 'slot', 'button', 'buttonDown', 'tab', 'tabOn', 'pillGold', 'skyFrame',
+    'skyButton', 'skyButtonDown', 'ibBlank', 'ibSound', 'ibMute', 'ibMusic', 'ibMusicOff', 'ibSliders', 'ibRight', 'ibLeft',
+    'ibPlus', 'ibMinus'];
   const UI = { pieces: {}, ok: false };
   function buildUI() {
     const spec = M.ui;
@@ -667,7 +671,7 @@
       cv.getContext('2d').drawImage(sheet, x, y, w, h, 0, 0, w, h);
       UI.pieces[name] = { canvas: cv, slice: piece.slice || 4, url: cv.toDataURL() };
     }
-    UI.ok = !!UI.pieces.button;
+    UI.ok = UI_NEEDS.every((n) => UI.pieces[n]);
   }
 
   /** Publishes the UI pieces to CSS (or takes them back when another skin is chosen). */
@@ -746,6 +750,6 @@
     hasObject: (kind) => !!(M && (own_(M.objects, kind) || own_(M.animals, kind))),
     /** Where smoke leaves a station's sprite (fractions of its box), from the manifest; null when it smokes not. */
     smokeAt: (kind) => { const o = M && own_(M.objects, kind); return o && Array.isArray(o.smoke) ? o.smoke : null; },
-    get ui() { return UI.ok ? UI : null; }, applyUI, drawPiece,
+    get ui() { return UI.pieces.button ? UI : null; }, applyUI, drawPiece,   // the map's speech bubbles need only the button
   };
 })();
