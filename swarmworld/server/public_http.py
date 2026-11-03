@@ -19,6 +19,7 @@ LIVE_CACHE = "public, max-age=2, s-maxage=3, stale-while-revalidate=10"
 IMMUTABLE = "public, max-age=31536000, immutable"
 MINUTE = "public, max-age=60"
 MISSING = "public, max-age=3"
+REDIRECT_CACHE = "public, max-age=2, s-maxage=3"
 
 
 def _names_etag(if_none_match: str | None, etag: str) -> bool:
@@ -73,14 +74,30 @@ async def to_app(request: web.Request) -> web.Response:
     raise web.HTTPFound("/public/app/")
 
 
+def redirect(to: str, cache: str) -> web.Response:
+    return web.Response(status=302, headers={"Location": to, "Cache-Control": cache, "X-Content-Type-Options": "nosniff"})
+
+
+def bare_only(request: web.Request) -> web.Response | None:
+    """An unversioned document has no query: any query is a cache-busting key, so it is sent to the bare URL (a small,
+    short-cached answer in place of a body the edge would store under a new key)."""
+    return redirect(request.rel_url.raw_path, REDIRECT_CACHE) if request.query_string else None
+
+
+def versioned(request: web.Request, version: str) -> web.Response | None:
+    """A versioned document is asked for with exactly ?v=<current>; any other query (or none) is sent there."""
+    if request.query_string and request.query.getall("v", []) == [version] and len(request.query) == 1:
+        return None
+    return redirect(f"{request.rel_url.raw_path}?v={version}", REDIRECT_CACHE)
+
+
 async def live_json(request: web.Request) -> web.Response:
-    return _serve(request, request.app[PUBLISHER].live_doc(), LIVE_CACHE)
+    return bare_only(request) or _serve(request, request.app[PUBLISHER].live_doc(), LIVE_CACHE)
 
 
 async def static_json(request: web.Request) -> web.Response:
     pub = request.app[PUBLISHER]
-    doc = pub.static_doc()
-    return _serve(request, doc, IMMUTABLE if request.query.get("v") == pub.static_version else LIVE_CACHE)
+    return versioned(request, pub.static_version) or _serve(request, pub.static_doc(), IMMUTABLE)
 
 
 _last_log = [-60.0]
@@ -93,10 +110,12 @@ def failed() -> web.Response:
         _last_log[0] = now
         log.exception("public creature document failed to build")
     return web.Response(status=503, body=b'{"error":"not ready"}', content_type="application/json",
-                        headers={"Cache-Control": "public, max-age=2, s-maxage=3", "X-Content-Type-Options": "nosniff"})
+                        headers={"Cache-Control": REDIRECT_CACHE, "X-Content-Type-Options": "nosniff"})
 
 
 async def creature_json(request: web.Request) -> web.Response:
+    if (r := bare_only(request)) is not None:
+        return r
     try:
         doc = request.app[PUBLISHER].creature_doc(request.match_info["cid"])
     except Exception:
@@ -105,17 +124,20 @@ async def creature_json(request: web.Request) -> web.Response:
 
 
 async def almanac_json(request: web.Request) -> web.Response:
+    if (r := bare_only(request)) is not None:
+        return r
     return doc_response(request, request.app[PUBLISHER].almanac_doc(), MINUTE)
 
 
 async def history_json(request: web.Request) -> web.Response:
+    if (r := bare_only(request)) is not None:
+        return r
     return doc_response(request, request.app[PUBLISHER].history_doc(), MINUTE)
 
 
 async def chronicle_json(request: web.Request) -> web.Response:
     pub = request.app[PUBLISHER]
-    doc = pub.chronicle_doc()
-    return doc_response(request, doc, IMMUTABLE if request.query.get("v") == pub.chronicle_version else LIVE_CACHE)
+    return versioned(request, pub.chronicle_version) or doc_response(request, pub.chronicle_doc(), IMMUTABLE)
 
 
 async def not_public(request: web.Request) -> web.Response:
@@ -140,14 +162,23 @@ async def app_file(request: web.Request) -> web.Response:
     """A file of the public build, by its exact allowlisted name; anything else is a 404 the edge keeps for 5 minutes
     (the viewer's LimeZu and sound-sample probes among them, so both fall back as they do without the files)."""
     rel = request.match_info["path"] or "index.html"
-    found = request.app[PUBLIC_APP].serve(rel)  # body and version from one look at the disk
+    found = request.app[PUBLIC_APP].serve_full(rel)  # body and version from one look at the disk
     if found is None:
         return web.Response(status=404, text="not found",
                             headers={"Cache-Control": APP_MISSING, "X-Content-Type-Options": "nosniff"})
-    body, content_type, version = found
-    cache = app_cache(rel, content_type, request.query.get("v"), version)
-    return web.Response(body=body, headers={"Content-Type": content_type, "Cache-Control": cache,
-                                            "X-Content-Type-Options": "nosniff"})
+    body, gz, content_type, version = found
+    q = request.query
+    v = q.get("v")
+    if set(q) - {"v"} or (v is not None and (v != version or len(q.getall("v")) > 1)):
+        # a cache-busting key: sent to the current URL (v dropped, or set to the current one), never a body under it
+        to = request.rel_url.raw_path + (f"?v={version}" if v is not None else "")
+        return redirect(to, APP_SHORT)
+    headers = {"Content-Type": content_type, "Cache-Control": app_cache(rel, content_type, v, version),
+               "Vary": "Accept-Encoding", "X-Content-Type-Options": "nosniff"}
+    if gz is not None and _takes_gzip(request.headers.get("Accept-Encoding")):
+        headers["Content-Encoding"] = "gzip"
+        body = gz
+    return web.Response(body=body, headers=headers)
 
 
 def add_public_routes(app: web.Application) -> None:

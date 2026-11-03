@@ -1,6 +1,7 @@
 """The public app: /public/app/ serves an allowlisted copy of web/ in public mode (versioned scripts and styles, the page
 for 60 s), and never the licensed LimeZu art or the sound samples, whatever is on this disk."""
 
+import gzip
 import os
 import shutil
 
@@ -272,7 +273,7 @@ async def test_routes_and_cache_headers(aiohttp_client):
     assert html.index(f'src="public.js?v={v}"') < html.index(f'src="viewer.js?v={v}"')
     js = await c.get(f"/public/app/viewer.js?v={v}")
     assert js.headers["Cache-Control"] == "public, max-age=31536000, immutable" and js.headers["Content-Type"].startswith("text/javascript")
-    assert (await c.get("/public/app/viewer.js?v=old")).headers["Cache-Control"] == "public, max-age=60"
+    assert (await c.get("/public/app/viewer.js", allow_redirects=False)).headers["Cache-Control"] == "public, max-age=60"
     lz = await c.get("/public/app/assets/limezu/manifest.json")        # present on this disk or not, never served
     assert lz.status == 404 and lz.headers["Cache-Control"] == "public, max-age=300"
     assert (await c.get("/public/app/assets/sfx/manifest.json")).status == 404
@@ -296,8 +297,7 @@ async def test_the_page_scripts_images_and_fonts_cache_as_ruled(aiohttp_client):
     assert (await c.get("/public/app/style.css")).headers["Cache-Control"] == "public, max-age=60"
     for url, kind, cache in (("/public/app/assets/kenney-1bit/colored_transparent_packed.png", "image/png", "public, max-age=86400"),
                              ("/public/app/assets/fonts/Jersey10-Regular.woff2", "font/woff2", "public, max-age=86400"),
-                             ("/public/app/assets/fonts/Jersey10-Regular.woff2?v=old", "font/woff2", "public, max-age=86400"),
-                             (f"/public/app/assets/fonts/Jersey10-Regular.woff2?v={v}", "font/woff2",
+                                                          (f"/public/app/assets/fonts/Jersey10-Regular.woff2?v={v}", "font/woff2",
                               "public, max-age=31536000, immutable")):
         r = await c.get(url)
         assert r.status == 200 and r.headers["Content-Type"] == kind and r.headers["Cache-Control"] == cache, url
@@ -382,3 +382,43 @@ async def test_licensed_files_on_this_disk_are_never_served(aiohttp_client):
         for headers in ({}, {"CF-Connecting-IP": "203.0.113.9"}):
             r = await c.get(f"/public/app/{rel}", headers=headers)
             assert r.status == 404, (rel, headers)
+
+
+async def test_other_versions_and_unknown_queries_are_redirected(aiohttp_client):
+    c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=3600))
+    v = c.app[PUBLIC_APP].version
+    short = "public, max-age=60"
+    for url, to in (("viewer.js?v=bogus", f"viewer.js?v={v}"), ("viewer.js?x=1", "viewer.js"),
+                    (f"viewer.js?v={v}&x=1", f"viewer.js?v={v}"), ("viewer.js?v=bogus&x=1", f"viewer.js?v={v}"),
+                    ("index.html?v=bogus", f"index.html?v={v}"), ("assets/fonts/Jersey10-Regular.woff2?v=old",
+                                                              f"assets/fonts/Jersey10-Regular.woff2?v={v}")):
+        r = await c.get(f"/public/app/{url}", allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/app/{to}" and r.headers["Cache-Control"] == short, url
+        assert await r.read() == b""
+    for url in ("viewer.js", f"viewer.js?v={v}", "index.html", f"index.html?v={v}"):
+        assert (await c.get(f"/public/app/{url}", allow_redirects=False)).status == 200, url
+    assert (await c.get("/public/app/nope.js?v=bogus", allow_redirects=False)).status == 404  # nothing to redirect to
+    r = await c.get("/public/app/viewer.js?v=bogus", headers={"CF-Connecting-IP": "203.0.113.9"}, allow_redirects=False)
+    assert r.status == 302
+
+
+async def test_app_files_are_gzipped_once_and_served_gzipped(aiohttp_client):
+    app = create_app(seed=7, tick_seconds=0.02, public_every=3600)
+    c = await aiohttp_client(app)
+    v = app[PUBLIC_APP].version
+    plain = (WEB_DIR / "viewer.js").read_bytes()
+    r = await c.get(f"/public/app/viewer.js?v={v}", headers={"Accept-Encoding": "gzip"}, auto_decompress=False)
+    assert r.headers["Content-Encoding"] == "gzip" and "Accept-Encoding" in r.headers["Vary"]
+    raw = await r.read()
+    assert gzip.decompress(raw) == plain and len(raw) < len(plain) / 2
+    assert r.headers["Content-Type"].startswith("text/javascript")
+    r = await c.get(f"/public/app/viewer.js?v={v}", headers={"Accept-Encoding": "identity"}, auto_decompress=False)
+    assert "Content-Encoding" not in r.headers and await r.read() == plain
+    page = await c.get("/public/app/", headers={"Accept-Encoding": "gzip"}, auto_decompress=False)
+    assert page.headers["Content-Encoding"] == "gzip" and b'data-public="1"' in gzip.decompress(await page.read())
+    png = await c.get("/public/app/assets/kenney-1bit/colored_transparent_packed.png", headers={"Accept-Encoding": "gzip"},
+                      auto_decompress=False)
+    assert "Content-Encoding" not in png.headers  # already compressed formats stay as they are
+    # the same bytes object each time: gzipped at load, not per request
+    files, _ = app[PUBLIC_APP]._snap
+    assert app[PUBLIC_APP].serve_full("viewer.js")[1] is app[PUBLIC_APP].serve_full("viewer.js")[1]

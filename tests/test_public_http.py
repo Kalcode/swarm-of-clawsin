@@ -103,14 +103,15 @@ async def test_only_the_current_static_version_is_cached_for_good(client):
     now = await client.get(f"/public/static.json?v={v}")
     assert now.headers["Cache-Control"] == "public, max-age=31536000, immutable"
     for url in ("/public/static.json?v=old-1", "/public/static.json"):
-        r = await client.get(url)
-        assert r.headers["Cache-Control"].startswith("public, max-age=2") and (await r.json())["version"] == v
+        r = await client.get(url, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}" and await r.read() == b""
+        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
     cv = (await (await client.get("/public/live.json")).json())["chronicle_version"]
     now = await client.get(f"/public/chronicle.json?v={cv}")
     assert now.headers["Cache-Control"] == "public, max-age=31536000, immutable" and await now.json() == []
     for url in ("/public/chronicle.json?v=old-1", "/public/chronicle.json"):
-        r = await client.get(url)
-        assert r.headers["Cache-Control"].startswith("public, max-age=2") and await r.json() == []
+        r = await client.get(url, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/chronicle.json?v={cv}"
 
 
 async def test_one_encode_per_interval_under_concurrent_requests(client):
@@ -351,3 +352,39 @@ async def test_a_creature_document_that_fails_to_build_is_a_short_cached_503(cli
         body = await r.text()
         assert json.loads(body) and "traceback" not in body and "RuntimeError" not in body
     assert len([x for x in caplog.records if "creature document" in x.getMessage()]) == 1  # once a minute
+
+
+async def test_cache_busting_queries_get_a_small_redirect_not_a_body(client):
+    v = (await (await client.get("/public/live.json")).json())["static"]
+    r = await client.get("/public/static.json?v=random123", allow_redirects=False)
+    assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}" and len(await r.read()) == 0
+    assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
+    assert (await client.get(f"/public/static.json?v={v}", allow_redirects=False)).status == 200
+    for extra in (f"?v={v}&x=1", f"?x=1&v={v}", f"?v={v}&v={v}"):
+        r = await client.get("/public/static.json" + extra, allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}", extra
+    cid = next(iter(client.app[STATE].world.creatures), None)
+    for path in ("live.json", "almanac.json", "history.json", "creature/nobody.json"):
+        r = await client.get(f"/public/{path}?x=1", allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == f"/public/{path}", path
+        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
+        assert (await client.get(f"/public/{path}?x=1")).status in (200, 404)  # the redirect is followed to the bare URL
+        assert (await client.get(f"/public/{path}", allow_redirects=False)).status in (200, 404)
+
+
+async def test_the_viewer_only_asks_for_urls_the_origin_answers_directly():
+    """web/public.js and web/almanac.js: the only queries are ?v= on static.json and chronicle.json."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parent.parent / "web" / "public.js").read_text()
+    urls = re.findall(r"/public/[A-Za-z0-9_./${}()\[\]-]*\?[^`'\"]*", src)
+    assert urls and all(u.startswith(("/public/static.json?v=", "/public/chronicle.json?v=")) for u in urls), urls
+    assert "?" not in re.search(r"/public/almanac\.json[^'\"`]*", (pathlib.Path(__file__).resolve().parent.parent / "web" / "almanac.js").read_text())[0]
+
+
+async def test_redirects_obey_the_proxy_guard(client):
+    for path in ("/static.json?v=1", "/api/state?v=1", "/viewer.js?v=1", "/public/../api/state?v=1"):
+        for headers in (TUNNEL, PROXIED):
+            r = await client.get(path, headers=headers, allow_redirects=False)
+            assert r.status == 404, path
+    r = await client.get("/public/live.json?x=1", headers=TUNNEL, allow_redirects=False)
+    assert r.status == 302

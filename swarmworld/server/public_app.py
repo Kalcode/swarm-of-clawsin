@@ -10,6 +10,7 @@ assets/LIMEZU/... lands in the licensed folder under a name that doesn't look li
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import html
 import os
@@ -23,6 +24,7 @@ APP_SHORT = "public, max-age=60"
 APP_MISSING = "public, max-age=300"
 APP_ASSET = "public, max-age=86400"  # images and fonts: a day (ruling P4)
 
+COMPRESSIBLE = ("text/",)  # png and woff2 are compressed already
 TOP_LEVEL = (".html", ".css", ".js")
 NOT_SERVED = ("demo.js",)
 ASSET_FOLDERS = ("assets/kenney-1bit", "assets/fonts")
@@ -50,7 +52,7 @@ class PublicApp:
         self._clock = clock
         self._checked = 0.0
         self._sig: tuple | None = None  # None until the first look at the disk (on first use, not at start)
-        self._snap: tuple[dict[str, tuple[bytes, str]], str] = ({}, "")  # the files and their version, swapped as one
+        self._snap: tuple[dict[str, tuple[bytes, str, bytes | None]], str] = ({}, "")  # files (body, type, gzip) and version, swapped as one
 
     # ------------------------------------------------------------------ what is served
     def _servable(self, path: Path) -> bool:
@@ -125,8 +127,11 @@ class PublicApp:
             digest.update(rel.encode() + b"\0" + str(len(raw[rel])).encode() + b"\0")
             digest.update(raw[rel])
         version = digest.hexdigest()[:10]
-        served = {rel: (self._rewrite(body, version) if rel.endswith(".html") else body, _content_type(rel))
-                  for rel, body in raw.items()}
+        served = {}
+        for rel, body in raw.items():
+            body = self._rewrite(body, version) if rel.endswith(".html") else body
+            kind = _content_type(rel)
+            served[rel] = (body, kind, gzip.compress(body, 6, mtime=0) if kind.startswith(COMPRESSIBLE) else None)  # once, here
         self._snap = (served, version)
         self._sig = sig
 
@@ -155,16 +160,21 @@ class PublicApp:
     def get(self, rel: str) -> tuple[bytes, str] | None:
         """The body and content type of a served file, by its exact relative path; anything else (another file,
         a licensed one, .., %2e%2e, an absolute path, an odd spelling) is None."""
-        found = self.serve(rel)
-        return None if found is None else found[:2]
+        found = self.serve_full(rel)
+        return None if found is None else (found[0], found[2])
 
     def serve(self, rel: str) -> tuple[bytes, str, str] | None:
         """As get, plus the version of the same look at the disk: a request is answered from one snapshot, so a body
         is never sent as immutable under a version it isn't."""
+        found = self.serve_full(rel)
+        return None if found is None else (found[0], found[2], found[3])
+
+    def serve_full(self, rel: str) -> tuple[bytes, bytes | None, str, str] | None:
+        """(body, gzipped body or None, content type, version) from one snapshot."""
         self._fresh()
         files, version = self._snap
         found = files.get(rel)
-        return None if found is None else (*found, version)
+        return None if found is None else (found[0], found[2], found[1], version)
 
 
 PUBLIC_APP = web.AppKey("public_app", PublicApp)
