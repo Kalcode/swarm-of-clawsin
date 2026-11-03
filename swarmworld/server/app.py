@@ -13,6 +13,7 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from ..mind.recall import embed_pending
+from ..world.model import FrontierSettings
 from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
@@ -286,7 +287,8 @@ async def api_wish_answer(request: web.Request) -> web.Response:
 
 
 async def api_admin(request: web.Request) -> web.Response:
-    """Steward actions (give, place, remove, move, weather) for testing and managing the world. Home network only."""
+    """Steward actions (give, place, remove, move, weather, grow) for testing and managing the world. Home network
+    only."""
     st = request.app[STATE]
     if not is_home_network(request):
         raise web.HTTPForbidden(text="steward actions only work from the home network")
@@ -294,7 +296,7 @@ async def api_admin(request: web.Request) -> web.Response:
         body = await request.json()
         out = st.admin(request.match_info["action"], body if isinstance(body, dict) else {})
     except KeyError:
-        raise web.HTTPNotFound(text="unknown steward action; try give, place, remove, move or weather")
+        raise web.HTTPNotFound(text="unknown steward action; try give, place, remove, move, weather or grow")
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise web.HTTPBadRequest(text=str(exc) or "bad request")
     return web.json_response(out)
@@ -347,10 +349,10 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
                run_dir: Path | None = None, start_loop: bool = True, world_path: Path | None = None,
                resume: bool = True, harness: Harness | None = None, embedder=None,
                log_prompts: bool = False, public_every: float = PUBLIC_EVERY,
-               public_link: str | None = None) -> web.Application:
+               public_link: str | None = None, frontier: FrontierSettings | None = None) -> web.Application:
     app = web.Application(middlewares=[proxied_reach_only_public])
     st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness,
-                     log_prompts=log_prompts)
+                     log_prompts=log_prompts, frontier=frontier)
     st.world_path = world_path
     st.embedder = embedder
     if world_path and resume and world_path.exists():

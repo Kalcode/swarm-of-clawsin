@@ -230,6 +230,9 @@ register_shift_hook("mypack", _shift, stores=("ext.mypack.camps", "creature.ext.
 
 `stores` names what the hook moves, by path (a dotted path from `ext.<pack>`, `creature.ext.<pack>` or `object.data`;
 a key that isn't `[a-z_]+` is written `*`, a list's items `[]`). Hooks run in registration order and take no dice.
+Unlike the other callbacks, a shift hook that raises isn't skipped: the growth is abandoned and the whole world put
+back as it was, so a half-moved world is never saved.
 `test_no_store_of_positions_goes_unshifted` walks the world for anything shaped like a position (`{x, y}`, `x0..y1`,
-a pair of ints, an `"x,y"` key) and fails for one that no declared store covers. A path that really never moves goes
-in that test's `IGNORED`, with the reason.
+a pair of ints or `[x, y, tick]`, an `"x,y"` key or string) and fails for one that no declared store covers. Put one of
+your positions in the `everything` fixture in tests/test_frontier_shift.py, so the canary and the property test see
+it. A path that really never moves goes in that test's `IGNORED`, with the reason.

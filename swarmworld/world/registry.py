@@ -14,7 +14,7 @@ what it adds:
 
 A pack keeps its state in Creature.ext[<pack>] and World.ext[<pack>] (JSON-able; saved with the world). Callbacks
 (systems, perception lines, triggers, populate) that raise are logged and skipped: one broken pack never stops the
-world.
+world. A shift hook is the exception: one that raises abandons the growth (see register_shift_hook).
 
 Object kinds come from swarmworld/data/objects.json and the packs' objects.json. Each kind is
 {"name", "aliases", "blocking", "animal", "gatherable", "carvable", "store", "gives", "yields", "look"}; the tables
@@ -447,8 +447,8 @@ SHIFT_HOOKS: list[ShiftHook] = []
 
 def register_shift_hook(name: str, fn: Callable[["World", int], None], stores: tuple[str, ...] = ()) -> None:
     """fn(world, n) moves every x a pack keeps in its own state by +n, when new land is laid down west of the map
-    (World.shift_x). Hooks run in registration order; one that raises is logged and skipped. `stores` names what it
-    moves."""
+    (World.shift_x). Hooks run in registration order. One that raises is not skipped: it stops the shift, and the
+    frontier puts the whole world back as it was and lays no land. `stores` names what it moves."""
     source = _caller()
     _check_free("shift hook", name, source)
     _OWNERS[("shift hook", name)] = source
