@@ -696,3 +696,12 @@ def test_an_unrelated_refusal_adds_no_hint(world):
     world.add_object("tablet", 11, 10)
     res = act(world, c, action="gather", target="tablet")
     assert not res.ok and res.message.endswith("can't gather anything from the stone tablet.")
+
+
+def test_combine_reads_ingredients_written_as_a_list_in_the_target(world):
+    # gpt-oss writes '["plant fiber", "plant fiber", "plant fiber"]' in target with empty items: 35 "Combine what?" in 30 min
+    c = creature(world)
+    c.inventory["plant_fiber"] = 3
+    res = act(world, c, action="combine", target='["plant fiber", "plant fiber", "plant fiber"]')
+    assert "Combine what?" not in res.message
+    assert res.ok and c.inventory.get("rope", 0) == 1

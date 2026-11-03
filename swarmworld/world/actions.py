@@ -951,7 +951,8 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
     names = list(it.items)
     hint = it.text
     # The target may list ingredients ("stick, flint") or name what the creature hopes to make ("stone knife").
-    parts = [p.strip() for p in re.split(r",|\+| and | with |&", it.target) if p.strip()]
+    # ... or a JSON-looking list ('["plant fiber", "plant fiber"]'): brackets and quotes are not part of the names
+    parts = [q for p in re.split(r",|\+| and | with |&", it.target) if (q := p.strip().strip("[]\"' ").strip())]
     held_ids = {world.catalog.resolve(n) for n in names}
     if parts and all(world.catalog.resolve(p) and c.inventory.get(world.catalog.resolve(p), 0) > 0 for p in parts):
         names += [p for p in parts if world.catalog.resolve(p) not in held_ids]
