@@ -316,3 +316,67 @@ def test_the_viewer_times_each_object_move_from_its_own_start():
     html = (WEB / "index.html").read_text()
     assert html.index('src="motion.js"') < html.index('src="viewer.js"')
     assert "SwarmMotion.slide(a, now, S.tickMs)" in src            # objPos uses the move's own clock, not S.tickAt
+
+
+# The deep (underground plan, Task 14): its tiles and every new kind draw in the Kenney and ASCII skins, never "?".
+DEEP_KINDS = {"coal_seam", "crystal_cluster", "cave_mushrooms", "cave_mushrooms_picked", "cave_mouth", "cave_exit",
+              "mine_shaft", "ladder", "open_pit", "crystal_lamp", "terminal", "tablet"}
+DEEP_ITEMS = {"torch": "torch", "lit_torch": "lit torch", "dirt": "dirt", "crystal_lamp": "crystal lamp", "coal": "coal",
+              "crystal": "crystal"}
+DEEP_CODES = "RcuthO"
+SKINS_HARNESS = HARNESS.replace("eval(fs.readFileSync(process.argv[2], 'utf8'));",
+                                "eval(fs.readFileSync(process.argv[2], 'utf8')); eval(fs.readFileSync(process.argv[3], 'utf8'));") \
+    .replace("process.stdout.write(JSON.stringify(out));", r"""
+const A = window.SwarmASCII;
+const ascii = {};
+for (const kind of Object.keys(kinds)) {
+  calls.length = 0;
+  A.drawObject(ctx2d(), { id: 'o1', kind, x: 3, y: 4, lit: true }, 0, 0, 32, 1000);
+  ascii[kind] = { char: T.kindGlyph(kind).char, drawn: calls.slice() };
+}
+const tiles = {};
+for (const code of '%s') {
+  calls.length = 0;
+  A.renderTerrain([code + code], 2, 1, null);
+  A.drawGround(ctx2d(), [code + code], new Map(), 0, 0, 1, 0, 0, 0, 32, 1000);
+  const ascii = calls.slice();
+  calls.length = 0;
+  T.renderTerrain([code + code], 2, 1, null);
+  tiles[code] = { name: T.terrainName(code), ascii, kenney: calls.slice() };
+}
+calls.length = 0;
+T.drawObject(ctx2d(), { id: 'pile:3:4', kind: 'pile', x: 3, y: 4, label: 'a lit torch' }, 0, 0, 32, 1000);
+const pile = { kenney: T.kenneyLook('pile'), drawn: calls.slice() };
+calls.length = 0;
+A.drawObject(ctx2d(), { id: 'pile:3:4', kind: 'pile', x: 3, y: 4, label: 'a lit torch' }, 0, 0, 32, 1000);
+pile.ascii = calls.slice();
+process.stdout.write(JSON.stringify({ kenney: out, ascii, tiles, pile }));""" % DEEP_CODES)
+
+
+@needs_node
+def test_the_new_kinds_render_without_a_question_mark(tmp_path):
+    harness = tmp_path / "skins.js"
+    harness.write_text(SKINS_HARNESS)
+    init = generate_world(7).to_init()
+    kinds = init["kinds"]
+    assert DEEP_KINDS <= set(kinds)
+    assert {i: init["items"].get(i) for i in DEEP_ITEMS} == DEEP_ITEMS   # carried and dropped, they go by their names
+    r = subprocess.run([NODE, str(harness), str(WEB / "tiles.js"), str(WEB / "ascii.js")], input=json.dumps(kinds),
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    got = json.loads(r.stdout)
+    for kind in DEEP_KINDS:
+        k, a = got["kenney"][kind], got["ascii"][kind]
+        assert "?" not in k["drawn"], (kind, k)                            # a sprite or its glyph, in Kenney's skin
+        if k["look"]["type"] == "glyph":
+            assert k["look"]["char"] in k["drawn"], (kind, k)
+        assert a["char"] in a["drawn"] and "?" not in a["drawn"], (kind, a)   # its glyph, in the ASCII skin
+    assert got["kenney"]["terminal"]["look"]["type"] == "sprite" and got["kenney"]["tablet"]["look"]["type"] == "sprite"
+    for code in DEEP_CODES:
+        t = got["tiles"][code]
+        assert t["name"] != "unknown ground" and "?" not in t["name"], (code, t["name"])
+        assert t["ascii"] and "?" not in t["ascii"], (code, t)
+        assert "?" not in t["kenney"], code
+    pile = got["pile"]                                         # a dropped torch lies in a pile, drawn as one
+    assert pile["kenney"]["type"] == "sprite" and "?" not in pile["drawn"]
+    assert "&" in pile["ascii"]

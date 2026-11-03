@@ -12,6 +12,10 @@
  * The viewer calls, each frame: under() after the terrain (flowing water, splashes, dust), over() after
  * objects and creatures (smoke, leaves, flames), then its night shading, then sky() (sparks, sparkles, rain,
  * fog, lightning, heat). In the ASCII skin particles are drawn as faint characters.
+ *
+ * The view tells whether the region on show is under the sky (V.sky false: the deep): there, no weather, no
+ * rivers and no falling leaves are drawn (the weather keeps easing, so the surface looks right on the way back);
+ * fires, smoke, sparks, dust and sparkles are drawn in every region.
  */
 (function () {
   'use strict';
@@ -129,9 +133,10 @@
   function under(ctx, V) {
     const { S, ox, oy, ts, now, dt } = V;
     weather(S, dt);
+    const open = V.sky !== false;
     const flow = S.land && S.land.flow;
     // rivers: short light streaks carried along the flow (the ASCII skin draws its own)
-    if (flow && !ascii(V)) {
+    if (flow && open && !ascii(V)) {
       const streaks = V.zoom >= 1.5 ? 2 : 1;
       const q = Math.max(1, Math.round(ts / 16));
       ctx.fillStyle = 'rgb(214,236,250)';
@@ -158,7 +163,7 @@
       ctx.globalAlpha = 1;
     }
     // splashes in the rain: small crowns on land, rings on water
-    const wet = Math.min(1, W.rain + W.storm * 1.4 + W.drizzle * 0.35);
+    const wet = open ? Math.min(1, W.rain + W.storm * 1.4 + W.drizzle * 0.35) : 0;
     if (wet > 0.02) {
       const tiles = (V.x1 - V.x0 + 1) * (V.y1 - V.y0 + 1);
       for (let n = emit('splash', Math.min(60, tiles * 0.03) * wet, dt); n > 0; n--) {
@@ -229,8 +234,8 @@
       ctx.beginPath(); ctx.arc(ox + p.x * ts, oy + p.y * ts, ts * p.r * (1 + k * 2.2), 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
-    // falling leaves over forest tiles (fewer over pines; none when zoomed out)
-    if (!far) {
+    // falling leaves over forest tiles (fewer over pines; none when zoomed out, none below)
+    if (!far && V.sky !== false) {
       const visible = (V.x1 - V.x0 + 1) * (V.y1 - V.y0 + 1);
       for (let n = emit('leaf', Math.min(10, visible * 0.006) * (1 + wind * 2), dt); n > 0; n--) {
         const x = Math.floor(rnd(V.x0, V.x1 + 1)), y = Math.floor(rnd(V.y0, V.y1 + 1));
@@ -310,6 +315,7 @@
       }
     }
     ctx.restore();
+    if (V.sky === false) return;          // the deep: no sky, no weather
 
     // a darker, cooler sky in rain and storms; warm in heat
     const gloom = W.rain * 0.2 + W.drizzle * 0.1 + W.storm * 0.3;

@@ -4,7 +4,8 @@
  * 0-127 on the default map), a band of solid rock, then the deep (level -1; rows 160-287). The viewer shows one region
  * at a time, keeping world coordinates. This module is its pure logic over plain data (no DOM, no canvas): which
  * region a row is in, where the camera goes when the view switches, keeping the camera in the shown region, which
- * layer follows a climbing creature, how many creatures each region holds, and the tick's tile changes.
+ * layer follows a climbing creature, how many creatures each region holds, the tick's tile changes, the lights that
+ * hole the darkness below, and coordinates counted from the top of the deep.
  */
 (function () {
   'use strict';
@@ -106,5 +107,58 @@
     return land.biomes || land.flow ? land : null;
   }
 
-  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor };
+  /** The lights in a region, for the darkness below: [{x, y, r, a, type, kind?}] in tiles (r the radius, a the
+   *  strength, 0..1). Lit fires (r 4.6), kinds that glow in their data (r 0.7 + 0.9 x glow: cave mushrooms, crystals,
+   *  a crystal lamp), creatures carrying a light (r = their `light`, from the server: a lit torch 4), and the tiles
+   *  under an open pit: those whose tile one level up, or a neighbour of it, is "O" (a = clockLight, as bright as the
+   *  day or night above). Only lights inside the region; objects and creatures are plain {x, y, ...}. */
+  function lightsFor(region, objects, creatures, kindInfo, tiles, regions, clockLight) {
+    const out = [];
+    if (!region) return out;
+    const inside = (y) => y >= region.y0 && y < region.y1;
+    for (const o of objects || []) {
+      if (!o || !inside(o.y)) continue;
+      const info = o.lit ? null : kindInfo && kindInfo(o.kind);
+      if (o.lit) out.push({ x: o.x, y: o.y, r: 4.6, a: 1, type: 'fire', kind: o.kind });
+      else if (info && info.glow > 0) out.push({ x: o.x, y: o.y, r: 0.7 + 0.9 * info.glow, a: 1, type: 'glow', kind: o.kind });
+    }
+    for (const c of creatures || []) {
+      if (c && c.light > 0 && inside(c.y)) out.push({ x: c.x, y: c.y, r: c.light, a: 1, type: 'carried' });
+    }
+    // daylight through an open pit: the region one level up, scanned for "O"; the deep's rows lie under its rows
+    const up = (regions || []).find((r) => r.level === region.level + 1);
+    if (up) {
+      const a = Math.max(0, Math.min(1, clockLight));
+      const lit = new Set();
+      for (let k = 0; k < up.height; k++) {
+        const row = tiles[up.y0 + k];
+        if (typeof row !== 'string') continue;
+        for (let x = row.indexOf('O'); x >= 0; x = row.indexOf('O', x + 1)) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const j = k + dy;              // the row offset below; its tile above must lie in the region above
+            if (j < 0 || j >= region.height || j >= up.height) continue;
+            for (let dx = -1; dx <= 1; dx++) {
+              const tx = x + dx;
+              if (tx < 0 || tx >= row.length || lit.has(tx + ',' + j)) continue;
+              lit.add(tx + ',' + j);
+              out.push({ x: tx, y: region.y0 + j, r: 1.2, a, type: 'sky' });
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /** A tile's coordinates as people read them: x, then the row counted from the top of its own region, "below" for
+   *  a region under the surface ("40, 61 below"); rows in no region as they are. `sep` joins x and y (", "). */
+  function placeText(regions, x, y, sep) {
+    const r = regionAt(regions, y);
+    const s = sep == null ? ', ' : sep;
+    if (!r || r.level >= 0) return `${x}${s}${r ? y - r.y0 : y}`;
+    return `${x}${s}${y - r.y0} below`;
+  }
+
+  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor,
+                         lightsFor, placeText };
 })();

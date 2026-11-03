@@ -29,6 +29,13 @@
     r: { name: 'rocky ground', base: ['#2a262c', '#2b272d', '#2c282e'], glyphs: [[3, 0], [4, 0]], tint: '#4f4853', alpha: 0.6, density: 0.4 },
     w: { name: 'water', base: ['#1b4a66', '#1c4c69', '#1e4f6c'], water: true },
     W: { name: 'deep water', base: ['#11314a', '#12334c', '#13354f'], water: true, deep: true },
+    // the deep: rock, the cave floor between it, still dark pools; and the land dug on the surface
+    R: { name: 'rock wall', base: ['#2c272d', '#2e292f', '#302a31'], glyphs: [[3, 0], [4, 0]], tint: '#5a5160', alpha: 0.5, density: 0.8 },
+    c: { name: 'cave floor', base: ['#17151a', '#18161b', '#19171c'], glyphs: [[1, 0], [2, 0]], tint: '#4a4452', alpha: 0.35, density: 0.22 },
+    u: { name: 'cave water', base: ['#0e2a30', '#0f2c32', '#102e34'], water: true },
+    t: { name: 'trench', base: ['#271a14', '#281b15', '#291c16'], glyphs: [[1, 0], [2, 0]], tint: '#5e3e30', alpha: 0.3, density: 0.25 },
+    h: { name: 'pit', base: ['#1a110d', '#1b120e', '#1c130f'], glyphs: [[1, 0], [2, 0]], tint: '#4a3024', alpha: 0.3, density: 0.18 },
+    O: { name: 'open pit', base: ['#060405', '#070506', '#080607'], glyphs: [], density: 0 },
   };
 
   /* ---------------------------------------------------------------- objects */
@@ -105,7 +112,8 @@
     const info = kindInfo(kind);
     const data = info && info.glyph;
     if (data && typeof data.char === 'string' && data.char.trim() && data.char.trim() !== '?') {
-      return { char: [...data.char.trim()][0], color: typeof data.color === 'string' && COLOR_RE.test(data.color.trim()) ? data.color.trim() : GLYPH_NEUTRAL };
+      // a color too dark to read on the dark ground (the coal seam's black) is lifted a little
+      return { char: [...data.char.trim()][0], color: typeof data.color === 'string' && COLOR_RE.test(data.color.trim()) ? readable(data.color.trim()) : GLYPH_NEUTRAL };
     }
     if (own(GLYPHS, kind)) {
       const g = GLYPHS[kind];
@@ -290,7 +298,7 @@
   }
 
   /* ---------------------------------------------------------------- terrain */
-  function isWater(code) { return code === 'w' || code === 'W'; }
+  function isWater(code) { return code === 'w' || code === 'W' || code === 'u'; }
 
   // biomes (init's nature rows) shade the ground: an olive marsh, a cool pine forest, grey hills, warm beach
   const BIOME_SHADE = { k: ['#3a3a12', 0.3], p: ['#0a2a2a', 0.25], h: ['#3a3440', 0.2], b: ['#5c4b34', 0.12] };
@@ -314,7 +322,7 @@
         g.fillRect(px, py, TILE, TILE);
 
         if (t.water) continue;
-        if (hash2(x, y, 1) < t.density) {
+        if (t.density && hash2(x, y, 1) < t.density) {
           g.globalAlpha = t.alpha;
           if (ready) {
             const [c, r] = t.glyphs[Math.floor(hash2(x, y, 2) * t.glyphs.length)];
@@ -353,18 +361,40 @@
         }
       }
     }
+    drawWallEdges(g, at, width, height);
     return cv;
+  }
+
+  /** Rock walls stand up from the cave floor: a pale rim where a wall meets open ground, and the wall's shadow on
+   *  the ground south of it. On a pre-rendered terrain canvas of 16 px tiles; `at(x, y)` gives a tile's code. */
+  function drawWallEdges(g, at, width, height) {
+    const wall = (x, y) => x < 0 || y < 0 || x >= width || y >= height || at(x, y) === 'R';
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const px = x * TILE, py = y * TILE;
+        if (at(x, y) === 'R') {
+          g.fillStyle = 'rgba(176,164,186,0.32)';
+          if (!wall(x, y + 1)) g.fillRect(px, py + TILE - 2, TILE, 2);
+          if (!wall(x, y - 1)) g.fillRect(px, py, TILE, 1);
+          if (!wall(x - 1, y)) g.fillRect(px, py, 1, TILE);
+          if (!wall(x + 1, y)) g.fillRect(px + TILE - 1, py, 1, TILE);
+        } else if (y > 0 && at(x, y - 1) === 'R') {
+          g.fillStyle = 'rgba(0,0,0,0.38)';
+          g.fillRect(px, py, TILE, 4);
+        }
+      }
+    }
   }
 
   /** Animated glints on one water tile (drawn per frame, screen space). */
   function drawWater(ctx, code, tx, ty, dx, dy, size, t) {
     const p = size / TILE;
-    const deep = code === 'W';
+    const deep = code === 'W', cave = code === 'u';
     const phase = hash2(tx, ty, 7) * Math.PI * 2;
-    const k = Math.sin(t / (deep ? 1400 : 1000) + phase);
+    const k = Math.sin(t / (deep || cave ? 1400 : 1000) + phase);
     if (k < 0.35) return;
-    const a = (k - 0.35) / 0.65 * (deep ? 0.18 : 0.32);
-    ctx.fillStyle = `rgba(158,214,240,${a.toFixed(3)})`;
+    const a = (k - 0.35) / 0.65 * (deep ? 0.18 : cave ? 0.2 : 0.32);
+    ctx.fillStyle = cave ? `rgba(150,226,222,${a.toFixed(3)})` : `rgba(158,214,240,${a.toFixed(3)})`;
     const ox = Math.floor(hash2(tx, ty, 8) * 8) + 2;
     const oy = Math.floor(hash2(tx, ty, 9) * 10) + 3;
     const drift = Math.round(Math.sin(t / 1700 + phase) * 1.5);
@@ -649,7 +679,7 @@
     setKinds, kindInfo, kindGlyph, glyphSprite, drawGlyph, kenneyLook,
     load, get ready() { return ready; },
     hash2, hashStr, rgb, mix, rgba, readable,
-    renderTerrain, drawWater, isWater,
+    renderTerrain, drawWater, isWater, drawWallEdges,
     drawObject, objectName, terrainName, drawWishAura, drawWishMotes,
     drawCreature, creatureBadge, drawRoof, roofColor,
     drawGlyphText, measureGlyphText, installIconStyles,
