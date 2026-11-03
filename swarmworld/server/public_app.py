@@ -5,7 +5,8 @@ Served: the top-level pages, styles and scripts (not demo.js), and the Kenney sh
 the licensed LimeZu art (assets/limezu/) or the sound samples (assets/sfx/), whatever is on this disk. The set is found
 by walking those folders, and a request only ever names a key of it: a request path never becomes a file path. Links
 are never followed: one could bring in a file from elsewhere, and on a disk that ignores case a link to
-assets/LIMEZU/... lands in the licensed folder under a name that doesn't look like it."""
+assets/LIMEZU/... lands in the licensed folder under a name that doesn't look like it. A hard link to a licensed file
+(the same device and inode) is left out too."""
 
 from __future__ import annotations
 
@@ -49,8 +50,7 @@ class PublicApp:
         self._clock = clock
         self._checked = 0.0
         self._sig: tuple | None = None  # None until the first look at the disk (on first use, not at start)
-        self._files: dict[str, tuple[bytes, str]] = {}
-        self._version = ""
+        self._snap: tuple[dict[str, tuple[bytes, str]], str] = ({}, "")  # the files and their version, swapped as one
 
     # ------------------------------------------------------------------ what is served
     def _servable(self, path: Path) -> bool:
@@ -60,7 +60,20 @@ class PublicApp:
         resolved = path.resolve()
         return resolved.is_relative_to(self._root) and not any(resolved.is_relative_to(d) for d in self._licensed)
 
-    def _scan(self) -> dict[str, Path]:
+    def _licensed_files(self) -> set[tuple[int, int]]:
+        """(device, inode) of every file in the licensed folders: a hard link to one, wherever it is, is that file."""
+        ids = set()
+        for folder in self._licensed:
+            for dirpath, _, filenames in os.walk(folder):
+                for name in filenames:
+                    try:
+                        st = os.stat(os.path.join(dirpath, name))
+                    except OSError:
+                        continue
+                    ids.add((st.st_dev, st.st_ino))
+        return ids
+
+    def _scan(self) -> dict[str, tuple[Path, os.stat_result]]:
         if not self._root.is_dir():
             return {}
         found = {p.name: p for p in self._root.iterdir() if p.name.endswith(TOP_LEVEL) and p.name not in NOT_SERVED}
@@ -73,43 +86,48 @@ class PublicApp:
                 for name in filenames:
                     path = Path(dirpath) / name
                     found[path.relative_to(self._root).as_posix()] = path
-        return {rel: path for rel, path in found.items()
-                if self._servable(path) and not any(PurePosixPath(rel.casefold()).is_relative_to(d) for d in LICENSED)}
+        licensed = self._licensed_files()
+        out = {}
+        for rel in sorted(found):
+            path = found[rel]
+            if not self._servable(path) or any(PurePosixPath(rel.casefold()).is_relative_to(d) for d in LICENSED):
+                continue
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            if (st.st_dev, st.st_ino) not in licensed:
+                out[rel] = (path, st)
+        return out
 
     def _fresh(self) -> None:
-        """Look at the disk at most every check_every seconds; re-read everything when a served file's stat changes,
-        or one appears or goes."""
+        """Look at the disk at most every check_every seconds; re-read everything when a served file appears, goes or
+        changes: its inode (a file moved over it), its change time (a write, even one that keeps the size and puts
+        the modification time back, or a chmod), its modification time or its size."""
         now = self._clock()
         if self._sig is not None and now - self._checked < self._every:
             return
         self._checked = now
         files = self._scan()
-        sig = []
-        for rel in sorted(files):
-            try:
-                st = files[rel].stat()
-            except OSError:
-                continue
-            sig.append((rel, st.st_mtime_ns, st.st_size))
-        sig = tuple(sig)
+        sig = tuple((rel, st.st_ino, st.st_ctime_ns, st.st_mtime_ns, st.st_size) for rel, (_, st) in files.items())
         if sig != self._sig:
             self._load(files, sig)
 
-    def _load(self, files: dict[str, Path], sig: tuple) -> None:
+    def _load(self, files: dict[str, tuple[Path, os.stat_result]], sig: tuple) -> None:
         raw: dict[str, bytes] = {}
-        for rel, *_ in sig:
+        for rel, (path, _) in files.items():
             try:
-                raw[rel] = files[rel].read_bytes()
-            except OSError:  # gone or unreadable since the scan: left out until the next look
+                raw[rel] = path.read_bytes()
+            except OSError:  # gone or unreadable since the scan: left out until it changes
                 continue
         digest = hashlib.sha1()
         for rel in sorted(raw):
             digest.update(rel.encode() + b"\0" + str(len(raw[rel])).encode() + b"\0")
             digest.update(raw[rel])
         version = digest.hexdigest()[:10]
-        self._files = {rel: (self._rewrite(body, version) if rel.endswith(".html") else body, _content_type(rel))
-                       for rel, body in raw.items()}
-        self._version = version
+        served = {rel: (self._rewrite(body, version) if rel.endswith(".html") else body, _content_type(rel))
+                  for rel, body in raw.items()}
+        self._snap = (served, version)
         self._sig = sig
 
     def _rewrite(self, body: bytes, version: str) -> bytes:
@@ -127,18 +145,26 @@ class PublicApp:
     # ------------------------------------------------------------------ interface
     def paths(self) -> list[str]:
         self._fresh()
-        return sorted(self._files)
+        return sorted(self._snap[0])
 
     @property
     def version(self) -> str:
         self._fresh()
-        return self._version
+        return self._snap[1]
 
     def get(self, rel: str) -> tuple[bytes, str] | None:
         """The body and content type of a served file, by its exact relative path; anything else (another file,
         a licensed one, .., %2e%2e, an absolute path, an odd spelling) is None."""
+        found = self.serve(rel)
+        return None if found is None else found[:2]
+
+    def serve(self, rel: str) -> tuple[bytes, str, str] | None:
+        """As get, plus the version of the same look at the disk: a request is answered from one snapshot, so a body
+        is never sent as immutable under a version it isn't."""
         self._fresh()
-        return self._files.get(rel)
+        files, version = self._snap
+        found = files.get(rel)
+        return None if found is None else (*found, version)
 
 
 PUBLIC_APP = web.AppKey("public_app", PublicApp)

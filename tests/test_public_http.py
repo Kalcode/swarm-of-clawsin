@@ -13,6 +13,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 
+import swarmworld.server.app as app_module
 from swarmworld.server.app import (PROXY_HEADERS, STATE, api_admin, api_almanac, api_voice, api_wish_answer,
                                    create_app, token_matches)
 from swarmworld.server.public import PUBLISHER
@@ -217,6 +218,28 @@ async def test_encoded_slashes_and_dot_segments_cannot_slip_out_of_public(client
         assert status == 404 and b"tiles" not in body and b"<html" not in body.lower(), target
     status, body = await raw_get(client, "/public/live.json", cf)
     assert status == 200
+
+
+async def test_the_private_file_server_stays_inside_web(aiohttp_client, tmp_path, monkeypatch):
+    """A sibling folder whose name starts with web/'s (webx/) passed a string-prefix check, and an absolute path
+    segment made WEB_DIR / rel drop WEB_DIR altogether."""
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html>the viewer</html>")
+    (tmp_path / "webx").mkdir()
+    (tmp_path / "webx" / "secret.txt").write_text("SIBLING-SECRET")
+    monkeypatch.setattr(app_module, "WEB_DIR", web_dir)
+    c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=0))
+    secret = (tmp_path / "webx" / "secret.txt").resolve().as_posix()
+    inside = (web_dir / "index.html").resolve().as_posix()
+    for target in ("/../webx/secret.txt", "/%2e%2e/webx/secret.txt", "/..%2fwebx%2fsecret.txt", "/..%2Fwebx/secret.txt",
+                   "/./../webx/secret.txt", f"/{secret}", "/" + secret.replace("/", "%2F"), "/%2F" + secret[1:],
+                   "/" + inside.replace("/", "%2F"), "/index.html%00", "/%00/../webx/secret.txt"):
+        status, body = await raw_get(c, target)
+        assert status == 404 and b"SIBLING-SECRET" not in body and b"the viewer" not in body, target
+    for target in ("/", "/index.html"):
+        status, body = await raw_get(c, target)
+        assert status == 200 and b"the viewer" in body, target
 
 
 async def test_a_malformed_or_foreign_token_is_refused_never_a_500(aiohttp_client):

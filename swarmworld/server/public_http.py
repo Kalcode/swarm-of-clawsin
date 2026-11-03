@@ -118,14 +118,13 @@ def app_cache(rel: str, content_type: str, v: str | None, version: str) -> str:
 async def app_file(request: web.Request) -> web.Response:
     """A file of the public build, by its exact allowlisted name; anything else is a 404 the edge keeps for 5 minutes
     (the viewer's LimeZu and sound-sample probes among them, so both fall back as they do without the files)."""
-    public_app = request.app[PUBLIC_APP]
     rel = request.match_info["path"] or "index.html"
-    found = public_app.get(rel)
+    found = request.app[PUBLIC_APP].serve(rel)  # body and version from one look at the disk
     if found is None:
         return web.Response(status=404, text="not found",
                             headers={"Cache-Control": APP_MISSING, "X-Content-Type-Options": "nosniff"})
-    body, content_type = found
-    cache = app_cache(rel, content_type, request.query.get("v"), public_app.version)
+    body, content_type, version = found
+    cache = app_cache(rel, content_type, request.query.get("v"), version)
     return web.Response(body=body, headers={"Content-Type": content_type, "Cache-Control": cache,
                                             "X-Content-Type-Options": "nosniff"})
 

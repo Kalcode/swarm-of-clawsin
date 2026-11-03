@@ -172,6 +172,8 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
                 data = json.loads(msg.data)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(data, dict):  # [1, 2], "x", 42, null: not a message
+                continue
             kind = data.get("type")
             if node is None:
                 if kind != "hello":
@@ -319,10 +321,18 @@ async def api_nodes(request: web.Request) -> web.Response:
 
 
 async def static_file(request: web.Request) -> web.StreamResponse:
+    """The private viewer's files: anything inside web/, never outside it (an absolute path segment, which would make
+    WEB_DIR / rel drop WEB_DIR, is refused outright; containment is by path parts, so a sibling web*/ isn't inside)."""
     rel = request.match_info.get("path") or "index.html"
-    target = (WEB_DIR / rel).resolve()
-    if not str(target).startswith(str(WEB_DIR.resolve())) or not target.is_file():
-        raise web.HTTPNotFound()
+    root = WEB_DIR.resolve()
+    try:
+        if Path(rel).is_absolute():
+            raise web.HTTPNotFound()
+        target = (root / rel).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise web.HTTPNotFound()
+    except (OSError, ValueError):  # a NUL byte, a name too long
+        raise web.HTTPNotFound() from None
     return web.FileResponse(target, headers={"Cache-Control": "no-cache"})
 
 

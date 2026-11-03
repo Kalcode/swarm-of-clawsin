@@ -2,6 +2,7 @@
 for 60 s), and never the licensed LimeZu art or the sound samples, whatever is on this disk."""
 
 import os
+import shutil
 
 import pytest
 
@@ -18,6 +19,26 @@ class Clock:
     t = 1000.0
 
     def __call__(self):
+        return self.t
+
+
+class Ticking:
+    """A clock that moves 11 s each time it's read (so every look at the disk rescans), and can run something on its
+    n-th next reading: the disk changing between two lookups in one request."""
+
+    def __init__(self):
+        self.t, self.pending = 1000.0, []
+
+    def after(self, n, action):
+        self.pending.append([n, action])
+
+    def __call__(self):
+        self.t += 11
+        for item in list(self.pending):
+            item[0] -= 1
+            if item[0] == 0:
+                self.pending.remove(item)
+                item[1]()
         return self.t
 
 
@@ -138,6 +159,61 @@ def test_the_disk_is_checked_at_most_every_check_every(web):
     assert f'src="viewer.js?v={app.version}"' in html  # the page names the new version
 
 
+def test_a_same_size_same_time_replacement_or_a_chmod_is_seen(web):
+    clock = Clock()
+    app = PublicApp(web, clock=clock)
+    v1 = app.version
+    viewer = web / "viewer.js"
+    old = viewer.stat()
+    viewer.write_text("// the viewer, AS it is today\n")  # same size; then the old modification time put back
+    os.utime(viewer, ns=(old.st_atime_ns, old.st_mtime_ns))
+    clock.t += 10
+    assert app.get("viewer.js")[0] == b"// the viewer, AS it is today\n" and app.version != v1
+    v2 = app.version
+    other = web / "other.tmp"  # a new file (another inode) of the same size and time, moved over it
+    other.write_text("// THE viewer, AS it is today\n")
+    os.utime(other, ns=(old.st_atime_ns, old.st_mtime_ns))
+    os.replace(other, viewer)
+    clock.t += 10
+    assert app.get("viewer.js")[0] == b"// THE viewer, AS it is today\n" and app.version != v2
+    viewer.chmod(0o000)  # unreadable: left out at the next look, back when it can be read again
+    try:
+        clock.t += 10
+        assert app.get("viewer.js") is None and "viewer.js" not in app.paths()
+    finally:
+        viewer.chmod(0o644)
+    clock.t += 10
+    assert app.get("viewer.js")[0] == b"// THE viewer, AS it is today\n"
+
+
+def test_licensed_files_added_later_never_appear_and_a_file_swapped_for_a_link_goes(web):
+    clock = Clock()
+    app = PublicApp(web, clock=clock)
+    v1, before = app.version, app.paths()
+    (web / "assets/limezu/late.png").write_bytes(LIMEZU_BYTES + b" late")
+    (web / "assets/limezu/late.js").write_bytes(LIMEZU_BYTES + b" late")
+    (web / "assets/sfx/late.ogg").write_bytes(SFX_BYTES + b" late")
+    clock.t += 10
+    assert app.paths() == before and app.version == v1
+    assert app.get("assets/limezu/late.png") is None and app.get("assets/sfx/late.ogg") is None
+    sheet = web / "assets/kenney-1bit/sheet.png"
+    sheet.unlink()
+    os.symlink("../limezu/world2.png", sheet)
+    assert app.get("assets/kenney-1bit/sheet.png") == (b"\x89PNG kenney", "image/png")  # not looked at again yet
+    clock.t += 10
+    assert app.get("assets/kenney-1bit/sheet.png") is None and "assets/kenney-1bit/sheet.png" not in app.paths()
+    assert app.version != v1
+
+
+def test_a_hard_link_to_a_licensed_file_is_never_served(web):
+    os.link(web / "assets/limezu/world2.png", web / "assets/kenney-1bit/copy.png")
+    os.link(web / "assets/sfx/chop/a.ogg", web / "assets/fonts/a.woff2")
+    os.link(web / "assets/limezu/manifest.json", web / "leak.js")
+    app = PublicApp(web)
+    assert app.paths() == ["assets/fonts/f.woff2", "assets/kenney-1bit/sheet.png", "index.html", "style.css", "viewer.js"]
+    assert all(app.get(rel) is None for rel in ("assets/kenney-1bit/copy.png", "assets/fonts/a.woff2", "leak.js"))
+
+
 def test_links_never_reach_licensed_or_outside_files(web, tmp_path):
     """Only real files inside the allowlisted folders are served: a symbolic link (on a disk that ignores case, a link
     can name assets/LIMEZU/ and still land in the licensed folder) is never followed."""
@@ -165,6 +241,17 @@ def test_a_linked_folder_is_never_followed(tmp_path, web):
     app = PublicApp(web)
     assert not any("kenney" in p or "limezu" in p for p in app.paths())
     assert app.get("assets/kenney-1bit/world2.png") is None and app.get("assets/kenney-1bit/manifest.json") is None
+
+
+def test_the_real_web_folder_serves_exactly_these_files():
+    """Pinned: every file added to the public build is a deliberate change here (Task 6 adds public.js)."""
+    assert PublicApp(WEB_DIR).paths() == [
+        "almanac.css", "almanac.html", "almanac.js", "ascii.js",
+        "assets/fonts/Jersey10-Regular.woff2", "assets/fonts/OFL-Jersey10.txt",
+        "assets/kenney-1bit/License.txt", "assets/kenney-1bit/colored_transparent_packed.png",
+        "effects.js", "index.html", "layers.js", "limezu.js", "motion.js", "roofs.js", "sound.js", "style.css",
+        "tiles.js", "viewer.js",
+    ]
 
 
 def test_the_real_web_folder_serves_no_licensed_file():
@@ -222,6 +309,32 @@ async def test_the_page_scripts_images_and_fonts_cache_as_ruled(aiohttp_client):
     bare = await c.get("/public/app", allow_redirects=False)
     assert bare.status == 301 and bare.headers["Location"] == "/public/app/"
     assert (await c.post("/public/app/index.html")).status == 405
+
+
+async def test_a_body_is_never_marked_immutable_under_another_version(aiohttp_client, web, tmp_path):
+    """The body and the version a request is answered with come from one look at the disk: were the disk to change
+    between looking up the body and the version, the old body would be pinned for good under the new version's URL."""
+    edited = tmp_path / "edited"
+    shutil.copytree(web, edited)
+    (edited / "viewer.js").write_text("// the viewer, edited\n")
+    v2 = PublicApp(edited).version  # the version the edit will have (the hash doesn't depend on the folder)
+    clock = Ticking()
+    app = create_app(seed=7, tick_seconds=0.02, public_every=3600)
+    app[PUBLIC_APP] = PublicApp(web, clock=clock)
+    c = await aiohttp_client(app)
+    v1 = app[PUBLIC_APP].version
+    assert v1 != v2
+    clock.after(2, lambda: (web / "viewer.js").write_text("// the viewer, edited\n"))  # the request's second look
+    r = await c.get(f"/public/app/viewer.js?v={v2}")
+    body = await r.read()
+    assert r.status == 200
+    if r.headers["Cache-Control"] == "public, max-age=31536000, immutable":
+        assert body == b"// the viewer, edited\n"
+    else:
+        assert body == b"// the viewer, as it is today\n" and r.headers["Cache-Control"] == "public, max-age=60"
+    found = app[PUBLIC_APP].serve("viewer.js")
+    assert found == (b"// the viewer, edited\n", "text/javascript", v2)
+    assert app[PUBLIC_APP].serve("demo.js") is None and app[PUBLIC_APP].serve("assets/limezu/world2.png") is None
 
 
 async def test_licensed_files_are_404_under_public_app_locally_and_proxied(aiohttp_client, web):
