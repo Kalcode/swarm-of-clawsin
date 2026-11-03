@@ -24,6 +24,8 @@ import aiohttp
 ROOT = Path(__file__).resolve().parent.parent
 WARMUP_S = 15
 CPU_FLAG_POINTS = 15.0
+LATENCY_P95_MS = 50.0
+MIN_SECONDS = 60  # the server's metrics window: a shorter phase would be judged on the phase before it too
 
 
 def percentile(xs: list[float], p: float) -> float:
@@ -128,8 +130,11 @@ async def phase(session, base: str, pid: int, seconds: float, clients: int, ever
 
 
 def verdict(base: dict, load: dict) -> bool:
-    limit = max(1.25 * base["tick_p95"], base["tick_p95"] + 5)
-    return (load["errors"] == 0 and load["tick_p95"] <= limit and load["ticks_per_s"] >= 0.97 * base["ticks_per_s"])
+    """No errors, the tick rate held (>= 97% of baseline), requests answered fast (p95 <= 50 ms), and the tick p95 within
+    25% or 10 ms of the baseline's, whichever is more."""
+    limit = max(1.25 * base["tick_p95"], base["tick_p95"] + 10)
+    return (load["errors"] == 0 and load["ticks_per_s"] >= 0.97 * base["ticks_per_s"]
+            and load["latency_p95_ms"] <= LATENCY_P95_MS and load["tick_p95"] <= limit)
 
 
 async def run(port: int, clients: int, seconds: float, creatures: int, every: float = 2.0) -> dict:
@@ -185,10 +190,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=7801)
     ap.add_argument("--clients", type=int, default=200)
-    ap.add_argument("--seconds", type=float, default=60)
+    ap.add_argument("--seconds", type=float, default=60,
+                    help=f"length of each phase, at least {MIN_SECONDS} (the server's metrics window): the last 60 s of each phase are judged")
     ap.add_argument("--creatures", type=int, default=50)
     ap.add_argument("--every", type=float, default=2.0, help="seconds between a poller's live.json fetches")
     a = ap.parse_args()
+    if a.seconds < MIN_SECONDS:
+        ap.error(f"--seconds must be at least {MIN_SECONDS}: the server's tick metrics cover the last 60 s, so a shorter phase would be judged on the phase before it")
     rep = asyncio.run(run(a.port, a.clients, a.seconds, a.creatures, a.every))
     print(table(rep))
     raise SystemExit(0 if rep["pass"] else 1)
