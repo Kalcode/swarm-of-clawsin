@@ -146,12 +146,12 @@ def app_cache(rel: str, content_type: str, v: str | None, version: str) -> str:
         return APP_SHORT
     if v == version:
         return IMMUTABLE
-    return APP_ASSET if content_type.startswith(("image/", "font/")) else APP_SHORT
+    return APP_ASSET if content_type.startswith(("image/", "font/", "audio/")) else APP_SHORT
 
 
 async def app_file(request: web.Request) -> web.Response:
     """A file of the public build, by its exact allowlisted name; anything else is a 404 the edge keeps for 5 minutes
-    (the viewer's LimeZu and sound-sample probes among them, so both fall back as they do without the files)."""
+    (the viewer's probes for art and sound files that aren't installed among them, so it falls back as without them)."""
     rel = request.match_info["path"] or "index.html"
     found = request.app[PUBLIC_APP].serve_full(rel)  # body and version from one look at the disk
     if found is None:

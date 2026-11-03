@@ -3199,6 +3199,14 @@
     S.voice.disabled = true;                          // and with it V and Alt-click
     $('public-banner').hidden = false;
     $('about-btn').addEventListener('click', () => $('about').showModal());
+    // the credits: the art (LimeZu, Kenney CC0), and the sound once its samples have loaded
+    const credits = () => {
+      $('about-credits').innerHTML = '<b>Credits.</b> Art: <a href="https://limezu.itch.io" target="_blank" rel="noopener">LimeZu</a> ' +
+        '(limezu.itch.io) and the Kenney 1-Bit Pack (CC0).' +
+        (window.SwarmSound && SwarmSound.samples ? ' Sound: ElvGames &amp; Pegonthetrack.' : '');
+    };
+    credits();
+    document.addEventListener('swarmsound-samples', credits);
     const meta = document.querySelector('meta[name="swarm-public-link"]');
     const link = meta ? String(meta.content || '') : '';
     if (/^https?:\/\/[^/]/i.test(link)) {
