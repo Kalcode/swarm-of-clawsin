@@ -258,11 +258,12 @@ class Simulation:
             from .perception import dist
             for o in list(w.objects.values()):
                 if o.kind == "bush" and dist(c.x, c.y, o.x, o.y) <= 1:
-                    while o.data.get("berries", 0) > 0 and c.satiety < 60:
+                    o.data.setdefault("berries", 6)
+                    while o.data.get("berries", 6) > 0 and c.satiety < 60:
                         o.data["berries"] -= 1
                         c.satiety = min(100.0, c.satiety + w.catalog.items["berries"].food)
                         eaten["berries"] += 1
-                    if o.data.get("berries", 0) <= 0:
+                    if o.data.get("berries", 6) <= 0:
                         w.change_kind(o, "bush_empty")
                         o.data["regrow_at"] = w.tick + 400
                     if c.satiety >= 60:

@@ -917,7 +917,10 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             if done:
                 break
         else:  # "gather stone" beside the stone tablet: say where the stone they want comes from
-            want = next((iid for w in _words(it.target or "") if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
+            # the target names the object ("stone tablet"), so its words aren't a want; the items say what they want
+            own = set(_words(obj.name))
+            want = next((iid for w in [*(x for x in words if x not in own), *(x for n in it.items for x in _words(n))]
+                         if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
             hint = f" {world.catalog.name(want).capitalize()}: {_source_hint(world, c, want)}." if want else ""
             return ActionResult(False, f"You can't gather anything from the {obj.name}.{hint}")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
@@ -961,17 +964,21 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
     hint = it.text
     # The target may list ingredients ("stick, flint") or name what the creature hopes to make ("stone knife").
     # ... or a JSON-looking list ('["plant fiber", "plant fiber"]'): brackets and quotes are not part of the names
-    parts = [q for p in re.split(r",|\+| and | with |&", it.target) if (q := p.strip().strip("[]\"' ").strip())]
+    # "combine fish and campfire": a station is where you work, never an ingredient (no recipe takes one), even when
+    # the creature also carries one that isn't set down yet
+    stations = {r.station for r in world.catalog.recipes if r.station}
+    parts = [q for p in re.split(r",|\+| and | with |&", it.target) if (q := p.strip().strip("[]\"' ").strip())
+             and world.catalog.resolve(q) not in stations]
     held_ids = {world.catalog.resolve(n) for n in names}
-    if parts and all(world.catalog.resolve(p) and c.inventory.get(world.catalog.resolve(p), 0) > 0 for p in parts):
+    held = lambda p: bool(world.catalog.resolve(p)) and c.inventory.get(world.catalog.resolve(p), 0) > 0
+    listed = len(parts) >= 2 or (len(parts) == 1 and it.target.strip().startswith("["))  # a list, not a product's name
+    product = len(parts) == 1 and (pid := world.catalog.resolve(parts[0])) is not None and world.catalog.recipe_for(pid) is not None
+    if parts and (all(held(p) for p in parts) or (listed and not product)):
         names += [p for p in parts if world.catalog.resolve(p) not in held_ids]
     elif it.target:
         hint = it.target
     if not names:
         return ActionResult(False, "Combine what? List the items you want to put together.")
-    # "combine fish and campfire": a station is where you work, never an ingredient (no recipe takes one), even when
-    # the creature also carries one that isn't set down yet
-    stations = {r.station for r in world.catalog.recipes if r.station}
     kept = [n for n in names if world.catalog.resolve(n) not in stations]
     if kept:
         names = kept
@@ -1044,6 +1051,12 @@ def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
     """A creature that wants to eat but named nothing it can eat: its body goes for the nearest food in sight (a bush
     with fruit, a ripe crop, a food patch) and eats there, like "eat berries" walks to a bush. With none in sight, the
     refusal says what food is. (The student kept trying "eat grass" beside a bush the world had named.)"""
+    foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
+    if foods:  # it carries food: eat that, not a walk to a bush for what is already in the pack
+        best = max(foods, key=lambda i: world.catalog.items[i].food)
+        res = _eat(world, c, Intention("eat", target=world.catalog.name(best)))
+        return replace(res, message=f"{why} So you eat your {world.catalog.name(best)} instead. {res.message}")
+
     def eats(o: WorldObject) -> str | None:  # what to eat from it, if it feeds
         if o.kind == "bush":
             return "berries" if o.data.get("berries", 6) > 0 else None
@@ -1055,7 +1068,10 @@ def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
             return next((world.catalog.name(i) for i in YIELDS[o.kind]["items"]
                          if i in world.catalog.items and world.catalog.items[i].food > 0), None)
         return None
-    near = min(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := eats(o))), key=lambda t: t[1], default=None)
+    cands = sorted(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := eats(o))), key=lambda t: t[1])
+    # the nearest one it can actually walk to (food in sight: a small search is plenty)
+    near = next((t for t in cands if t[1] <= 1 or bfs_path(world, (c.x, c.y), _adjacent_goals(
+        world, t[0].x, t[0].y, include_self=t[0].kind not in BLOCKING), limit=400) is not None), None)
     if near is None:
         return ActionResult(False, f"{why} Berries from a bush, ripe crops, mushrooms and fish are food.")
     o, d, dirn, food = near
@@ -1317,7 +1333,7 @@ def _placeable_held(world: World, c: Creature, name: str) -> str | None:
     return None
 
 
-def _walls_in(world: World, c: Creature, x: int, y: int) -> bool:
+def _walls_in(world: World, c: Creature, x: int | None, y: int | None) -> bool:
     """Whether a blocking thing set down at (x, y) would leave the creature no way to walk 3 steps away (Gale ringed
     herself with baskets). Same steps as bfs_path, with (x, y) blocked for the corner rule too."""
     def open_(px: int, py: int) -> bool:
@@ -1370,7 +1386,8 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     if not spots:
         return ActionResult(False, "There's no free spot beside you to place that.")
     if ("creation" if "invention" in world.catalog.items[iid].tags else kind) in BLOCKING:
-        spots = [s for s in spots if not _walls_in(world, c, s[1], s[2])]
+        if not _walls_in(world, c, None, None):  # already shut in: nothing placed here closes a way out
+            spots = [s for s in spots if not _walls_in(world, c, s[1], s[2])]
         if not spots:
             return ActionResult(False, f"Setting the {world.catalog.name(iid)} down here would wall you in. Step somewhere more open first.")
     spots.sort()

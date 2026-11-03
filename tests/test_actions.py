@@ -371,7 +371,7 @@ def test_recipe_choice_prefers_wanted_and_ready(world):
 
 
 def test_fishing(world):
-    world.tiles[10][12] = "w"
+    world.tiles[10][12] = "W"
     c = creature(world)
     res = act(world, c, action="gather", target="fish")
     assert not res.ok or c.activity is None  # walks to water first, then needs a rod
@@ -687,7 +687,7 @@ def test_gathering_stone_from_the_stone_tablet_says_where_stone_comes_from(world
     # gpt-oss creatures beside the old tablet tried "gather stone" 53 times in half an hour with no boulder in sight
     c = creature(world)
     world.add_object("tablet", 11, 10)
-    res = act(world, c, action="gather", target="stone tablet")
+    res = act(world, c, action="gather", target="stone tablet", items=["stone"])
     assert not res.ok and "can't gather anything from the stone tablet" in res.message
     assert "Stone: knock it off boulders, or pick up loose stone in the caves below" in res.message
 
@@ -712,11 +712,11 @@ def test_placing_a_blocking_thing_never_walls_in_the_one_placing_it(world):
     # Gale set six baskets around herself (an oak and a bush closed the rest) and couldn't take a step for 27 walks
     c = creature(world)
     c.inventory["basket"] = 1
-    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1)):
-        world.add_object("basket", 10 + dx, 10 + dy)
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)):
+        world.add_object("basket", 10 + dx, 10 + dy)  # the only way out is east
     res = act(world, c, action="place", target="basket")
     assert not res.ok and "wall you in" in res.message
-    assert c.inventory.get("basket") == 1 and world.object_at(11, 11) is None
+    assert c.inventory.get("basket") == 1 and world.object_at(11, 10) is None
 
 
 def test_placing_a_basket_in_the_open_still_works(world):
@@ -771,5 +771,114 @@ def test_eating_beside_ripe_wheat_never_loops(world):
     world.add_object("crop", 11, 10, crop="wheat", stage=2)
     res = act(world, c, action="eat", target="wheat")
     assert "Something went wrong" not in res.message and "isn't food" in res.message
+    res = act(world, c, action="eat", target="grass")
+    assert "Something went wrong" not in res.message
+
+
+# --- follow-ups from the review of the Nov 3 hotfixes ---
+
+def test_eat_grass_while_carrying_berries_eats_the_berries_first(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(berries=2, plant_fiber=1)
+    world.add_object("bush", 15, 10)
+    res = act(world, c, action="eat", target="grass")
+    assert res.ok and "berries" in res.message and "instead" in res.message
+    assert (c.x, c.y) == (10, 10) and c.satiety > 20 and c.inventory.get("berries", 0) < 2
+
+
+def test_eat_grass_with_no_food_in_sight_still_eats_what_it_carries(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(berries=1, plant_fiber=1)
+    res = act(world, c, action="eat", target="plant fiber")
+    assert res.ok and c.satiety > 20 and "berries" not in c.inventory
+
+
+def test_hungry_creature_goes_for_food_it_can_reach_not_the_one_across_the_river(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory["plant_fiber"] = 1
+    for y in range(0, 40):
+        world.tiles[y][12] = "W"  # deep water, a wall of river
+    far = world.add_object("bush", 14, 10)  # nearest in a straight line, but across the water
+    near = world.add_object("bush", 6, 10)
+    res = act(world, c, action="eat", target="grass")
+    assert res.ok and "west" in res.message and "east" not in res.message
+    assert (c.x, c.y) == (7, 10) and c.satiety > 20  # walked west to the reachable bush and ate there
+
+
+def test_with_only_unreachable_food_in_sight_it_refuses_like_with_none(world):
+    c = creature(world)
+    c.inventory["plant_fiber"] = 1
+    for y in range(0, 40):
+        world.tiles[y][12] = "W"
+    world.add_object("bush", 14, 10)
+    res = act(world, c, action="eat", target="plant fiber")
+    assert not res.ok and "Berries" in res.message
+
+
+def test_combine_a_bracketed_list_names_the_missing_ingredient(world):
+    c = creature(world)
+    c.inventory["stick"] = 2
+    res = act(world, c, action="combine", target='["stick", "flint"]')
+    assert "Combine what?" not in res.message and "flint" in res.message
+
+
+def test_combine_a_plain_two_part_target_names_the_missing_ingredient(world):
+    c = creature(world)
+    c.inventory["stick"] = 2
+    res = act(world, c, action="combine", target="stick, flint")
+    assert "Combine what?" not in res.message and "flint" in res.message
+
+
+def test_combine_a_single_product_name_stays_a_hint(world):
+    c = creature(world)
+    c.inventory.update(stick=1, flint=1, stone=1, plant_fiber=1)
+    res = act(world, c, action="combine", target="stone knife")
+    assert "Combine what?" in res.message
+
+
+def test_a_station_named_in_the_target_is_where_you_work(world):
+    c = creature(world)
+    c.inventory["fish"] = 1
+    world.add_object("campfire", 11, 10, lit=True, lit_until=world.tick + 1000)
+    res = act(world, c, action="combine", target="fish, campfire")
+    assert res.ok and c.inventory.get("cooked_fish", 0) == 1
+
+
+def test_gather_hint_reads_items_and_skips_the_objects_own_name(world):
+    c = creature(world)
+    world.add_object("tablet", 11, 10)
+    res = act(world, c, action="gather", target="stone tablet", items=["plant fiber"])
+    assert "Plant fiber:" in res.message and "Stone:" not in res.message
+    res = act(world, c, action="gather", target="stone tablet")
+    assert res.message.endswith("can't gather anything from the stone tablet.")
+
+
+def test_the_reflex_treats_a_bush_with_no_berries_key_as_full(world):
+    from swarmworld.world.simulation import Simulation
+    c = creature(world)
+    c.satiety = 5
+    bush = world.add_object("bush", 11, 10)
+    bush.data.pop("berries", None)
+    Simulation(world)._reflex_eat(c)
+    assert c.satiety > 5
+
+
+def test_a_creature_already_shut_in_may_still_place_things(world):
+    c = creature(world)
+    c.inventory["basket"] = 1
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (2, -1), (2, 0), (2, 1), (1, -1)):
+        if world.object_at(10 + dx, 10 + dy) is None:
+            world.add_object("basket", 10 + dx, 10 + dy)
+    res = act(world, c, action="place", target="basket")
+    assert res.ok
+
+
+def test_a_ripe_crop_with_no_crop_key_does_not_crash(world):
+    c = creature(world)
+    c.inventory["plant_fiber"] = 1
+    world.add_object("crop", 11, 10, stage=2)
     res = act(world, c, action="eat", target="grass")
     assert "Something went wrong" not in res.message
