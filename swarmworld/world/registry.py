@@ -9,7 +9,8 @@ what it adds:
     register_technique(Technique(...))          how a verb is disclosed to creatures, and when it fits
     register_system(name, every, fn)            world behaviour: fn(simulation, tick) every `every` ticks
     register_perception(fn, priority)           an extra perception line: fn(world, creature) -> str | None
-    register_populate(name, fn)                 place the pack's things: fn(world, rng, fresh) on a new or restored world
+    register_populate(name, fn, land=fn)        place the pack's things: fn(world, rng, fresh) on a new or restored world;
+                                                land(world, rng, bounds) fills one new land (the frontier)
 
 A pack keeps its state in Creature.ext[<pack>] and World.ext[<pack>] (JSON-able; saved with the world). Callbacks
 (systems, perception lines, triggers, populate) that raise are logged and skipped: one broken pack never stops the
@@ -34,6 +35,7 @@ import importlib
 import json
 import logging
 import pkgutil
+import random
 import re
 import sys
 import time
@@ -398,19 +400,22 @@ def register_handoff(verb: str, to: str, when: Callable[["World", "Creature", "I
 class Populate:
     name: str
     fn: Callable[["World", object, bool], None]
+    land: Callable[["World", random.Random, tuple[int, int, int, int]], None] | None = None
 
 
 POPULATE: list[Populate] = []
 
 
-def register_populate(name: str, fn: Callable[["World", object, bool], None]) -> None:
+def register_populate(name: str, fn: Callable[["World", object, bool], None], *,
+                      land: Callable[["World", random.Random, tuple[int, int, int, int]], None] | None = None) -> None:
     """fn(world, rng, fresh) places a pack's things in the world: at the end of world generation (fresh=True, rng the
     generator's) and after a save is restored (fresh=False, rng the world's), so older worlds get them too. Make it
-    idempotent, e.g. with a flag in world.ext[<pack>]."""
+    idempotent, e.g. with a flag in world.ext[<pack>]. land(world, rng, bounds) places the pack's things in one new
+    land, bounds = x0, y0, x1, y1 (half-open, inside the surface): no once-flag, and only the rng given."""
     source = _caller()
     _check_free("populate", name, source)
     _OWNERS[("populate", name)] = source
-    POPULATE.append(Populate(name, fn))
+    POPULATE.append(Populate(name, fn, land))
 
 
 def run_populate(world: "World", rng, fresh: bool, skip: Iterable[str] = ()) -> None:
@@ -419,6 +424,14 @@ def run_populate(world: "World", rng, fresh: bool, skip: Iterable[str] = ()) -> 
     for p in POPULATE:
         if p.name not in skip:
             call_safely(f"populate '{p.name}'", p.fn, world, rng, fresh)
+
+
+def run_populate_land(world: "World", rng, bounds: tuple[int, int, int, int]) -> None:
+    """Every pack's land hook, in registration order, to fill the new land inside bounds."""
+    importlib.import_module("swarmworld.world.packs")
+    for p in POPULATE:
+        if p.land:
+            call_safely(f"populate land '{p.name}'", p.land, world, rng, bounds)
 
 
 # ------------------------------------------------------------------ moving the map under the world

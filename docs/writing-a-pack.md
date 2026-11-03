@@ -14,7 +14,7 @@ The registry's docstring (`swarmworld/world/registry.py`) is the reference.
 | its disclosure | `register_technique(Technique(name, line, trigger))`, shown to every creature when the trigger fits |
 | world behaviour | `register_system(name, every, fn(sim, tick))` |
 | a perception line | `register_perception(fn(world, c) -> str or None, priority=50)` |
-| placing things | `register_populate(name, fn(world, rng, fresh))`, run on new worlds and restored saves |
+| placing things | `register_populate(name, fn(world, rng, fresh), land=fn(world, rng, bounds))`, run on new worlds and restored saves; `land`: fill one new land (the frontier), inside bounds, with no once-flag |
 | state | `c.ext[<pack>]` and `world.ext[<pack>]`: JSON-able, saved automatically |
 | a sound | `world.sound(x, y, text, radius=8, kind=..., loud=False, source=c.id, makers=None)`; kinds from `registry.SOUND_KINDS` |
 

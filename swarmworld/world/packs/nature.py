@@ -130,16 +130,20 @@ def _plant_for(b: str, t: str, wet: bool, r: float) -> str | None:
     return None
 
 
-def _place_plants(world: World, rng, fresh: bool) -> dict[str, int]:
+def _place_plants(world: World, rng, fresh: bool, bounds: tuple[int, int, int, int] | None = None) -> dict[str, int]:
+    """Plant the surface (bounds None: all of it, row by row) or just the tiles inside bounds; the RENEWING counts."""
     rows = world.ext["nature"]["biomes"]
     density = 1.0 if fresh else OLD_WORLD_DENSITY
     clear = set() if fresh else _near_built(world)
     cx, cy = world.center
     wet = water_near(world)
     placed: Counter = Counter()
+    x0, y0, x1, y1 = bounds or (0, 0, world.width, world.height)
     for y in surface_rows(world):
+        if not y0 <= y < y1:
+            continue
         row, trow = rows[y], world.tiles[y]
-        for x in range(world.width):
+        for x in range(x0, x1):
             t = trow[x]
             if t in "wW" or (x, y) in world.grid or (x, y) in clear or math.hypot(x - cx, y - cy) <= 4.5:
                 continue
@@ -161,6 +165,14 @@ def populate(world: World, rng, fresh: bool) -> None:
     if not mine.get("planted"):
         mine["targets"] = _place_plants(world, rng, fresh)
         mine["planted"] = True
+
+
+def _plant_land(world: World, rng, bounds: tuple[int, int, int, int]) -> None:
+    """Plant a new land at full density, and let the renewal targets grow by the renewing kinds placed."""
+    placed = _place_plants(world, rng, True, bounds)
+    targets = world.ext.setdefault("nature", {}).setdefault("targets", {})
+    for kind, n in placed.items():
+        targets[kind] = targets.get(kind, 0) + n
 
 
 # ------------------------------------------------------------------------------------------- systems
@@ -354,7 +366,7 @@ def river_line(world: World, c: Creature) -> str | None:
     return f"The river beside you flows {way}."
 
 
-register_populate("nature", populate)
+register_populate("nature", populate, land=_plant_land)
 register_system("nature insects", INSECTS_EVERY, insects_step)
 register_system("nature drift", DRIFT_EVERY, drift_step)
 register_system("nature renewal", RENEW_EVERY, renew_step)
