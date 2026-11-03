@@ -79,6 +79,18 @@ SOCIETY_KEYS: tuple[str, ...] = ("nodes", "edges", "hubs", "loners")
 SOCIETY_NODE_KEYS: tuple[str, ...] = ("id", "name", "model", "color", "asleep", "drive")
 SOCIETY_EDGE_KEYS: tuple[str, ...] = ("a", "b", "talk", "gift", "teach", "play", "weight")
 SOCIETY_HUB_KEYS: tuple[str, ...] = ("id", "name", "weight")
+# the static document's world parts, from World.to_init (creatures and the clock live in live.json); kinds, items and
+# regions are picked one by one like everything else, and the tile and nature rows are terrain codes
+STATIC_INIT_KEYS: tuple[str, ...] = ("tick", "width", "height", "tiles", "regions", "objects", "items", "kinds", "nature",
+                                     "landmarks", "buildings")
+STATIC_INIT_PRIVATE: tuple[str, ...] = ("type", "creatures", "clock")
+REGION_KEYS: tuple[str, ...] = ("name", "level", "y0", "y1", "sky", "weather")
+VIEW_KIND_KEYS: tuple[str, ...] = ("name", "look", "glyph", "glow")
+GLYPH_KEYS: tuple[str, ...] = ("char", "color")
+NATURE_KEYS: tuple[str, ...] = ("biomes", "flow")
+LANDMARK_KEYS: tuple[str, ...] = ("name", "x", "y", "kind", "size")
+LANDMARK_PRIVATE: tuple[str, ...] = ("by_sight",)  # how creatures come to know a place; the viewer doesn't use it
+CHAPTER_KEYS: tuple[str, ...] = ("tick", "day", "phase", "text")
 PERSONA_KEYS: tuple[str, ...] = ("name", "traits", "drive", "initiative", "role", "novelty")
 MIND_KEYS: tuple[str, ...] = ("model", "until")
 # a creature's counters (Creature.stats); tests/test_public_view.py scans the source so a new one has to be listed.
@@ -98,6 +110,10 @@ def pick(d: dict, keys) -> dict:
     return {k: d[k] for k in keys if k in d}
 
 
+def pick_all(rows, keys) -> list[dict]:
+    return [pick(r, keys) for r in rows]
+
+
 def public_card(cre: dict) -> dict:
     return pick(cre, CARD_KEYS)
 
@@ -106,14 +122,43 @@ def public_object(o: dict) -> dict:
     return pick(o, OBJECT_KEYS)
 
 
+def public_buildings(rows) -> list[dict]:
+    return pick_all(rows, BUILDING_KEYS)
+
+
+def public_landmarks(rows) -> list[dict]:
+    return pick_all(rows, LANDMARK_KEYS)
+
+
+def public_chronicle(chapters) -> list[dict]:
+    return pick_all(chapters, CHAPTER_KEYS)
+
+
+def _view_kind(spec: dict) -> dict:
+    out = pick(spec, VIEW_KIND_KEYS)
+    if isinstance(out.get("glyph"), dict):
+        out["glyph"] = pick(out["glyph"], GLYPH_KEYS)
+    return out
+
+
+def public_static(init: dict) -> dict:
+    """The world parts of static.json, from World.to_init(): every part picked."""
+    out = pick(init, ("tick", "width", "height", "tiles"))
+    out["regions"] = pick_all(init.get("regions", []), REGION_KEYS)
+    out["objects"] = [public_object(o) for o in init.get("objects", [])]
+    out["items"] = {i: name for i, name in init.get("items", {}).items() if isinstance(name, str)}
+    out["kinds"] = {k: _view_kind(spec) for k, spec in init.get("kinds", {}).items()}
+    if isinstance(init.get("nature"), dict):
+        out["nature"] = pick(init["nature"], NATURE_KEYS)
+    out["landmarks"] = public_landmarks(init.get("landmarks", []))
+    out["buildings"] = public_buildings(init.get("buildings", []))
+    return out
+
+
 def public_event(ev: Event) -> dict | None:
     if ev.kind == "steward" or ev.data.get("brain_node"):
         return None
     return pick(ev.to_dict(), EVENT_KEYS)
-
-
-def pick_all(rows, keys) -> list[dict]:
-    return [pick(r, keys) for r in rows]
 
 
 def _pick_in(d: dict, key: str, keys) -> None:

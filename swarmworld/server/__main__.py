@@ -17,6 +17,7 @@ from aiohttp import web
 from .app import STATE, create_app
 from .harness import LAYERS, Harness
 from .persistence import save
+from .public import PUBLIC_EVERY
 
 
 def lan_ip() -> str:
@@ -82,6 +83,11 @@ def main() -> None:
     ap.add_argument("--log-prompts", action="store_true",
                     help="act lines in thinks.jsonl also carry the full prompt (about 6 KB each); not used for "
                          "training: a live prompt quotes other minds")
+    ap.add_argument("--public-every", type=float, default=PUBLIC_EVERY, metavar="SECONDS",
+                    help=f"build the public viewer's snapshots (/public/*) this often (default {PUBLIC_EVERY:g}); "
+                         "0 turns publishing off")
+    ap.add_argument("--public-link", default=None, metavar="URL",
+                    help="the link the public viewer's About panel offers (docs/public-viewer.md)")
     args = ap.parse_args()
 
     everyone = layers(args.harness_all)
@@ -96,7 +102,7 @@ def main() -> None:
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
                      harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed),
-                     log_prompts=args.log_prompts)
+                     log_prompts=args.log_prompts, public_every=args.public_every, public_link=args.public_link)
     print(f"  {recall_search_line(app[STATE].embedder, args.embed)}")
     app[STATE].sim.inspiration = not args.no_inspiration
 
@@ -112,6 +118,8 @@ def main() -> None:
             print(f"  (LAN discovery unavailable: {exc})")
     else:
         print(f"\n  Swarm World running.  Viewer: http://127.0.0.1:{args.port}/\n")
+    if args.public_every > 0:
+        print(f"  Public preview: http://127.0.0.1:{args.port}/public/app/  (what watchers see; docs/public-viewer.md)\n")
     try:
         web.run_app(app, host=host, port=args.port, print=None, access_log=None)
     finally:

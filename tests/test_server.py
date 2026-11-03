@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import aiohttp
 import pytest
 
 from swarmworld.server.app import STATE, create_app
@@ -208,16 +209,16 @@ async def test_history_snapshots(client):
 
 
 async def test_tunnelled_requests_are_not_local(client):
-    # cloudflared runs on this machine, so tunnelled visitors arrive from 127.0.0.1 with proxy headers
+    # cloudflared runs on this machine, so tunnelled visitors arrive from 127.0.0.1 with proxy headers: outside
+    # /public/ they find nothing at all
     resp = await client.post("/api/voice", json={"text": "hi"}, headers={"CF-Connecting-IP": "203.0.113.9"})
-    assert resp.status == 403
+    assert resp.status == 404
     resp = await client.post("/api/voice", json={"text": "hi"})
     assert resp.status == 200
-    ws = await client.ws_connect("/ws/node", headers={"X-Forwarded-For": "203.0.113.9"})
-    await ws.send_json({"type": "hello", "node": "intruder", "slots": 1, "models": [{"tag": "m", "creatures": 3}]})
-    err = await _recv_type(ws, "error")
-    assert "token" in err["message"]
-    assert not any(c.model == "m" for c in client.app[STATE].world.creatures.values())
+    with pytest.raises(aiohttp.WSServerHandshakeError) as e:
+        await client.ws_connect("/ws/node", headers={"X-Forwarded-For": "203.0.113.9"})
+    assert e.value.status == 404
+    assert not client.app[STATE].nodes
 
 
 def test_think_log_records_what_happened(tmp_path):
@@ -245,9 +246,9 @@ async def test_wishes_api_lists_and_answers_locally_only(client):
     assert body["can_answer"] and body["wishes"][0]["thing"] == "windmill"
     wid = body["wishes"][0]["id"]
     tunnel = {"CF-Connecting-IP": "203.0.113.9"}
-    assert (await client.get("/api/wishes", headers=tunnel)).status == 200
-    assert not (await (await client.get("/api/wishes", headers=tunnel)).json())["can_answer"]
-    assert (await client.post(f"/api/wishes/{wid}", json={"reply": "hi"}, headers=tunnel)).status == 403
+    assert (await client.get("/api/wishes", headers=tunnel)).status == 404
+    assert (await client.post(f"/api/wishes/{wid}", json={"reply": "hi"}, headers=tunnel)).status == 404
+    assert not st.wishes.get(wid)["answer"]
     assert (await client.post(f"/api/wishes/{wid}", json={"grant": "unobtainium"})).status == 400
     assert (await client.post("/api/wishes/w999", json={"reply": "hi"})).status == 404
     out = await (await client.post(f"/api/wishes/{wid}", json={"status": "noted"})).json()

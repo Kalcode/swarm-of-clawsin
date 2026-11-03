@@ -11,7 +11,7 @@ async def post(client, action, body, **kw):
 
 async def test_admin_is_local_only(client):
     r = await post(client, "weather", {"weather": "rain"}, headers={"CF-Connecting-IP": "203.0.113.9"})
-    assert r.status == 403
+    assert r.status == 404 and not any(e.kind == "steward" for e in client.app[STATE].world.events)
 
 
 async def test_give_place_move_remove_and_weather(client):

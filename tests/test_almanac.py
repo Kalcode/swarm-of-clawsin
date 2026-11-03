@@ -239,9 +239,9 @@ async def test_api_almanac_counts_what_creatures_do(client):
 
 async def test_api_almanac_is_for_this_machine_or_the_token(client, aiohttp_client):
     tunnel = {"CF-Connecting-IP": "203.0.113.9"}
-    assert (await client.get("/api/almanac", headers=tunnel)).status == 403
+    assert (await client.get("/api/almanac", headers=tunnel)).status == 404
     with_token = await aiohttp_client(create_app(seed=7, token="secret", tick_seconds=0.02))
-    assert (await with_token.get("/api/almanac", headers=tunnel)).status == 403
+    assert (await with_token.get("/api/almanac", headers=tunnel)).status == 404
     ok = await with_token.get("/api/almanac", headers={**tunnel, "X-Swarm-Token": "secret"})
     assert ok.status == 200 and (await ok.json())["items"]
     page = await client.get("/almanac.html")
