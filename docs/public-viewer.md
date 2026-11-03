@@ -60,7 +60,19 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
 
 ## Load test
 
-(Filled in by the load test, Task 9.)
+`nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at a56b912 plus the script; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).
+
+| | baseline | 200 pollers |
+|---|---|---|
+| tick p50 (ms) | 12.0 | 14.5 |
+| tick p95 (ms) | 20.7 | 25.6 |
+| tick max (ms) | 24.3 | 31.3 |
+| ticks per second | 0.983 | 0.983 |
+| server CPU % | 1.5 | 4.0 |
+| requests / errors | - | 6796 / 0 |
+| request latency p95 (ms) | - | 1.7 |
+
+Pass (limit for tick p95 was 25.9 ms). A first run of the same command had load p95 26.6 ms against a baseline of 19.9 ms (limit 24.9) and failed by 1.7 ms; the rerun passed. Both showed the same shape: about +2.5 ms median and +5 ms p95 tick time with 200 pollers (they share the world's event loop), no errors, ticks per second unchanged, CPU up about 2.5 points.
 
 ## Troubleshooting
 
