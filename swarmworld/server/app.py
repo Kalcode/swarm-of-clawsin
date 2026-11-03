@@ -16,7 +16,7 @@ from ..mind.recall import embed_pending
 from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
-from .public import PUBLIC_EVERY, PUBLIC_LINK, PUBLISHER, Publisher
+from .public import PUBLIC_EVERY, PUBLISHER, Publisher
 from .public_app import PUBLIC_APP, PublicApp
 from .public_http import add_public_routes
 from .state import ServerState
@@ -351,8 +351,6 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
         log.info("resumed world from %s at tick %d with %d creatures", world_path, st.world.tick, len(st.world.creatures))
     app[STATE] = st
     app[ALMANAC] = Almanac()
-    if public_link:
-        app[PUBLIC_LINK] = public_link
     if public_every > 0:
         app[PUBLISHER] = pub = Publisher(st, app[ALMANAC], every=public_every)
         app[PUBLIC_APP] = PublicApp(WEB_DIR, link=public_link)  # reads web/ on first use, not here

@@ -231,4 +231,3 @@ class Publisher:
 
 
 PUBLISHER = web.AppKey("publisher", Publisher)
-PUBLIC_LINK = web.AppKey("public_link", str)

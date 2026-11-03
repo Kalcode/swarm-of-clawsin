@@ -422,3 +422,10 @@ async def test_app_files_are_gzipped_once_and_served_gzipped(aiohttp_client):
     # the same bytes object each time: gzipped at load, not per request
     files, _ = app[PUBLIC_APP]._snap
     assert app[PUBLIC_APP].serve_full("viewer.js")[1] is app[PUBLIC_APP].serve_full("viewer.js")[1]
+
+
+async def test_the_about_link_reaches_the_page_without_an_app_key(aiohttp_client):
+    import swarmworld.server.public as public
+    assert not hasattr(public, "PUBLIC_LINK")
+    c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=3600, public_link="https://example.com/x"))
+    assert 'content="https://example.com/x"' in await (await c.get("/public/app/")).text()
