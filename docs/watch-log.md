@@ -273,3 +273,22 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **add (seen):** Teo invented the "bark-to-stone converter" ("to get rope-stones fast"); the fad's inventor is still
   at it. Mirth invented a "warm reed blanket", and worked on a tent site.
 - **mod (watching), Mirth:** 4 more prayers since the no-gift answer, down from 6.
+
+### 15:37 watch (tick 17,771)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no errors, no public watchers.
+- **Minds since tick 15,976:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 881 | 89% | 9.0 s |
+  | Student | 1,084 | 86% (from 76%) | 13.0 s |
+
+  No failure streaks. The student is now close to gpt-oss on success, mostly because the eat reflex removed its worst
+  loop.
+- **mod (follow-up), eat-grass: fixed.** Since the 15:13 reflex there have been 6 walks to food (all succeeded) and 1
+  refusal with no food in sight, against 73 refusals in the half hour before. No collapses.
+- **mod (watching), hungry sleepers:** Jun, Holt and Mika (all student) went to sleep at satiety 10-11, 1-3 steps from
+  bushes with fruit, after giving away seeds rather than eating. The world wakes a sleeper at hunger 5, and the
+  reflexes should then feed them. Check for collapses next time.
+- **tweak (idea):** a creature lying down to sleep while hungry, with food within a few steps, could eat first: a
+  bedtime reflex. Only if collapses come back.
