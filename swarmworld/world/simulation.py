@@ -9,7 +9,7 @@ from typing import Callable
 from . import perception
 from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
-from .model import ANIMALS, Creature, World, wet
+from .model import ANIMALS, WATER_TILES, Creature, World, wet
 from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
 from .registry import KINDS, LANDMARK_SOURCES, SYSTEMS, call_safely
 
@@ -419,7 +419,7 @@ class Simulation:
         w = self.world
         raining = wet(w, drizzle=True)
         for o in list(w.objects.values()):
-            if raining:  # rain makes everything grow faster
+            if raining and w.under_sky(o.x, o.y):  # rain makes everything it falls on grow faster
                 for key in ("grow_at", "regrow_at"):
                     if o.data.get(key):
                         o.data[key] -= 10
@@ -591,7 +591,7 @@ class Simulation:
 
     def _free_for_animal(self, x: int, y: int, home) -> bool:
         w = self.world
-        return ((x, y) not in w.grid and w.walkable(x, y) and w.tile(x, y) not in "wW" and not w.occupied(x, y)
+        return ((x, y) not in w.grid and w.walkable(x, y) and w.tile(x, y) not in WATER_TILES and not w.occupied(x, y)
                 and not (home and max(abs(x - home[0]), abs(y - home[1])) > HOME_RANGE))
 
     def _wander(self, o, home) -> None:
@@ -642,7 +642,7 @@ class Simulation:
             return
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
             x, y = o.x + dx, o.y + dy
-            if w.walkable(x, y) and (x, y) not in w.grid and w.tile(x, y) not in "wW" and not w.occupied(x, y):
+            if w.walkable(x, y) and (x, y) not in w.grid and w.tile(x, y) not in WATER_TILES and not w.occupied(x, y):
                 owner = d["tamed_by"]
                 w.add_object(o.kind, x, y, tamed_by=owner, home=list(d.get("home") or [o.x, o.y]), label=f"{owner}'s {o.kind}",
                              ready_at=w.tick + 300, hunger=20, fed=2, bred_day=day)

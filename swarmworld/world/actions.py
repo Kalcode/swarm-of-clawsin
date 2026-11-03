@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from . import perception
 from .catalog import Recipe
 from .events import HEARING
-from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, Region, World, WorldObject
+from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, WATER_TILES, Creature, Region, World, WorldObject
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
@@ -280,7 +280,7 @@ def _nearest_tile(world: World, c: Creature, tiles: str, r: int) -> tuple[int, i
 
 
 TILE_TARGETS = {
-    "water": "wW", "lake": "wW", "river": "wW", "pond": "wW", "stream": "wW",
+    "water": WATER_TILES, "lake": WATER_TILES, "river": WATER_TILES, "pond": WATER_TILES, "stream": WATER_TILES,
     "sand": "s", "beach": "s", "shore": "s", "grass": "g", "meadow": "g",
     "forest": "f", "woods": "f", "hills": "r", "hill": "r", "rocky": "r", "dirt": "d",
 }
@@ -753,8 +753,8 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                 return _busy(c, 2 * n, "scooping sand", f"You scoop up {n} sand.")
             return ActionResult(False, "There's no sand within reach.")
         if any(w in ("water", "lake", "river", "fish", "fishes", "fishing", "pond") for w in words) or want_item == "fish":
-            if "w" not in near_tiles and "W" not in near_tiles:
-                water = _nearest_tile(world, c, "wW", sight_range(world, c))
+            if not near_tiles & set(WATER_TILES):
+                water = _nearest_tile(world, c, WATER_TILES, sight_range(world, c))
                 if water:
                     x, y, _d = water
                     res = start_walk(world, c, _adjacent_goals(world, x, y, include_self=True), "walking to the water", "You reach the water.")
@@ -1040,7 +1040,8 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _drink(world: World, c: Creature, it: Intention) -> ActionResult:
-    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds()):
+    if (_nearest_tile(world, c, WATER_TILES, 1) is None
+            and not find_object(world, c, "", max_dist=1, kinds=water_kinds())):
         held = next((i for i in DRINKS if c.inventory.get(i, 0) > 0), None)
         if held is None:
             return ActionResult(False, "There's no water within reach. Walk to the water first.")
@@ -1241,13 +1242,17 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, f"You don't have a {world.catalog.name(iid)} to place.")
     if not world.catalog.items[iid].placeable:
         return ActionResult(False, f"A {world.catalog.name(iid)} isn't something you can set down as a structure. Try drop.")
+    kind = {"wooden_wall": "wall"}.get(iid, iid)
+    if kind in water_kinds() and world.region_at(c.x, c.y) is not world.region("surface"):
+        return ActionResult(False, f"A {world.catalog.name(iid)} needs open ground up on the surface.")
     spots = []
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             if not (dx or dy):
                 continue
             x, y = c.x + dx, c.y + dy
-            if world.walkable(x, y) and not world.object_at(x, y) and not world.occupied(x, y) and world.tile(x, y) not in "wW":
+            if (world.walkable(x, y) and not world.object_at(x, y) and not world.occupied(x, y)
+                    and world.tile(x, y) not in WATER_TILES):
                 spots.append((0 if hint and direction(dx, dy) == hint else 1, x, y))
     if not spots:
         return ActionResult(False, "There's no free spot beside you to place that.")
@@ -1256,7 +1261,6 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     c.inventory[iid] -= 1
     if c.inventory[iid] <= 0:
         del c.inventory[iid]
-    kind = {"wooden_wall": "wall"}.get(iid, iid)
     if "invention" in world.catalog.items[iid].tags:
         kind = "creation"
     data: dict = {"builder": c.name}

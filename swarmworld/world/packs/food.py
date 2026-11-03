@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from .. import actions, perception
 from ..actions import ActionResult, Intention, _busy, find_object, start_walk, station_near, water_kinds
 from ..catalog import DATA
+from ..model import WATER_TILES
 from ..perception import dist, direction, sight_range, visible_objects
 from ..registry import (ANIMALS, KINDS, STORES, Technique, register_perception, register_populate, register_system,
                         register_technique, register_verb)
@@ -75,9 +76,9 @@ def _weather(world: World) -> str:
 
 # ------------------------------------------------------------------ fishing: species by water and time
 def _water_type(world: World, x: int, y: int) -> str | None:
-    """The water within reach of (x, y): "deep" if any of it is deep, "shallow", or None."""
+    """The water within reach of (x, y): "deep" if any of it is deep, "shallow" (cave water too), or None."""
     near = {world.tile(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if world.in_bounds(x + dx, y + dy)}
-    return "deep" if "W" in near else "shallow" if "w" in near else None
+    return "deep" if "W" in near else "shallow" if near & {"w", "u"} else None
 
 
 def _biting(water: str, phase: str) -> list[dict]:
@@ -135,7 +136,7 @@ def _water_in_sight(world: World, c: Creature) -> tuple[int, int, int] | None:
     best = None
     for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
-            if world.in_bounds(x, y) and world.tile(x, y) in "wW":
+            if world.in_bounds(x, y) and world.tile(x, y) in WATER_TILES:
                 d = dist(c.x, c.y, x, y)
                 if best is None or d < best[2]:
                     best = (x, y, d)
@@ -354,7 +355,7 @@ def _rack_line(world: World, c: Creature) -> str | None:
     else:
         return None
     names = _and([world.catalog.name(i) for i in raw])
-    if _weather(world) in WET:
+    if _weather(world) in WET and world.under_sky(o.x, o.y):
         return f"The drying rack beside you is wet with {_weather(world)}: the {names} won't dry until it clears."
     done = min(o.data.get("drying", {}).get(i, 0) for i in raw) / DRY_TICKS
     how = "only just set out" if done < 1 / 3 else "half dry" if done < 2 / 3 else "nearly dry"
@@ -362,15 +363,18 @@ def _rack_line(world: World, c: Creature) -> str | None:
 
 
 def _dry(sim: Simulation, t: int) -> None:
-    """Racks dry raw meat and fish in dry weather (faster in wind or heat, slower at night); the rain stops them."""
+    """Racks dry raw meat and fish in dry weather (faster in wind or heat, slower at night); the rain stops them. Below
+    the sky neither weather nor night reaches a rack: it dries as on a still, dry day."""
     w = sim.world
-    weather = _weather(w)
-    if weather in WET:
-        return
-    step = DRY_EVERY * (2 if weather in FAST else 1)
-    if w.clock()["phase"] == "night":
-        step //= 2
+    night = w.clock()["phase"] == "night"
     for rack in [o for o in w.objects.values() if o.kind == "drying_rack"]:
+        sky = w.under_sky(rack.x, rack.y)
+        weather = _weather(w) if sky else "clear"
+        if weather in WET:
+            continue
+        step = DRY_EVERY * (2 if weather in FAST else 1)
+        if night and sky:
+            step //= 2
         items = rack.data.get("items") or {}
         drying = rack.data.get("drying", {})
         drying = {i: v for i, v in drying.items() if items.get(i, 0) > 0}
@@ -486,8 +490,9 @@ def habitat_kinds() -> dict[str, dict]:
 
 
 def population(world: World, kind: str) -> int:
-    """How many of a kind a world this size holds (its habitat's per_4096: per 64x64 tiles)."""
-    return max(1, round(KINDS[kind]["habitat"]["per_4096"] * world.width * world.height / 4096))
+    """How many of a kind a surface this size holds (its habitat's per_4096: per 64x64 tiles)."""
+    x0, y0, x1, y1 = world.region_bounds("surface")
+    return max(1, round(KINDS[kind]["habitat"]["per_4096"] * (x1 - x0) * (y1 - y0) / 4096))
 
 
 def _fits(world: World, x: int, y: int, hab: dict, keep_off: int = 0) -> bool:
@@ -499,10 +504,11 @@ def _fits(world: World, x: int, y: int, hab: dict, keep_off: int = 0) -> bool:
 
 def _place(world: World, rng, kind: str, n: int, keep_off: int = 0, tries: int = 400) -> int:
     hab, placed = KINDS[kind]["habitat"], 0
+    x0, y0, x1, y1 = world.region_bounds("surface")
     for _ in range(tries):
         if placed >= n:
             break
-        x, y = rng.randrange(world.width), rng.randrange(world.height)
+        x, y = rng.randrange(x0, x1), rng.randrange(y0, y1)
         if _fits(world, x, y, hab, keep_off):
             world.add_object(kind, x, y)
             placed += 1
@@ -511,12 +517,13 @@ def _place(world: World, rng, kind: str, n: int, keep_off: int = 0, tries: int =
 
 def _populate(world: World, rng, fresh: bool) -> None:
     """Game and forage in their habitats, once per world (new or restored): deer and boar in the woods, rabbits on the
-    grass, mushrooms on the forest floor, herbs in the grass, all away from the meadow."""
+    grass, mushrooms on the forest floor, herbs in the grass, all away from the meadow, on the surface."""
     mine = _state(world)
     if mine.get("placed"):
         return
+    x0, y0, x1, y1 = world.region_bounds("surface")
     for kind, hab in habitat_kinds().items():
-        spots = [(x, y) for y in range(world.height) for x in range(world.width) if _fits(world, x, y, hab)]
+        spots = [(x, y) for y in range(y0, y1) for x in range(x0, x1) if _fits(world, x, y, hab)]
         for x, y in rng.sample(spots, min(population(world, kind), len(spots))):
             world.add_object(kind, x, y)
     mine["placed"] = True
@@ -525,7 +532,8 @@ def _populate(world: World, rng, fresh: bool) -> None:
 def _wildlife(sim: Simulation, t: int) -> None:
     """Hunted game and picked mushrooms come back slowly, out of sight of anyone; mushrooms faster after rain."""
     w = sim.world
-    counts = Counter(o.kind for o in w.objects.values())
+    _, y0, _, y1 = w.region_bounds("surface")
+    counts = Counter(o.kind for o in w.objects.values() if y0 <= o.y < y1)  # the surface's own: below is no habitat
     wet = _weather(w) in WET
     for kind, hab in habitat_kinds().items():
         if not hab.get("top_up"):

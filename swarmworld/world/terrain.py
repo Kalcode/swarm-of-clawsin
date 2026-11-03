@@ -7,9 +7,10 @@ run from the hills down to the lake and one river leaves it for the edge of the 
 
 The generator leaves each tile's biome and each river tile's flow in world.land; the nature pack
 (swarmworld/world/packs/nature.py) keeps them in world.ext["nature"], saved with the world: "biomes" is rows of BIOMES
-codes, "flow" rows of flow codes ("0".."7" index perception.DIRS, "." where water is still or there is none). Following
-the flow always leads into the lake, into another river, or off the map. An older world gets both read from its tiles
-(derive_biomes, derive_flow)."""
+codes, "flow" rows of flow codes ("0".."7" index perception.DIRS, "." where water is still or there is none), one row
+per row of the surface (the top band of the map, from row 0; a deep below has neither). Following the flow always leads
+into the lake, into another river, or off the surface. An older world gets both read from its tiles (derive_biomes,
+derive_flow)."""
 
 from __future__ import annotations
 
@@ -51,21 +52,30 @@ TABLET_TEXT = (
 
 
 # ------------------------------------------------------------------ reading the land
-def biome_at(world: World, x: int, y: int) -> str | None:
-    """The biome's name ("meadow", "oak forest"...) at a tile, or None off the map or in a world without biomes."""
-    rows = (world.ext.get("nature") or {}).get("biomes")
-    if not rows or not world.in_bounds(x, y):
+def surface_rows(world: World) -> range:
+    """The rows of the surface: what the land rows (biomes, flow) describe, and all a whole-map scan should cover."""
+    _, y0, _, y1 = world.region_bounds("surface")
+    return range(y0, y1)
+
+
+def land_code(world: World, key: str, x: int, y: int) -> str | None:
+    """A tile's code in the land rows world.ext["nature"][key] ("biomes" or "flow"), or None off the surface, beyond
+    the rows, or in a world without them."""
+    rows = (world.ext.get("nature") or {}).get(key)
+    if not rows or not 0 <= x < world.width or y not in surface_rows(world) or y >= len(rows):
         return None
-    return BIOMES.get(rows[y][x])
+    return rows[y][x]
+
+
+def biome_at(world: World, x: int, y: int) -> str | None:
+    """The biome's name ("meadow", "oak forest"...) at a tile, or None off the surface or in a world without biomes."""
+    return BIOMES.get(land_code(world, "biomes", x, y))
 
 
 def flow_at(world: World, x: int, y: int) -> str | None:
-    """Which way the water at a tile flows ("south"...), or None where it's still, dry or unknown."""
-    rows = (world.ext.get("nature") or {}).get("flow")
-    if not rows or not world.in_bounds(x, y):
-        return None
-    ch = rows[y][x]
-    return DIRS[int(ch)] if ch != STILL else None
+    """Which way the water at a tile flows ("south"...), or None where it's still, dry, unknown or off the surface."""
+    ch = land_code(world, "flow", x, y)
+    return DIRS[int(ch)] if ch not in (None, STILL) else None
 
 
 # ------------------------------------------------------------------ noise and masks
@@ -105,8 +115,9 @@ def near(mask: np.ndarray, r: int = 1) -> np.ndarray:
 
 
 def water_near(world: World, r: int = 1) -> np.ndarray:
-    """An (h, w) mask of the tiles with water (shallow or deep) within r steps."""
-    t = np.array(world.tiles)
+    """An (h, w) mask of the surface's tiles (h its rows) with water (shallow or deep) within r steps."""
+    rows = surface_rows(world)
+    t = np.array(world.tiles[rows.start:rows.stop])
     return near((t == "w") | (t == "W"), r)
 
 
@@ -154,10 +165,11 @@ def _rows(width: int, height: int, cells: dict[tuple[int, int], str], fill: str 
 
 
 def _lake_tiles(world: World) -> set[tuple[int, int]]:
-    """Still water: deep water and the shallows within two steps of it."""
-    deep = {(x, y) for y in range(world.height) for x in range(world.width) if world.tile(x, y) == "W"}
+    """Still water on the surface: deep water and the shallows within two steps of it."""
+    rows = surface_rows(world)
+    deep = {(x, y) for y in rows for x in range(world.width) if world.tile(x, y) == "W"}
     near = {(x + dx, y + dy) for x, y in deep for dx in range(-2, 3) for dy in range(-2, 3)}
-    return deep | {p for p in near if world.in_bounds(*p) and world.tile(*p) == "w"}
+    return deep | {p for p in near if p[1] in rows and world.in_bounds(*p) and world.tile(*p) == "w"}
 
 
 def _at_edge(x: int, y: int, width: int, height: int, margin: int = 0) -> bool:
@@ -172,9 +184,12 @@ def _off_map_step(x: int, y: int, width: int, height: int) -> tuple[int, int]:
 def derive_flow(world: World) -> list[str]:
     """Flow for a world made before rivers flowed: shallow water away from the lake is river; a river that reaches the
     edge of the map (or stops a step short of it, as they did) flows out there, one that doesn't flows into the lake.
-    The meadow cut the old river in two: each part flows its own way."""
+    The meadow cut the old river in two: each part flows its own way. Only the surface is read: one row per row of
+    it."""
+    rows = surface_rows(world)
+    height = rows.stop  # the surface is the top of the map: its edge is the map's, but for the rock below
     lake = _lake_tiles(world)
-    river = {(x, y) for y in range(world.height) for x in range(world.width)
+    river = {(x, y) for y in rows for x in range(world.width)
              if world.tile(x, y) == "w" and (x, y) not in lake}
     flows: dict[tuple[int, int], str] = {}
     seen: set[tuple[int, int]] = set()
@@ -190,8 +205,8 @@ def derive_flow(world: World) -> list[str]:
                     comp.add(n)
                     q.append(n)
         seen |= comp
-        edge = {p: _off_map_step(*p, world.width, world.height) for p in comp  # older rivers stop a step short
-                if _at_edge(*p, world.width, world.height, margin=1)}
+        edge = {p: _off_map_step(*p, world.width, height) for p in comp  # older rivers stop a step short
+                if _at_edge(*p, world.width, height, margin=1)}
         mouths = edge or {p: next(s for s in NEIGHBORS if (p[0] + s[0], p[1] + s[1]) in lake) for p in comp
                           if any((p[0] + dx, p[1] + dy) in lake for dx, dy in NEIGHBORS)}
         if not mouths:
@@ -200,18 +215,18 @@ def derive_flow(world: World) -> list[str]:
         my = sum(y for _, y in mouths) / len(mouths)
         hint = {(x, y): (mx - x, my - y) for x, y in comp}
         flows.update(_flow_from_mouths(comp, mouths, hint))
-    return _rows(world.width, world.height, flows)
+    return _rows(world.width, height, flows)
 
 
 def derive_biomes(world: World) -> list[str]:
     """Biomes for a world made before biomes, read from its tiles: rocky ground is hills, sand is beach, forest is oak
-    or pine forest by which trees grow nearest, the rest is meadow."""
+    or pine forest by which trees grow nearest, the rest is meadow. Only the surface is read: one row per row of it."""
     pines, oaks = [], []
     for o in world.objects.values():
         if o.kind in ("pine", "tree", "stump"):
             (pines if o.kind == "pine" else oaks).append((o.x, o.y))
     rows = []
-    for y in range(world.height):
+    for y in surface_rows(world):
         row = []
         for x in range(world.width):
             t = world.tile(x, y)
@@ -248,15 +263,17 @@ def place_wishing_stone(world: World) -> None:
 
 
 def spawn_animals(world: World, rng: random.Random, limit: int | None = None) -> int:
-    """Top up wild animal numbers on open grassland away from the meadow. Returns how many were added."""
+    """Top up wild animal numbers on open grassland away from the meadow, on the surface. Returns how many were
+    added."""
     cx, cy = world.center
+    x0, y0, x1, y1 = world.region_bounds("surface")
     added = 0
     for kind, target in ANIMAL_POPULATION.items():
-        have = sum(1 for o in world.objects.values() if o.kind == kind)
+        have = sum(1 for o in world.objects.values() if o.kind == kind and y0 <= o.y < y1)
         tries = 0
         while have < target and tries < 4000 and (limit is None or added < limit):
             tries += 1
-            x, y = rng.randrange(world.width), rng.randrange(world.height)
+            x, y = rng.randrange(x0, x1), rng.randrange(y0, y1)
             if ((x, y) not in world.grid and world.tile(x, y) in "gd" and 8 < math.hypot(x - cx, y - cy) < 28
                     and not world.occupied(x, y)):
                 world.add_object(kind, x, y)
