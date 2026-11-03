@@ -161,8 +161,9 @@ Rules of thumb:
   `catalog`, `events`, `registry`, `terrain`). Import `simulation`, `swarmworld.mind.*` and `swarmworld.server.*`
   only under `TYPE_CHECKING` or inside a function. `test_packs_import_whichever_module_comes_first` catches a mistake.
 - **Every verb needs a technique.** `test_mind` and `test_techniques` fail otherwise. The system prompts describe only
-  the core verbs. Pack techniques are shown to every creature, ranked with the core ones for creatures that have the
-  disclose layer.
+  the core verbs. Pack techniques are shown to every creature. For creatures with the disclose layer they share the
+  list with the core ones, and the best two that fit keep their slots (at most half the list), so a high score
+  matters most when several packs' techniques fit at once.
 - **Names are global.** Verbs, aliases, kinds, techniques, systems, populate hooks, item ids and recipe outputs are
   shared across packs; a clash fails at import, naming both. Prefer specific words.
   - A word that is a core alias (tell, show, chop, dig, harvest, sleep, look, search, build...) raises unless you pass

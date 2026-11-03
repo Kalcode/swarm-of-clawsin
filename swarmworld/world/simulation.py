@@ -240,7 +240,8 @@ class Simulation:
                 self.wake(c, "woke")
 
     def _reflex_eat(self, c: Creature) -> None:
-        """A survival reflex that needs no thought: a starving body eats what it carries, or berries within reach."""
+        """A survival reflex that needs no thought: a starving body eats what it carries, or berries within reach, or
+        other wild food within reach (a mushroom patch, wild herbs)."""
         w = self.world
         foods = sorted((i for i, n in c.inventory.items() if n > 0 and w.catalog.items[i].food > 0),
                        key=lambda i: -w.catalog.items[i].food)
@@ -265,10 +266,38 @@ class Simulation:
                         o.data["regrow_at"] = w.tick + 400
                     if c.satiety >= 60:
                         break
+        if c.satiety < 60:  # then whatever grows within reach and is food: a mushroom patch, wild herbs
+            self._reflex_forage(c, eaten)
         if eaten:
             what = ", ".join(f"{n} {w.catalog.name(i)}" for i, n in eaten.items())
             w.emit("eat", c.id, c.x, c.y, f"{c.name}, starving, wolfed down {what}.")
             self.remember(c, f"Starving, you wolfed down {what} without thinking. Eat before it gets that bad.", 3)
+
+    def _reflex_forage(self, c: Creature, eaten: Counter) -> None:
+        """Pick from food-giving kinds (objects.json yields) within arm's reach, a use at a time, eating as it goes."""
+        from .actions import _gather_yields, _spent
+        from .perception import visible_objects
+        from .registry import YIELDS
+        w = self.world
+        items = w.catalog.items
+        for o, d, _ in visible_objects(w, c, 1):
+            if d > 1 or o.kind not in YIELDS or not any(i in items and items[i].food > 0 for i in YIELDS[o.kind]["items"]):
+                continue
+            while c.satiety < 60 and o.kind in YIELDS and not _spent(o):
+                got: Counter = Counter()
+                done = _gather_yields(w, c, o, got)
+                for i, n in got.items():
+                    food = items[i].food if i in items else 0
+                    while n > 0 and food > 0 and c.satiety < 60:
+                        n -= 1
+                        c.satiety = min(100.0, c.satiety + food)
+                        eaten[i] += 1
+                    if n > 0:
+                        c.inventory[i] += n  # what it couldn't eat, or isn't food, it keeps
+                if done is not False:  # used up, or it needs a tool
+                    break
+            if c.satiety >= 60:
+                return
 
     def _collapse(self, c: Creature, t: int) -> None:
         w = self.world

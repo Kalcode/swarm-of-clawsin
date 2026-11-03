@@ -1,10 +1,12 @@
+from collections import Counter
+
 from swarmworld.mind.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_CORE, build_act_messages
 from swarmworld.mind.memory import Memory
 from swarmworld.mind.techniques import CORE_VERBS, TECHNIQUES, lore, relevant
 from swarmworld.server.harness import Harness
 from swarmworld.server.state import ServerState
 from swarmworld.world import registry
-from swarmworld.world.actions import VERBS
+from swarmworld.world.actions import VERBS, Intention, apply_intention
 from swarmworld.world.catalog import Catalog
 from swarmworld.world.model import START_TICK, Creature, World
 from swarmworld.world.registry import Technique
@@ -80,8 +82,10 @@ def test_at_most_five_best_first():
     c.inventory.update({"wheat_seeds": 2, "workbench": 1})
     lines = relevant(w, c)
     assert len(lines) == 5
-    scored = sorted(((t.trigger(w, c), t.line) for t in TECHNIQUES if t.trigger(w, c) is not None), reverse=True)
-    assert lines == [line for _, line in scored[:5]]
+    scored = sorted(((t.trigger(w, c), t.line, t.pack) for t in TECHNIQUES if t.trigger(w, c) is not None), reverse=True)
+    packs = [line for _, line, pack in scored if pack][:2]  # the packs' best two keep their slots
+    core = [line for _, line, pack in scored if not pack][:5 - len(packs)]
+    assert packs and lines == [line for _, line, _ in scored if line in packs + core]
     assert len(relevant(w, c, limit=2)) == 2
 
 
@@ -163,3 +167,106 @@ def test_job_records_the_pack_techniques_shown():
                 assert {"program", "probe_skim"} <= set(shown)
             else:
                 assert shown == ["probe_skim"]
+
+
+FEED_LINE = "give (target, items): feed an animal food it eats; fed often, it may come to trust you."
+
+
+def test_feed_tip_is_for_animals_that_can_be_fed_not_wild_game():
+    w, c = make_world()
+    c.inventory["berries"] = 3
+    deer = w.add_object("deer", 13, 10)  # wild game bolts when fed: hunting is its tip, with a weapon
+    assert FEED_LINE not in relevant(w, c)
+    w.remove_object(deer.id)
+    w.add_object("sheep", 13, 10)
+    assert FEED_LINE in relevant(w, c)
+
+
+PLANT_LINE = "plant (target, count): plant seeds or berries in the soil beside you (needs a tool to break the soil)."
+WRITE_LINE = "write (text): carve words onto a sign, tree or boulder beside you; they stay for anyone to find."
+
+
+def tried(w, c, **kw):
+    """Whether the action would succeed: tried on a copy of the world, so nothing here changes."""
+    import copy
+    w2 = copy.deepcopy(w)
+    return apply_intention(w2, w2.creatures[c.id], Intention(**kw)).ok
+
+
+def test_plant_tip_fits_only_when_planting_would_work():
+    w, c = make_world()
+    c.inventory["berries"] = 2  # plantable, but bare hands can't break the soil
+    assert PLANT_LINE not in relevant(w, c) and not tried(w, c, action="plant", target="berries")
+    c.inventory["hoe"] = 1
+    assert PLANT_LINE in relevant(w, c) and tried(w, c, action="plant", target="berries")
+    for dx in (-1, 0, 1):  # no free soil beside: water all around
+        for dy in (-1, 0, 1):
+            if dx or dy:
+                w.tiles[10 + dy][10 + dx] = "w"
+    assert PLANT_LINE not in relevant(w, c) and not tried(w, c, action="plant", target="berries")
+    w2, c2 = make_world()
+    c2.inventory.update({"hoe": 1, "stick": 2})  # a hoe, nothing that grows
+    assert PLANT_LINE not in relevant(w2, c2) and not tried(w2, c2, action="plant", target="stick")
+    c2.inventory["carrot_seeds"] = 1
+    assert PLANT_LINE in relevant(w2, c2) and tried(w2, c2, action="plant", target="carrot seeds")
+
+
+def test_write_tip_needs_a_surface_beside_you_and_something_to_write():
+    w, c = make_world()
+    c.known_recipes = {r.output for r in w.catalog.recipes if r.known_at_start}
+    c.inventory["sign"] = 1  # a sign in the pack is nothing to write on until it is placed
+    assert WRITE_LINE not in relevant(w, c) and not tried(w, c, action="write", text="rope: 3 plant fiber")
+    w.add_object("tree", 11, 10)  # beside a tree with nothing of its own to record: no tip
+    assert WRITE_LINE not in relevant(w, c)
+    c.known_recipes.add("stone_axe")  # a recipe it found out itself is worth carving
+    assert WRITE_LINE in relevant(w, c) and tried(w, c, action="write", text="stone axe: stick, stone, rope")
+    c.stats["writing"] += 1  # written down: nothing new until it learns more
+    assert WRITE_LINE not in relevant(w, c)
+    w.add_object("sign", 9, 10)  # a sign beside you is always for writing on
+    assert WRITE_LINE in relevant(w, c) and tried(w, c, action="write", text="berries to the east")
+
+
+def crowded_world():
+    """Seven core techniques fit (program, pick_up, read, feed, store, place, invent) and none of the installed packs'."""
+    w, c = make_world()
+    w.add_object("terminal", 14, 10)
+    w.drop_items(11, 11, Counter({"stick": 2}))
+    w.add_object("sheep", 10, 14)
+    w.add_object("basket", 7, 10)
+    c.inventory.update({"plant_fiber": 2, "workbench": 1})
+    return w, c
+
+
+def test_pack_tips_keep_their_slots_among_many_core_tips():
+    w, c = crowded_world()
+    core = relevant(w, c, limit=7)
+    assert len(core) == 7 and not {t.line for t in TECHNIQUES if t.pack} & set(core)
+    with registry.sandbox():
+        low = [pack_technique(f"probe_{n}", s) for n, s in enumerate((1.0, 0.5, 0.2))]  # below every core score
+        for limit in (5, 4, 3, 2):
+            kept = min(2, limit // 2)
+            assert relevant(w, c, limit) == core[:limit - kept] + low[:kept]  # best first, packs' slots kept
+        assert relevant(w, c, 5, packs_only=True) == low  # without disclose: packs only, unchanged
+    with registry.sandbox():
+        one = pack_technique("probe_one", 0.5)
+        assert relevant(w, c) == core[:4] + [one]  # a lone pack tip takes one slot; core tips fill the rest
+    with registry.sandbox():
+        high = [pack_technique(f"probe_{n}", s) for n, s in enumerate((9.0, 8.5, 8.0))]
+        assert relevant(w, c) == high[:2] + core[:3]  # beyond their slots, packs don't push core tips out
+
+
+def test_disclose_recall_creature_by_a_fire_with_company_is_shown_dance_and_play():
+    w, c = crowded_world()
+    w.add_object("campfire", 10, 9, lit=True, fuel=500)  # fire (5.2) fits too: eight core tips in all
+    w.creatures["c2"] = Creature("c2", "Mara", 11, 10, asleep=False)  # and teach (3.0)
+    dance = "dance: dance by a lit campfire; anyone beside you may join and be cheered."
+    play = "play: play a game with someone beside you; you both feel the better for it."
+    program = "program (text): enter Lua code into a terminal beside you."
+    pick_up = "pick_up (target) / drop (target): take or leave items on the ground."
+
+    def shown(layers):
+        return tips_section(build_act_messages(w, c, Memory(), "PERCEPTION", layers=layers)[1]["content"])
+
+    assert shown({"plan", "disclose", "recall"}) == [program, pick_up, dance, play]  # a teacher creature's layers
+    assert shown({"disclose"}) == [program, pick_up, "read (target): read a sign, carving, tablet or terminal.", dance, play]
+    assert shown(set()) == [dance, play]  # without disclose: the packs' only, as before

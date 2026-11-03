@@ -237,6 +237,26 @@ def test_eating_a_ripe_crop_beside_you_harvests_and_eats_it(world):
     assert not res.ok and "ripe" in res.message
 
 
+def test_eating_from_a_mushroom_patch_beside_you_picks_and_eats(world):
+    c = creature(world)
+    c.satiety = 10
+    patch = world.add_object("mushroom_patch", 11, 10)
+    res = act(world, c, action="eat", target="mushroom")
+    assert res.ok and c.satiety > 10 and "mushroom patch" in res.message
+    assert patch.data["uses"] == 1  # one use of its two
+    assert [e for e in world.events if e.kind == "eat"]
+
+
+def test_eating_wild_food_out_of_reach_says_where_it_grows(world):
+    c = creature(world)
+    c.satiety = 10
+    res = act(world, c, action="eat", target="mushroom")
+    assert not res.ok and res.message == "You don't have any mushroom."  # beside nothing: as before
+    world.add_object("herb_patch", 14, 10)
+    res = act(world, c, action="eat", target="herbs")
+    assert not res.ok and "wild herbs 4 steps east" in res.message and c.satiety == 10
+
+
 def test_say_emits_event(world):
     c = creature(world)
     creature(world, "Mara", 12, 10)
