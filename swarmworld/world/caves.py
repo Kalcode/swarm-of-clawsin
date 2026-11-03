@@ -46,32 +46,49 @@ def _smooth(rock: np.ndarray) -> np.ndarray:
     return out
 
 
-def _components(open_: np.ndarray) -> list[list[tuple[int, int]]]:
-    """4-way connected groups of open tiles as (x, y) lists, largest first."""
+def tile_codes(world: World, y0: int, y1: int) -> np.ndarray:
+    """The tiles of rows y0 <= y < y1 as an array of character codes (compare with ord("c"))."""
+    return np.frombuffer("".join(map("".join, world.tiles[y0:y1])).encode(), dtype=np.uint8).reshape(y1 - y0, -1)
+
+
+def _components(open_: np.ndarray) -> list[np.ndarray]:
+    """4-way connected groups of open tiles as (n, 2) arrays of (x, y) in breadth-first order from each group's first
+    tile in reading order, largest first (equal sizes keep reading order)."""
     h, w = open_.shape
-    seen = np.zeros_like(open_)
+    W = w + 2  # walked on a copy framed by a closed border, so no step needs a bounds check
+    framed = np.zeros((h + 2, W), dtype=bool)
+    framed[1:-1, 1:-1] = open_
+    free = framed.ravel().tolist()  # flat lists: far quicker to walk than numpy scalars
     out = []
-    for sy, sx in zip(*np.nonzero(open_)):
-        if seen[sy, sx]:
+    for start in np.flatnonzero(framed.ravel()).tolist():
+        if not free[start]:
             continue
-        seen[sy, sx] = True
-        group, q = [], deque([(int(sx), int(sy))])
-        while q:
-            x, y = q.popleft()
-            group.append((x, y))
-            for dx, dy in _ORTHO:
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < w and 0 <= ny < h and open_[ny, nx] and not seen[ny, nx]:
-                    seen[ny, nx] = True
-                    q.append((nx, ny))
-        out.append(group)
+        free[start] = False
+        group, i = [start], 0
+        while i < len(group):
+            p = group[i]
+            i += 1
+            for n in (p + 1, p - 1, p + W, p - W):  # the order of _ORTHO: right, left, down, up
+                if free[n]:
+                    free[n] = False
+                    group.append(n)
+        g = np.array(group)
+        out.append(np.stack((g % W - 1, g // W - 1), axis=1))
     out.sort(key=len, reverse=True)
     return out
 
 
-def _middle(group: list[tuple[int, int]]) -> tuple[int, int]:
+def _edge(group: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """The group's tiles with a side not in the group, in the group's order. Nearest to any outside tile is always one."""
+    m = np.zeros((shape[0] + 2, shape[1] + 2), dtype=bool)
+    xs, ys = group[:, 0] + 1, group[:, 1] + 1
+    m[ys, xs] = True
+    inner = m[ys, xs + 1] & m[ys, xs - 1] & m[ys + 1, xs] & m[ys - 1, xs]
+    return group[~inner]
+
+
+def _middle(a: np.ndarray) -> tuple[int, int]:
     """The tile of a group nearest its centroid."""
-    a = np.array(group)
     c = a.mean(axis=0)
     return tuple(int(v) for v in a[((a - c) ** 2).sum(axis=1).argmin()])
 
@@ -81,10 +98,10 @@ def _join(rng: random.Random, open_: np.ndarray) -> None:
     groups = _components(open_)
     if len(groups) < 2:
         return
-    main = np.array(groups[0])
-    for g in groups[1:]:
-        a = np.array(g)
-        d = ((a[:, None, :] - main[None, :, :]) ** 2).sum(axis=2)
+    main = _edge(groups[0], open_.shape)
+    for a in groups[1:]:
+        a = _edge(a, open_.shape)
+        d = ((a[:, 0, None] - main[None, :, 0]) ** 2 + (a[:, 1, None] - main[None, :, 1]) ** 2).astype(np.int32)
         i, j = np.unravel_index(d.argmin(), d.shape)
         (x0, y0), (x1, y1) = a[i], main[j]
         if rng.random() < 0.5:
@@ -124,8 +141,7 @@ def _carve(rng: random.Random, width: int, height: int, chance: float) -> DeepMa
     caverns = []  # sizes as grown, before the tunnels and the stream and pool add to them
     for g in _components(open_):
         if len(g) < MIN_POCKET:
-            for x, y in g:
-                open_[y, x] = False
+            open_[g[:, 1], g[:, 0]] = False
         else:
             caverns.append((*_middle(g), len(g)))
     if not caverns:  # a hopeless seed or a tiny deep: open the middle
@@ -166,8 +182,8 @@ def _carve(rng: random.Random, width: int, height: int, chance: float) -> DeepMa
     open_ |= water
     if (px, py) != (mx, my):
         _join(rng, open_)  # a clamped pool may sit apart from the caves
-    rows = ["".join("u" if water[yy, xx] else "c" if open_[yy, xx] else "R" for xx in range(width))
-            for yy in range(height)]
+    grid = np.where(water, "u", np.where(open_, "c", "R"))
+    rows = ["".join(r) for r in grid.tolist()]
     return DeepMap(rows, caverns, (px, py))
 
 
@@ -207,34 +223,45 @@ def carve_passage(world: World, start: tuple[int, int],
         return []
     x0, y0, x1, y1 = box
     reg = world.region_at(*start)
-    open_ = np.array([[world.tile(x, y) in ("c", "u") and (x, y) not in avoid for x in range(world.width)]
-                      for y in range(reg.y0, reg.y1)])
+    w = world.width
+    codes = tile_codes(world, reg.y0, reg.y1)
+    open_ = (codes == ord("c")) | (codes == ord("u"))
+    for ax, ay in avoid:
+        if reg.y0 <= ay < reg.y1 and 0 <= ax < w:
+            open_[ay - reg.y0, ax] = False
     groups = _components(open_)
     if not groups:
         return []
-    main = {(x, y + reg.y0) for x, y in groups[0]}
-    if start in main:
+    main = np.zeros(open_.shape, dtype=bool)
+    main[groups[0][:, 1], groups[0][:, 0]] = True
+    main = main.ravel().tolist()
+    s0 = (start[1] - reg.y0) * w + start[0]  # tiles as flat indices into the region's rows
+    if main[s0]:
         return []
-    prev = {start: None}
-    q = deque([start])
+    prev = {s0: None}
+    q = deque([s0])
     goal = None
     while q:
         cur = q.popleft()
-        if cur in main:
+        if main[cur]:
             goal = cur
             break
+        cx, cy = cur % w, cur // w + reg.y0
         for dx, dy in _ORTHO:
-            n = (cur[0] + dx, cur[1] + dy)
-            if x0 <= n[0] < x1 and y0 <= n[1] < y1 and n not in prev:
-                prev[n] = cur
-                q.append(n)
+            nx, ny = cx + dx, cy + dy
+            if x0 <= nx < x1 and y0 <= ny < y1:
+                n = cur + dx + dy * w
+                if n not in prev:
+                    prev[n] = cur
+                    q.append(n)
     if goal is None:
         return []
     changed = []
     cur = goal
     while cur is not None:
-        if world.tile(*cur) == "R":
-            world.set_tile(*cur, "c")
-            changed.append(cur)
+        x, y = cur % w, cur // w + reg.y0
+        if world.tile(x, y) == "R":
+            world.set_tile(x, y, "c")
+            changed.append((x, y))
         cur = prev[cur]
     return changed[::-1]
