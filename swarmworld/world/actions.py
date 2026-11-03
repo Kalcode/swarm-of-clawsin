@@ -1408,7 +1408,20 @@ def _write(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f'You carve into the {surface.name}: "{text}"')
 
 
+INERT_LINE = "It doesn't seem to do anything yet."
+
+
+def _inert_invention(world: World, iid: str | None) -> bool:
+    """An invention that is no food, no tool and has no effect: it matched nothing the world knows how to do."""
+    inv = next((v for v in getattr(world.catalog, "inventions", []) if v["id"] == iid), None)
+    return bool(inv) and not inv.get("effects") and not inv.get("food") and not inv.get("tool")
+
+
 def _read(world: World, c: Creature, it: Intention) -> ActionResult:
+    iid = world.catalog.resolve(it.target) if it.target else None
+    if iid and _inert_invention(world, iid) and (c.inventory.get(iid, 0) > 0 or any(
+            o.kind == "creation" and o.data.get("item") == iid for o, _, _ in visible_objects(world, c, 1))):
+        return ActionResult(True, f"The {world.catalog.name(iid)}: {world.catalog.items[iid].desc} {INERT_LINE}")
     readable = {"sign", "tablet", "terminal", "wishing_stone"}
     obj = find_object(world, c, it.target or "sign", max_dist=1, kinds=readable)
     if not obj:  # carvings on trees and boulders
@@ -1596,7 +1609,8 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
         kind += "; resting beside it restores you like a bed"
     if "light" in effects:
         kind += "; once placed it lights up the night"
-    return ActionResult(True, f"You invent the {name}: {desc} It is {kind}. Recipe: {recipe}. Others can learn it if you share how.")
+    inert = f" {INERT_LINE}" if not (food or tool or effects) else ""
+    return ActionResult(True, f"You invent the {name}: {desc} It is {kind}.{inert} Recipe: {recipe}. Others can learn it if you share how.")
 
 
 def _teach(world: World, c: Creature, it: Intention) -> ActionResult:

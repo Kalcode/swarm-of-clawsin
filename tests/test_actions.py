@@ -743,3 +743,21 @@ def test_stone_shortfall_points_to_boulders_and_the_caves(world):
     c.spots["cave_mouth"] = (c.x, c.y - 9, world.tick)
     res = act(world, c, action="craft", target="stone axe")
     assert "a cave mouth you know lies north" in res.message
+
+
+def test_an_invention_with_no_effect_says_so_when_made_and_when_examined(world):
+    c = creature(world)
+    c.inventory.update({"stone": 4, "plant_fiber": 2, "stick": 2})
+    res = act(world, c, action="invent", target="rope stone", items=["stone", "plant fiber", "stone"], text="a smooth knot, useful for levers")
+    assert res.ok and "doesn't seem to do anything yet" in res.message
+    res = act(world, c, action="read", target="rope stone")
+    assert res.ok and "useful for levers" in res.message and "doesn't seem to do anything yet" in res.message
+    act(world, c, action="place", target="rope stone")  # set down, it still says so
+    res = act(world, c, action="read", target="rope stone")
+    assert "doesn't seem to do anything yet" in res.message
+    c.inventory["campfire"] = 1
+    act(world, c, action="place", target="campfire")
+    c.inventory.update({"stone": 3, "flint": 2, "plant_fiber": 2, "stick": 2})
+    world.tick += 1300
+    res = act(world, c, action="invent", target="flint torch", items=["stone", "flint", "plant fiber"], text="a torch that lights the night")
+    assert res.ok and "doesn't seem to do anything" not in res.message
