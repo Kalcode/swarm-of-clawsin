@@ -1027,15 +1027,30 @@ def yield_source(world: World, c: Creature, item: str) -> tuple[WorldObject, int
                  if o.kind in YIELDS and item in YIELDS[o.kind]["items"] and not _spent(o)), None)
 
 
+_GOING_TO_EAT: set[str] = set()  # creatures inside _go_eat: it must never re-enter itself through _eat
+
+
 def _go_eat(world: World, c: Creature, why: str) -> ActionResult:
+    if c.id in _GOING_TO_EAT:
+        return ActionResult(False, f"{why} Berries from a bush, ripe crops, mushrooms and fish are food.")
+    _GOING_TO_EAT.add(c.id)
+    try:
+        return _go_eat_once(world, c, why)
+    finally:
+        _GOING_TO_EAT.discard(c.id)
+
+
+def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
     """A creature that wants to eat but named nothing it can eat: its body goes for the nearest food in sight (a bush
     with fruit, a ripe crop, a food patch) and eats there, like "eat berries" walks to a bush. With none in sight, the
     refusal says what food is. (The student kept trying "eat grass" beside a bush the world had named.)"""
     def eats(o: WorldObject) -> str | None:  # what to eat from it, if it feeds
         if o.kind == "bush":
             return "berries" if o.data.get("berries", 6) > 0 else None
-        if o.kind == "crop":
-            return world.catalog.name(o.data.get("crop")) if o.data.get("stage", 0) >= 2 else None
+        if o.kind == "crop":  # only a crop whose harvest is food: ripe wheat isn't (it recursed through _eat)
+            crop = o.data.get("crop", "wheat")
+            ok = o.data.get("stage", 0) >= 2 and crop in world.catalog.items and world.catalog.items[crop].food > 0
+            return world.catalog.name(crop) if ok else None
         if o.kind in YIELDS and not _spent(o):
             return next((world.catalog.name(i) for i in YIELDS[o.kind]["items"]
                          if i in world.catalog.items and world.catalog.items[i].food > 0), None)

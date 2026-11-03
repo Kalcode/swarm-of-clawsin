@@ -761,3 +761,15 @@ def test_an_invention_with_no_effect_says_so_when_made_and_when_examined(world):
     world.tick += 1300
     res = act(world, c, action="invent", target="flint torch", items=["stone", "flint", "plant fiber"], text="a torch that lights the night")
     assert res.ok and "doesn't seem to do anything" not in res.message
+
+
+def test_eating_beside_ripe_wheat_never_loops(world):
+    # review of 8c5e0ea: a ripe crop counted as food even when its crop (wheat) isn't, so _go_eat and _eat recursed
+    c = creature(world)
+    c.satiety = 20
+    c.inventory["wheat"] = 2
+    world.add_object("crop", 11, 10, crop="wheat", stage=2)
+    res = act(world, c, action="eat", target="wheat")
+    assert "Something went wrong" not in res.message and "isn't food" in res.message
+    res = act(world, c, action="eat", target="grass")
+    assert "Something went wrong" not in res.message
