@@ -141,7 +141,7 @@ def test_coal_names_the_item_not_the_seam():
     c.inventory["coal"] = 3
     assert do(w, c, "drop", items=["coal"], count=1).ok and w.ground[(x, y)]["coal"] == 1
     assert do(w, c, "take", items=["coal"]).ok and c.inventory["coal"] == 3
-    assert "coal" in do(w, c, "eat", target="coal").message and c.inventory["coal"] == 3
+    assert "coal" in do(w, c, "eat", target="coal").message.lower() and c.inventory["coal"] == 3
     w.add_object("coal_seam", x + 1, y)
     c.inventory["stone_pickaxe"] = 1
     res = do(w, c, "gather", target="coal")

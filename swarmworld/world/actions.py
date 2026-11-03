@@ -1018,22 +1018,30 @@ def yield_source(world: World, c: Creature, item: str) -> tuple[WorldObject, int
                  if o.kind in YIELDS and item in YIELDS[o.kind]["items"] and not _spent(o)), None)
 
 
-def _food_hint(world: World, c: Creature) -> str:
-    """Where food is, for a creature whose eating went nowhere: the nearest thing in sight that feeds it, or what does."""
-    def feeds(o: WorldObject) -> bool:
+def _go_eat(world: World, c: Creature, why: str) -> ActionResult:
+    """A creature that wants to eat but named nothing it can eat: its body goes for the nearest food in sight (a bush
+    with fruit, a ripe crop, a food patch) and eats there, like "eat berries" walks to a bush. With none in sight, the
+    refusal says what food is. (The student kept trying "eat grass" beside a bush the world had named.)"""
+    def eats(o: WorldObject) -> str | None:  # what to eat from it, if it feeds
         if o.kind == "bush":
-            return o.data.get("berries", 6) > 0
+            return "berries" if o.data.get("berries", 6) > 0 else None
         if o.kind == "crop":
-            return o.data.get("stage", 0) >= 2
-        return (o.kind in YIELDS and not _spent(o)
-                and any(i in world.catalog.items and world.catalog.items[i].food > 0 for i in YIELDS[o.kind]["items"]))
-    near = min(((o, d, dirn) for o, d, dirn in visible_objects(world, c) if feeds(o)), key=lambda t: t[1], default=None)
+            return world.catalog.name(o.data.get("crop")) if o.data.get("stage", 0) >= 2 else None
+        if o.kind in YIELDS and not _spent(o):
+            return next((world.catalog.name(i) for i in YIELDS[o.kind]["items"]
+                         if i in world.catalog.items and world.catalog.items[i].food > 0), None)
+        return None
+    near = min(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := eats(o))), key=lambda t: t[1], default=None)
     if near is None:
-        return " Berries from a bush, ripe crops, mushrooms and fish are food."
-    o, d, dirn = near
-    name = "berry bush with fruit" if o.kind == "bush" else (f"ripe {world.catalog.name(o.data.get('crop'))}" if o.kind == "crop" else o.name)
-    where = "right beside you" if d <= 1 else f"{d} steps {dirn}"
-    return f" A {name} is {where}."
+        return ActionResult(False, f"{why} Berries from a bush, ripe crops, mushrooms and fish are food.")
+    o, d, dirn, food = near
+    name = "berry bush with fruit" if o.kind == "bush" else (f"ripe {food}" if o.kind == "crop" else o.name)
+    then = Intention("eat", target=food)
+    if d > 1:
+        res = _walk_then(world, c, o, then)
+        return replace(res, message=f"{why} So you head for the {name} {d} steps {dirn}. {res.message}")
+    res = _eat(world, c, then)
+    return replace(res, message=f"{why} So you eat from the {name} beside you. {res.message}")
 
 
 def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
@@ -1041,7 +1049,7 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
     if not name:
         foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
         if not foods:
-            return ActionResult(False, "You have nothing to eat." + _food_hint(world, c))
+            return _go_eat(world, c, "You have nothing to eat.")
         name = max(foods, key=lambda i: world.catalog.items[i].food)
     iid = world.catalog.resolve(name)
     if iid is None and any(w in ("chicken", "cow", "sheep", "hen", "lamb", "animal") for w in _words(name)):
@@ -1085,7 +1093,7 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, err)
     food = world.catalog.items[iid].food
     if food <= 0:
-        return ActionResult(False, f"You can't eat {world.catalog.name(iid)}." + _food_hint(world, c))
+        return _go_eat(world, c, f"{world.catalog.name(iid).capitalize()} isn't food.")
     want = it.count if it.count > 1 else max(1, int((85 - c.satiety) // food) + 1)  # eat until satisfied
     n = max(1, min(want, c.inventory[iid], 6))
     c.inventory[iid] -= n

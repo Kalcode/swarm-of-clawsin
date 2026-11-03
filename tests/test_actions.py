@@ -663,8 +663,9 @@ def test_eating_something_inedible_says_where_food_is(world):
     c.inventory["plant_fiber"] = 2
     world.add_object("bush", 13, 10)
     res = act(world, c, action="eat", target="grass")
-    assert not res.ok and "can't eat plant fiber" in res.message
-    assert "berry bush" in res.message and "3 steps east" in res.message
+    # the student kept eating grass beside a named bush (73 refusals, Ira collapsed twice): the body goes for the food
+    assert res.ok and "Plant fiber isn't food" in res.message and "berry bush" in res.message
+    assert c.satiety > 20 and c.inventory.get("plant_fiber") == 2
 
 
 def test_having_nothing_to_eat_says_where_food_is(world):
@@ -672,7 +673,7 @@ def test_having_nothing_to_eat_says_where_food_is(world):
     c.satiety = 20
     world.add_object("mushroom_patch", 10, 12)
     res = act(world, c, action="eat")
-    assert not res.ok and "nothing to eat" in res.message and "mushroom patch" in res.message and "2 steps south" in res.message
+    assert res.ok and "nothing to eat" in res.message and "mushroom patch" in res.message and c.satiety > 20
 
 
 def test_with_no_food_in_sight_it_says_what_food_is(world):
