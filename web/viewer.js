@@ -93,7 +93,9 @@
   /* ----------------------------------------------------------------- state */
   const S = {
     loaded: false,
-    width: 64, height: 64, tiles: [], terrain: null, land: null,
+    width: 64, height: 64, tiles: [], land: null,
+    // the map's regions (rows y0..y1); one is shown at a time, each with its own pre-rendered terrain
+    regions: [], layer: 'surface', terrains: {}, dirty: new Set(),
     objects: new Map(), lit: [], wishStones: [], glowing: [], objAt: new Map(), objAnim: new Map(),
     inventions: new Map(), invByName: new Map(), landmarks: [],
     voice: { open: false, target: null, radius: 6, disabled: false, busy: false, pulse: 0 },
@@ -255,9 +257,14 @@
     S.width = (m.width | 0) || 64;
     S.height = (m.height | 0) || 64;
     S.tiles = Array.isArray(m.tiles) ? m.tiles : [];
-    S.land = landRows(m.nature, S.width, S.height);
+    S.regions = SwarmLayers.regionsFrom(m);
+    if (!SwarmLayers.byName(S.regions, S.layer)) S.layer = (SwarmLayers.byName(S.regions, 'surface') || S.regions[0]).name;
+    const top = SwarmLayers.byName(S.regions, 'surface');
+    S.land = top ? landRows(m.nature, S.width, top.height) : null;   // the surface's biomes and rivers
     T.setKinds(m.kinds);
-    S.terrain = SK.renderTerrain(S.tiles, S.width, S.height, S.land);
+    S.dirty.clear();
+    S.terrains = {};
+    renderTerrains();
     if (FX) FX.reset();
     S.objects = new Map();
     for (const o of m.objects || []) S.objects.set(o.id, o);
@@ -280,9 +287,10 @@
     S.loaded = true;
 
     if (first) {
+      const R = shownRegion();
       S.cam.x = S.width / 2;
-      S.cam.y = S.height / 2;
-      const fit = Math.min(vw / (S.width * 16), vh / (S.height * 16));
+      S.cam.y = (R.y0 + R.y1) / 2;
+      const fit = Math.min(vw / (S.width * 16), vh / (R.height * 16));
       const level = vw < 700 ? 1.5 : 2;
       S.zoom.level = S.zoom.view = Math.max(level, ZOOMS.find((z) => z >= fit) || 1);
       updateZoomLabel();
@@ -293,8 +301,26 @@
     if (S.selected && !S.cres.has(S.selected)) deselect();
     renderVeil();
     renderHeader();
+    renderLayerSwitch();
     renderCreaturePanel();
   }
+
+  /** Pre-renders the terrain of the named regions (all when none are named), each from its own rows; only the
+   *  surface has land rows (biomes, rivers). The ASCII skin keeps the land of its last render for the glyphs it
+   *  draws live, so the surface goes last, and again whenever another region is redrawn while it keeps land. */
+  function renderTerrains(names) {
+    const redo = S.regions.filter((r) => !names || names.has(r.name) || (r.name === 'surface' && SK.drawGround && S.land));
+    redo.sort((a, b) => (a.name === 'surface') - (b.name === 'surface'));
+    for (const r of redo) {
+      S.terrains[r.name] = SK.renderTerrain(S.tiles.slice(r.y0, r.y1), S.width, r.height, r.name === 'surface' ? S.land : null);
+    }
+  }
+
+  /** The region on show. */
+  function shownRegion() {
+    return SwarmLayers.byName(S.regions, S.layer) || S.regions[0] || SwarmLayers.regionsFrom(S)[0];
+  }
+  const inRegion = (R, y) => y >= R.y0 && y < R.y1;
 
   /** The init message's biomes and river flow (rows aligned with the tiles), or null when it has none. */
   function landRows(nature, w, h) {
@@ -313,13 +339,18 @@
     }
     S.lastTickWall = now;
 
-    let namesChanged = false;
+    let namesChanged = false, climbed = null;
     for (const c of m.creatures || []) {
       const e = S.cres.get(c.id);
       if (!e) {
         S.cres.set(c.id, { d: c, fx: c.x, fy: c.y, tx: c.x, ty: c.y, rx: c.x, ry: c.y, face: 0 });
         namesChanged = true;
         continue;
+      }
+      // the selected creature went up or down into a region not on show: the view goes with it
+      if (c.id === S.selected) {
+        const was = SwarmLayers.regionAt(S.regions, e.d.y), is = SwarmLayers.regionAt(S.regions, c.y);
+        if (is && is !== was && is.name !== S.layer) climbed = c;
       }
       const p = lerpPos(e, now);
       const jump = Math.abs(c.x - p.x) > 2.5 || Math.abs(c.y - p.y) > 2.5;
@@ -334,6 +365,14 @@
       e.d = c;
     }
     if (namesChanged) indexNames();
+    if (climbed) setLayer(SwarmLayers.followLayer(S.regions, S.layer, climbed.y), climbed);
+
+    // tiles dug, filled or flooded since the last tick: their regions' terrain is drawn again on the next frame
+    if (Array.isArray(m.tiles)) {
+      const t = SwarmLayers.applyTiles(S.tiles, m.tiles, S.regions);
+      S.tiles = t.tiles;
+      for (const name of t.dirty) S.dirty.add(name);
+    }
 
     // the full list of buildings arrives on a tick where one was completed or removed; null means no change
     if (ROOFS && Array.isArray(m.buildings)) ROOFS.set(m.buildings);
@@ -371,6 +410,7 @@
     if (window.SwarmSound) SwarmSound.tick(m.events, S.cam, S.clock);
     pushEvents((m.events || []).filter((ev) => !(ev && ev.kind === 'sound')));  // sounds are for the ears, not the feed
     renderHeader();
+    renderLayerSwitch();
     if (S.selected) renderCreaturePanel();
     else if (S.tab === 'creature' && S.tick % 4 === 0) renderRoster();
   }
@@ -455,6 +495,70 @@
   }
 
   const WEATHER_TITLE = { rain: 'Raining', drizzle: 'A fine drizzle', fog: 'Foggy', wind: 'Windy', storm: 'A storm', heat: 'Heavy heat' };
+
+  /* ================================================================ layers */
+  /** Shows another region; the camera keeps its x and its row offset, so a way down and its foot stay in view.
+   *  who: the creature whose going up or down switched the view, said in a toast. */
+  function setLayer(name, who) {
+    const to = SwarmLayers.byName(S.regions, name), from = shownRegion();
+    if (!to || to === from) return;
+    const cam = SwarmLayers.moveCam(S.cam, S.regions, from.name, to.name);
+    if (drag) drag.cy += cam.y - S.cam.y;   // a drag under way carries on in the region shown
+    S.cam.x = cam.x;
+    S.cam.y = cam.y;
+    S.zoom.anchor = null;
+    S.layer = to.name;
+    hoverCre = null;
+    if (S.voice.target && !inRegion(to, S.voice.target.y)) { S.voice.target = null; if (S.voice.open) renderVoiceScope(); }
+    renderLayerSwitch();
+    if (who) toast(`${who.name || who.id} went ${to.level < from.level ? 'down into' : 'up to'} the ${to.name}`);
+  }
+
+  /** The switch or U: following someone who isn't in the region chosen stops (they stay selected). */
+  function switchLayer(name) {
+    const to = SwarmLayers.byName(S.regions, name);
+    const e = S.following && S.selected ? S.cres.get(S.selected) : null;
+    if (to && e && !inRegion(to, e.d.y)) { S.following = false; renderFollow(); }
+    setLayer(name);
+  }
+
+  /** Centres the map on a tile (a place, an event), switching to its region. */
+  function lookAt(x, y) {
+    S.following = false;
+    renderFollow();
+    setLayer(SwarmLayers.followLayer(S.regions, S.layer, y));
+    S.cam.x = x + 0.5;
+    S.cam.y = y + 0.5;
+  }
+
+  /** The Surface / Underground switch, shown when the world has more than one region. The option not on show carries
+   *  a badge: how many creatures are there ("3 creatures below"). */
+  function renderLayerSwitch() {
+    const box = $('layer-switch');
+    box.hidden = S.regions.length < 2;
+    if (box.hidden) return;
+    const here = shownRegion();
+    const n = SwarmLayers.counts(Array.from(S.cres.values(), (e) => e.d), S.regions);
+    for (const b of box.querySelectorAll('button[data-layer]')) {
+      const r = SwarmLayers.byName(S.regions, b.dataset.layer);
+      const on = r === here;
+      const label = b.dataset.label || (b.dataset.label = b.firstChild.textContent.trim());
+      const k = r && !on ? n[r.name] : 0;
+      const say = k ? `${k} creature${k === 1 ? '' : 's'} ${r.level < here.level ? 'below' : 'above'}` : '';
+      setAttr(b, 'aria-checked', String(on));
+      setAttr(b, 'aria-label', say ? `${label}, ${say}` : label);
+      setAttr(b, 'title', on ? `Showing the ${label.toLowerCase()}` : `Show the ${label.toLowerCase()} (U)${say ? ' · ' + say : ''}`);
+      b.disabled = !r;
+      const badge = b.querySelector('.layer-badge');
+      if (!badge) continue;
+      badge.hidden = !k;
+      setText(badge, k ? String(k) : '');
+      setAttr(badge, 'title', say);
+    }
+  }
+  function setAttr(el, k, v) {
+    if (el.getAttribute(k) !== v) el.setAttribute(k, v);
+  }
 
   /* ================================================================ events */
   function speechOf(text, name) {
@@ -1579,10 +1683,7 @@
       const b = e.target.closest('[data-place]');
       const p = b && S.landmarks[+b.dataset.place];
       if (!p) return;
-      S.following = false;
-      renderFollow();
-      S.cam.x = p.x + 0.5;
-      S.cam.y = p.y + 0.5;
+      lookAt(p.x, p.y);
     });
     const cv = $('soc-canvas');
     const tip = $('soc-tip');
@@ -1936,7 +2037,7 @@
     const root = document.documentElement;
     root.dataset.skin = SK.name;
     if (window.SwarmLimeZu && window.SwarmLimeZu.applyUI) window.SwarmLimeZu.applyUI(root, SK.name === 'limezu');
-    if (S.loaded) S.terrain = SK.renderTerrain(S.tiles, S.width, S.height, S.land);
+    if (S.loaded) renderTerrains();
     portraitKey = null;
     renderCredit();
     renderCreaturePanel();
@@ -1985,9 +2086,11 @@
     }
   }
 
+  /** Keeps the camera in the region on show. */
   function clampCam() {
-    S.cam.x = clamp(S.cam.x, 0, S.width);
-    S.cam.y = clamp(S.cam.y, 0, S.height);
+    const c = SwarmLayers.clampCam(S.cam, shownRegion(), S.width);
+    S.cam.x = c.x;
+    S.cam.y = c.y;
   }
 
   function setZoom(level, ax, ay) {
@@ -2033,7 +2136,8 @@
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#0c090f';
     ctx.fillRect(0, 0, vw, vh);
-    if (!S.loaded || !S.terrain) return;
+    if (!S.loaded) return;
+    if (S.dirty.size) { const names = S.dirty; S.dirty = new Set(); renderTerrains(names); }   // at most once a frame
 
     // zoom easing (keeps the point under the cursor fixed)
     const Z = S.zoom;
@@ -2048,31 +2152,34 @@
       if (Z.view === Z.level) Z.anchor = null;
     }
 
-    // creature positions for this frame
+    // a followed creature is always shown: when it is in another region, so is the view
+    const fol = S.following && S.selected ? S.cres.get(S.selected) : null;
+    if (fol) setLayer(SwarmLayers.followLayer(S.regions, S.layer, fol.ty));
+    const R = shownRegion();
+
+    // creature positions for this frame; only those in the region on show are drawn
     const list = [];
     const steps = !!window.SwarmSound && SwarmSound.wantsSteps(Z.view);
     for (const e of S.cres.values()) {
       const p = lerpPos(e, now);
       e.rx = p.x; e.ry = p.y;
       e.moving = p.t < 1 && (e.fx !== e.tx || e.fy !== e.ty);
+      const here = inRegion(R, e.d.y);
       if (e.moving && (steps || FX)) {
         const surface = surfaceAt(Math.round(p.x), Math.round(p.y));
         if (steps) SwarmSound.step(e.d.id, p.x, p.y, surface, S.cam, Z.view);
-        if (FX && Z.view >= 1.5) FX.walk(e.d.id, p.x, p.y, surface, now);
+        if (FX && here && Z.view >= 1.5) FX.walk(e.d.id, p.x, p.y, surface, now);
       }
-      list.push(e);
+      if (here) list.push(e);
     }
     if (window.SwarmSound && S.tick % 100 === 0) SwarmSound.forgetWalkers(S.cres);
     // back to front; the selected creature always on top of anyone sharing its tile
     list.sort((a, b) => (a.d.id === S.selected) - (b.d.id === S.selected) || a.ry - b.ry);
 
-    if (S.following && S.selected) {
-      const e = S.cres.get(S.selected);
-      if (e) {
-        const k = 1 - Math.exp(-dt * 7);
-        S.cam.x += (e.rx + 0.5 - S.cam.x) * k;
-        S.cam.y += (e.ry + 0.5 - S.cam.y) * k;
-      }
+    if (fol) {
+      const k = 1 - Math.exp(-dt * 7);
+      S.cam.x += (fol.rx + 0.5 - S.cam.x) * k;
+      S.cam.y += (fol.ry + 0.5 - S.cam.y) * k;
     }
     clampCam();
 
@@ -2080,15 +2187,22 @@
     const ox = Math.round(vw / 2 - S.cam.x * ts);
     const oy = Math.round(vh / 2 - S.cam.y * ts);
     view.ox = ox; view.oy = oy; view.ts = ts;
+    // the tiles on screen, within the region on show
     const x0 = Math.max(0, Math.floor(-ox / ts) - 1);
-    const y0 = Math.max(0, Math.floor(-oy / ts) - 1);
+    const y0 = Math.max(R.y0, Math.floor(-oy / ts) - 1);
     const x1 = Math.min(S.width - 1, Math.ceil((vw - ox) / ts));
-    const y1 = Math.min(S.height - 1, Math.ceil((vh - oy) / ts));
+    const y1 = Math.min(R.y1 - 1, Math.ceil((vh - oy) / ts));
 
     // world edge
+    const top = oy + R.y0 * ts;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(ox - 6, oy - 6, S.width * ts + 12, S.height * ts + 12);
-    ctx.drawImage(S.terrain, ox, oy, S.width * ts, S.height * ts);
+    ctx.fillRect(ox - 6, top - 6, S.width * ts + 12, R.height * ts + 12);
+    // nothing of another region shows past the band of rock between them (tall sprites may reach above the top row)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, top - 3 * ts, vw, (R.height + 4) * ts);
+    ctx.clip();
+    if (S.terrains[R.name]) ctx.drawImage(S.terrains[R.name], ox, top, S.width * ts, R.height * ts);
     // the ASCII skin draws its terrain characters live, so they stay crisp at every zoom
     if (SK.drawGround) SK.drawGround(ctx, S.tiles, S.objAt, x0, y0, x1, y1, ox, oy, ts, now);
 
@@ -2112,7 +2226,7 @@
     const M = 3;
     const draw = [];
     for (const o of S.objects.values()) {
-      if (o.x < x0 - M || o.x > x1 + M || o.y < y0 || o.y > y1 + M) continue;
+      if (o.x < x0 - M || o.x > x1 + M || o.y < y0 || o.y > y1 + M || !inRegion(R, o.y)) continue;
       const pos = S.objAnim.has(o.id) ? objPos(o, now) : null;
       draw.push({ k: pos ? pos.y + 0.05 : o.y, o, pos });
     }
@@ -2150,6 +2264,7 @@
       ROOFS.draw(ctx, SK, V, who ? Math.round(who.rx) : -1, who ? Math.round(who.ry) : -1);
     }
     if (FX) FX.over(ctx, V);
+    ctx.restore();
     drawNight(list, ox, oy, ts, now);
     if (FX) FX.sky(ctx, V);
     for (const [hx, hy, o] of tamed) drawHeart(hx + ts / 2, hy + ts - (ANIMAL_TOP[o.kind] || 1) * ts - 2, ts);
@@ -2203,8 +2318,9 @@
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const R = shownRegion();
     for (const L of S.landmarks) {
-      if (!L || !isNum(L.x) || !isNum(L.y) || !L.name) continue;
+      if (!L || !isNum(L.x) || !isNum(L.y) || !L.name || !inRegion(R, L.y)) continue;
       const kind = L.kind || 'camp';
       const size = Math.max(0, +L.size || 0);
       const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts;
@@ -2272,11 +2388,13 @@
   }
 
   function drawNight(list, ox, oy, ts, now) {
+    const R = shownRegion(), shown = (o) => inRegion(R, o.y);   // lights of another region don't show in this one
+    const lit = S.lit.filter(shown), glowing = S.glowing.filter(shown), wishStones = S.wishStones.filter(shown);
     const light = clamp(isNum(S.clock && S.clock.light) ? S.clock.light : 1, 0, 1);
     const dark = (1 - light) * 0.84;
     const flick = (o) => 1 + Math.sin(now / 95 + o.x * 7) * 0.025 + Math.sin(now / 41 + o.y * 3) * 0.015;
     const onScreen = (cx, cy, r) => cx > -r && cy > -r && cx < vw + r && cy < vh + r;
-    const extra = FX ? FX.lights() : [];
+    const extra = FX ? FX.lights().filter(shown) : [];
 
     if (dark > 0.02) {
       nctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2285,7 +2403,7 @@
       nctx.fillStyle = `rgba(6,5,20,${dark.toFixed(3)})`;
       nctx.fillRect(0, 0, vw, vh);
       nctx.globalCompositeOperation = 'destination-out';
-      for (const o of S.lit) {
+      for (const o of lit) {
         const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts;
         const r = 4.6 * ts * flick(o);
         if (!onScreen(cx, cy, r)) continue;
@@ -2308,7 +2426,7 @@
         nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
       // soft lights from the data ("glow": fireflies), breathing
-      for (const o of S.glowing) {
+      for (const o of glowing) {
         const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts;
         const r = (0.7 + Math.min(3, T.kindInfo(o.kind).glow) * 0.45) * ts;
         if (!onScreen(cx, cy, r)) continue;
@@ -2320,7 +2438,7 @@
         nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
       // wishing stones keep a faint light of their own
-      for (const o of S.wishStones) {
+      for (const o of wishStones) {
         const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.6) * ts;
         const r = 1.8 * ts;
         if (!onScreen(cx, cy, r)) continue;
@@ -2352,7 +2470,7 @@
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     const warm = 0.05 + (1 - light) * 0.2;
-    for (const o of S.lit) {
+    for (const o of lit) {
       const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts;
       const r = (dark > 0.02 ? 4 : 2.2) * ts * flick(o);
       if (!onScreen(cx, cy, r)) continue;
@@ -2375,7 +2493,7 @@
     // fireflies: a green-gold glint of their own in the dark
     if (light < 0.8) {
       const fa = (0.8 - light) * 0.3;
-      for (const o of S.glowing) {
+      for (const o of glowing) {
         const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.5) * ts, r = 1.1 * ts;
         if (!onScreen(cx, cy, r)) continue;
         const k = 0.6 + 0.4 * Math.sin(now / 380 + o.x * 5 + o.y * 2);
@@ -2388,7 +2506,7 @@
     }
     // and cool, moonlike light around wishing stones
     const cool = 0.04 + (1 - light) * 0.17;
-    for (const o of S.wishStones) {
+    for (const o of wishStones) {
       const cx = ox + (o.x + 0.5) * ts, cy = oy + (o.y + 0.6) * ts;
       const r = 1.7 * ts * (1 + Math.sin(now / 1100 + o.x) * 0.04);
       if (!onScreen(cx, cy, r)) continue;
@@ -2529,7 +2647,7 @@
     // hovered tile
     if (S.hoverPx && !drag) {
       const tx = Math.floor((S.hoverPx.x - ox) / ts), ty = Math.floor((S.hoverPx.y - oy) / ts);
-      if (tx >= 0 && ty >= 0 && tx < S.width && ty < S.height) {
+      if (tx >= 0 && tx < S.width && inRegion(shownRegion(), ty)) {
         ctx.strokeStyle = 'rgba(235,227,213,0.35)';
         ctx.lineWidth = 1;
         ctx.strokeRect(ox + tx * ts + 0.5, oy + ty * ts + 0.5, ts - 1, ts - 1);
@@ -2635,7 +2753,9 @@
     const { ox, oy, ts } = view;
     let best = null, bestD = Infinity;
     const half = SK.spriteTopTiles / 2;
+    const R = shownRegion();
     for (const e of S.cres.values()) {
+      if (!inRegion(R, e.d.y)) continue;
       const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 1 - half) * ts;
       const dx = Math.abs(px - cx), dy = Math.abs(py - cy);
       if (dx > ts * 0.55 + 4 || dy > ts * half + 4) continue;
@@ -2652,7 +2772,7 @@
     hoverCre = drag && drag.moved ? null : creatureAt(S.hoverPx.x, S.hoverPx.y);
     canvas.classList.toggle('is-pointing', !!hoverCre);
     const tx = Math.floor((S.hoverPx.x - ox) / ts), ty = Math.floor((S.hoverPx.y - oy) / ts);
-    if (tx < 0 || ty < 0 || tx >= S.width || ty >= S.height) { setHTML(info, ''); return; }
+    if (tx < 0 || tx >= S.width || !inRegion(shownRegion(), ty)) { setHTML(info, ''); return; }
     const code = (S.tiles[ty] || '')[tx] || 'g';
     const parts = [`<span class="hv-k">${tx},${ty}</span>`, `<span class="hv-v">${esc(T.terrainName(code))}</span>`];
     for (const o of S.objAt.get(tx + ',' + ty) || []) {
@@ -2711,7 +2831,7 @@
       if (wasClick && e.type === 'pointerup' && e.altKey && !S.voice.disabled) {
         const r = canvas.getBoundingClientRect();
         const tx = Math.floor((e.clientX - r.left - view.ox) / view.ts), ty = Math.floor((e.clientY - r.top - view.oy) / view.ts);
-        if (tx >= 0 && ty >= 0 && tx < S.width && ty < S.height) { S.voice.target = { x: tx, y: ty }; openVoice(true); }
+        if (tx >= 0 && tx < S.width && inRegion(shownRegion(), ty)) { S.voice.target = { x: tx, y: ty }; openVoice(true); }
         updateHover();
         return;
       }
@@ -2765,6 +2885,25 @@
     });
 
     $('panel-toggle').addEventListener('click', () => setPanel(document.body.classList.contains('panel-collapsed')));
+    const layers = $('layer-switch');
+    // a narrow header shows only the option to go to: focus moves on to the one that takes its place
+    const pickLayer = (b) => {
+      const had = document.activeElement === b;
+      switchLayer(b.dataset.layer);
+      const next = layers.querySelector('[aria-checked="false"]:not(:disabled)');
+      if (had && !b.offsetParent && next) next.focus();
+    };
+    layers.addEventListener('click', (e) => { const b = e.target.closest('button[data-layer]'); if (b) pickLayer(b); });
+    layers.addEventListener('keydown', (e) => {   // a radiogroup: the arrows move between its options
+      if (!/^Arrow(Left|Right|Up|Down)$/.test(e.key)) return;
+      const opts = [...layers.querySelectorAll('button[data-layer]:not(:disabled)')].filter((b) => b.offsetParent);
+      const i = opts.indexOf(document.activeElement);
+      if (opts.length < 2 || i < 0) return;   // the narrow header's single option is a plain button
+      e.preventDefault();
+      const n = opts[(i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? opts.length - 1 : 1)) % opts.length];
+      switchLayer(n.dataset.layer);
+      n.focus();
+    });
     $('voice-btn').addEventListener('click', () => { if (!S.voice.open && window.SwarmSound) SwarmSound.cue('ui_send', 0.5); openVoice(!S.voice.open); });
     $('voice-form').addEventListener('submit', (e) => { e.preventDefault(); if ($('voice-input').value.trim()) sendCue(); sendVoice(); });
     $('voice-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); openVoice(false); } });
@@ -2802,12 +2941,7 @@
       if (!li) return;
       if (li.dataset.chron) { showTab('chronicle'); return; }
       if (li.dataset.actor && S.cres.has(li.dataset.actor)) { select(li.dataset.actor, true); return; }
-      if (li.dataset.x != null) {
-        S.following = false;
-        renderFollow();
-        S.cam.x = +li.dataset.x + 0.5;
-        S.cam.y = +li.dataset.y + 0.5;
-      }
+      if (li.dataset.x != null) lookAt(+li.dataset.x, +li.dataset.y);
     });
 
     window.addEventListener('keydown', (e) => {
@@ -2823,6 +2957,9 @@
         else if (S.selected) deselect();
       } else if (e.key === '\\') {
         setPanel(document.body.classList.contains('panel-collapsed'));
+      } else if ((e.key === 'u' || e.key === 'U') && S.regions.length > 1) {
+        e.preventDefault();
+        switchLayer(SwarmLayers.otherLayer(S.regions, S.layer));
       } else if (e.key === '+' || e.key === '=') {
         zoomStep(1, null, null);
       } else if (e.key === '-' || e.key === '_') {

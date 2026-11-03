@@ -34,6 +34,8 @@
       </div>
     </div>
 
+    <span class="layer-switch" id="layer-switch" role="radiogroup" aria-label="Layer" hidden><button type="button" role="radio" data-layer="surface" aria-checked="true">Surface <span class="layer-badge num" hidden></span></button><button type="button" role="radio" data-layer="deep" aria-checked="false">Underground <span class="layer-badge num" id="layer-badge" hidden></span></button></span>
+
     <div class="topbar-end">
       <div class="sound-ctl">
         <button class="icon-btn" id="sound-btn" type="button" aria-pressed="false" title="Turn sound on (M)"><span class="sr-only">Sound</span></button>
@@ -307,6 +309,7 @@
   <script src="roofs.js"></script>
   <script src="sound.js"></script>
   <script src="motion.js"></script>
+  <script src="layers.js"></script>
   <script src="viewer.js"></script>
   <script>(function () {  // the almanac needs the join token too when the viewer was opened with one
     var t = new URLSearchParams(location.search).get('token');

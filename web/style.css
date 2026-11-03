@@ -173,6 +173,36 @@ html:not(.sprites-ok) .brand-fallback { display: inline; }
 
 .topbar-end { margin-left: auto; display: flex; align-items: center; gap: 12px; flex: none; }
 
+/* Surface / Underground (layers.js): which region of the map is on show. The option not on show counts the
+   creatures there. A narrow header keeps only the option to go to, as an arrow button. */
+.layer-switch {
+  display: inline-flex; flex: none; gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--ink-0);
+}
+.layer-switch button {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 10px;
+  border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-3);
+  font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.layer-switch button:hover { color: var(--text); background: var(--ink-3); }
+.layer-switch button[aria-checked="true"] { color: var(--text); background: var(--ink-4); box-shadow: inset 0 0 0 1px #45394d; }
+.layer-switch button:disabled { display: none; }
+.layer-badge {
+  min-width: 18px; height: 17px; padding: 0 5px;
+  display: inline-grid; place-items: center;
+  border-radius: 999px;
+  background: rgba(244, 180, 27, 0.16); color: #f2d27a;
+  font: 600 10.5px/1 var(--mono);
+}
+
 /* voice from the sky */
 .voice { position: relative; }
 .voice-btn {
@@ -1072,6 +1102,16 @@ button.wwho:hover { text-decoration-color: currentColor; }
 .discoveries .t { font: 11px/19px var(--mono); color: var(--text-3); }
 
 /* ------------------------------------------------------------- responsive */
+@media (max-width: 1280px) {
+  /* the layer switch keeps only the option to go to, in a word ("Below", "Above"), with the count of creatures there */
+  .layer-switch { padding: 0; border: 0; background: none; }
+  .layer-switch button[aria-checked="true"] { display: none; }
+  .layer-switch button { height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-2); font-size: 0; }
+  .layer-switch button::before { font-size: 11.5px; }
+  .layer-switch [data-layer="deep"]::before { content: "Below"; content: "Below" / ""; }
+  .layer-switch [data-layer="surface"]::before { content: "Above"; content: "Above" / ""; }
+  .layer-badge { position: absolute; top: -8px; right: -9px; min-width: 16px; height: 15px; padding: 0 4px; font-size: 10px; background: #382a17; }
+}
 @media (max-width: 1100px) {
   .hstat-sub { display: none; }
   .hstat .ico { grid-row: auto; }
@@ -1097,6 +1137,10 @@ button.wwho:hover { text-decoration-color: currentColor; }
 
 @media (max-width: 560px) {
   .hstats { display: none; }
+}
+@media (max-width: 440px) {
+  /* the brand keeps its campfire so every button still fits */
+  .brand { width: 24px; overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1301,6 +1345,33 @@ html.lz-ui[data-skin="limezu"] .conn[data-state="connecting"] .conn-dot,
 html.lz-ui[data-skin="limezu"] .conn[data-state="stalled"] .conn-dot { background: #f2b22b; }
 html.lz-ui[data-skin="limezu"] .conn[data-state="offline"] { color: #ffc2b0; border-color: var(--lz-navy); }
 html.lz-ui[data-skin="limezu"] .conn[data-state="offline"] .conn-dot { background: #e63f38; }
+
+/* Surface / Underground: a slot in the plank holding the pack's pills, like the art switch; the count a wooden tag */
+html.lz-ui[data-skin="limezu"] .layer-switch {
+  gap: 0; padding: 2px;
+  border: 2px solid var(--lz-navy); border-radius: 0;
+  background: var(--lz-plank-lo);
+  box-shadow: inset 0 2px #2a1f24;
+}
+html.lz-ui[data-skin="limezu"] .layer-switch button {
+  height: 26px; padding: 0 10px 2px; gap: 6px;
+  border: 2px solid transparent; border-radius: 0;
+  background: none; color: var(--lz-cream-2);
+  font: 18px/1 var(--px); letter-spacing: 0.02em;
+  image-rendering: pixelated;
+  transition: none;
+}
+html.lz-ui[data-skin="limezu"] .layer-switch button:hover { color: var(--lz-cream); background: none; border-image: var(--lz-tab) 4 fill / 8px; }
+html.lz-ui[data-skin="limezu"] .layer-switch button[aria-checked="true"] {
+  color: var(--lz-ink); background: none; box-shadow: none;
+  border-image: var(--lz-tab-on) 4 fill / 8px;
+}
+html.lz-ui[data-skin="limezu"] .layer-badge {
+  min-width: 16px; height: 16px; padding: 0 3px 1px;
+  border-radius: 0; background: var(--lz-wood-hi); color: var(--lz-ink);
+  box-shadow: 0 0 0 2px var(--lz-navy);
+  font: 14px/1 var(--px);
+}
 
 /* ---- popovers: the mixer on parchment in a wooden frame, the voice in the sky's frame */
 html.lz-ui[data-skin="limezu"] .audio-pop {
@@ -1897,6 +1968,13 @@ html.lz-ui[data-skin="limezu"] .htable table { font: 16px/1.2 var(--px); color: 
 html.lz-ui[data-skin="limezu"] .htable th { color: var(--lz-ink-2); }
 
 /* ---- narrow screens: the same pieces, packed tighter */
+@media (max-width: 1280px) {
+  /* the layer switch's one option, in its slot, with the count on a wooden tag at its corner */
+  html.lz-ui[data-skin="limezu"] .layer-switch button { padding: 0 10px 2px; font-size: 0; color: var(--lz-cream); border-image: var(--lz-tab) 4 fill / 8px; }
+  html.lz-ui[data-skin="limezu"] .layer-switch button:hover { filter: brightness(1.12); }
+  html.lz-ui[data-skin="limezu"] .layer-switch button::before { font: 18px/1 var(--px); letter-spacing: 0.02em; }
+  html.lz-ui[data-skin="limezu"] .layer-badge { top: -9px; right: -10px; font-size: 13px; background: var(--lz-wood-hi); }
+}
 @media (max-width: 900px) {
   html.lz-ui[data-skin="limezu"] .panel > * { width: calc(min(var(--panel-w), 100vw) - 12px); }
   html.lz-ui[data-skin="limezu"] .panel { box-shadow: -12px 0 28px rgba(20, 12, 16, 0.5); }
