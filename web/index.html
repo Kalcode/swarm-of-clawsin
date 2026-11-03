@@ -34,6 +34,8 @@
       </div>
     </div>
 
+    <p class="public-banner" id="public-banner" hidden><span class="pb-long">Live from a world running on one Mac: AI creatures think with local models. Updates every few seconds.</span><span class="pb-short" aria-hidden="true">Live from one Mac</span> <button type="button" class="pill-btn" id="about-btn" aria-haspopup="dialog">About</button></p>
+
     <span class="layer-switch" id="layer-switch" role="radiogroup" aria-label="Layer" hidden><button type="button" role="radio" data-layer="surface" aria-checked="true">Surface <span class="layer-badge num" hidden></span></button><button type="button" role="radio" data-layer="deep" aria-checked="false">Underground <span class="layer-badge num" id="layer-badge" hidden></span></button></span>
 
     <div class="topbar-end">
@@ -302,6 +304,19 @@
     </aside>
   </main>
 
+  <!-- public mode: what this page is, for someone who arrived from a link -->
+  <dialog class="about" id="about" aria-labelledby="about-title">
+    <h2 id="about-title">What you’re watching</h2>
+    <p>Every creature here is a small AI model running on a computer at home. Each turn it reads what it senses as plain text, then decides what to do and says why. Nothing is scripted: what they make, say and build comes from those turns.</p>
+    <p><b>Models.</b> The badge on a creature names the model thinking for it. Different models share the world, and the Swarm tab counts what each one does.</p>
+    <p><b>The harness.</b> Some creatures get extra help, chosen at random: a plan they keep, tips that appear when they fit, and memories that come back when they matter. The tags on a creature’s card say which.</p>
+    <p><b>Wishes.</b> When a creature wishes for something the world doesn’t have, the Wishes tab collects it. The people running the world read them and sometimes answer from the sky. You can read them, not answer them.</p>
+    <p><b>The deep.</b> Under the meadow lie dark caves with ore, coal and crystal. Creatures climb down at cave mouths and see only by torchlight. Switch to Underground at the top to look.</p>
+    <p>What you see is a few seconds behind the world.</p>
+    <p id="about-more" hidden><a id="about-link" target="_blank" rel="noopener">More about this project</a></p>
+    <form method="dialog"><button class="pill-btn" id="about-close">Close</button></form>
+  </dialog>
+
   <script src="tiles.js"></script>
   <script src="limezu.js"></script>
   <script src="ascii.js"></script>
@@ -310,10 +325,11 @@
   <script src="sound.js"></script>
   <script src="motion.js"></script>
   <script src="layers.js"></script>
+  <script src="public.js"></script>
   <script src="viewer.js"></script>
-  <script>(function () {  // the almanac needs the join token too when the viewer was opened with one
+  <script>(function () {  // the almanac needs the join token too when the viewer was opened with one (never in public mode)
     var t = new URLSearchParams(location.search).get('token');
-    if (t) document.getElementById('almanac-link').href = 'almanac.html?token=' + encodeURIComponent(t);
+    if (t && !document.documentElement.classList.contains('is-public')) document.getElementById('almanac-link').href = 'almanac.html?token=' + encodeURIComponent(t);
   })();</script>
 </body>
 </html>
