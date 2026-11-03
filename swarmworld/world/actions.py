@@ -919,7 +919,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         else:  # "gather stone" beside the stone tablet: say where the stone they want comes from
             # the target names the object ("stone tablet"), so its words aren't a want; the items say what they want
             own = set(_words(obj.name))
-            want = next((iid for w in [*(x for x in words if x not in own), *(x for n in it.items for x in _words(n))]
+            want = next((iid for w in [*(x for x in words if x not in own), *(x for n in (it.items if it.target else it.items[1:]) for x in _words(n))]
                          if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
             hint = f" {world.catalog.name(want).capitalize()}: {_source_hint(world, c, want)}." if want else ""
             return ActionResult(False, f"You can't gather anything from the {obj.name}.{hint}")
