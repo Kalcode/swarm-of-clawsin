@@ -364,15 +364,16 @@ def _rack_line(world: World, c: Creature) -> str | None:
 
 def _dry(sim: Simulation, t: int) -> None:
     """Racks dry raw meat and fish in dry weather (faster in wind or heat, slower at night); the rain stops them. Below
-    the sky no weather reaches a rack: it dries as on a still, dry day."""
+    the sky neither weather nor night reaches a rack: it dries as on a still, dry day."""
     w = sim.world
     night = w.clock()["phase"] == "night"
     for rack in [o for o in w.objects.values() if o.kind == "drying_rack"]:
-        weather = _weather(w) if w.under_sky(rack.x, rack.y) else "clear"
+        sky = w.under_sky(rack.x, rack.y)
+        weather = _weather(w) if sky else "clear"
         if weather in WET:
             continue
         step = DRY_EVERY * (2 if weather in FAST else 1)
-        if night:
+        if night and sky:
             step //= 2
         items = rack.data.get("items") or {}
         drying = rack.data.get("drying", {})
@@ -531,7 +532,8 @@ def _populate(world: World, rng, fresh: bool) -> None:
 def _wildlife(sim: Simulation, t: int) -> None:
     """Hunted game and picked mushrooms come back slowly, out of sight of anyone; mushrooms faster after rain."""
     w = sim.world
-    counts = Counter(o.kind for o in w.objects.values())
+    _, y0, _, y1 = w.region_bounds("surface")
+    counts = Counter(o.kind for o in w.objects.values() if y0 <= o.y < y1)  # the surface's own: below is no habitat
     wet = _weather(w) in WET
     for kind, hab in habitat_kinds().items():
         if not hab.get("top_up"):

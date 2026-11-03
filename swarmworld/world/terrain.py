@@ -269,7 +269,7 @@ def spawn_animals(world: World, rng: random.Random, limit: int | None = None) ->
     x0, y0, x1, y1 = world.region_bounds("surface")
     added = 0
     for kind, target in ANIMAL_POPULATION.items():
-        have = sum(1 for o in world.objects.values() if o.kind == kind)
+        have = sum(1 for o in world.objects.values() if o.kind == kind and y0 <= o.y < y1)
         tries = 0
         while have < target and tries < 4000 and (limit is None or added < limit):
             tries += 1

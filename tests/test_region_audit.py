@@ -1,8 +1,9 @@
 """The region audit: the land, nature, food, weather and building keep to the surface; cave water is water (Task 4).
 
-with_deep(w) gives a generated 48x48 world a deep below it (rows 80-127, after the rock band), as every world will
-have. Tests that need ground a careless whole-map scan would use paint some of the deep as grass, forest floor or dirt
-(dug or filled ground looks like that), so a scan that strays below finds somewhere to put things."""
+with_deep(w) gives a generated 48x48 world a deep of 40 rows below it (rows 80-119, after the rock band), as every
+world will have; it is shorter than the surface so that a mix-up of the two heights or areas can't pass. Tests that
+need ground a careless whole-map scan would use paint some of the deep as grass, forest floor or dirt (dug or filled
+ground looks like that), so a scan that strays below finds somewhere to put things."""
 
 import random
 from collections import Counter
@@ -10,22 +11,22 @@ from collections import Counter
 from swarmworld.mind.memory import Memory
 from swarmworld.mind.prompts import build_act_messages
 from swarmworld.world.actions import Intention, apply_intention
-from swarmworld.world.model import ANIMALS, START_TICK, Creature
+from swarmworld.world.model import ANIMALS, DAY_TICKS, START_TICK, Creature
 from swarmworld.world.packs import building, food, nature, weather
 from swarmworld.world.perception import DIRS, _far_features, note_spots, perceive
 from swarmworld.world.registry import run_populate
 from swarmworld.world.simulation import Simulation
-from swarmworld.world.terrain import (_lake_tiles, biome_at, derive_biomes, derive_flow, flow_at, generate_world,
-                                      water_near)
+from swarmworld.world.terrain import (ANIMAL_POPULATION, _lake_tiles, biome_at, derive_biomes, derive_flow, flow_at,
+                                      generate_world, spawn_animals, water_near)
 
 SIZE = 48
+DEEP_ROWS = 40  # not the surface's height
 SURFACE_KINDS = set(nature.PLANTS) | set(nature.INSECTS) | set(food.habitat_kinds()) | set(ANIMALS)
 
 
-def with_deep(w):
-    """Add a deep (rock round the edge, cave floor inside) below w unless it has one; its bounds."""
+def with_deep(w, h=DEEP_ROWS):
+    """Add a deep of h rows (rock round the edge, cave floor inside) below w unless it has one; its bounds."""
     if w.region("deep") is None:
-        h = w.region("surface").height
         rows = [["R" if x in (0, w.width - 1) or y in (0, h - 1) else "c" for x in range(w.width)] for y in range(h)]
         w.add_region("deep", -1, rows, False, False)
     return w.region_bounds("deep")
@@ -83,6 +84,23 @@ def test_population_counts_ignore_the_deep():
     assert {k: food.population(w, k) for k in kinds} == counts
     assert {k: nature.insect_cap(w, k) for k in nature.INSECTS} == caps
     assert caps == {k: round(n * SIZE * SIZE / 128 ** 2) for k, n in nature.INSECT_CAP.items()}
+
+
+def test_game_and_animals_below_never_fill_the_surface_quota():
+    w = generate_world(7, SIZE, SIZE)
+    _, y0, _, _ = with_deep(w)
+    sim = Simulation(w)
+    for kind, n in ANIMAL_POPULATION.items():  # a whole herd of each kind down here...
+        for i in range(n):
+            w.add_object(kind, 5 + i, y0 + 5 + 2 * list(ANIMAL_POPULATION).index(kind))
+    gone = [o for o in w.objects.values() if o.kind == "chicken" and w.under_sky(o.x, o.y)][:2]
+    for o in gone:  # ...and two chickens gone from up top
+        w.remove_object(o.id)
+    assert spawn_animals(w, random.Random(5)) == 2
+    deer = [o for o in w.objects.values() if o.kind == "deer"]
+    assert deer and all(w.move_object(o, 5 + i, y0 + 20) for i, o in enumerate(deer))  # all the deer go below
+    food._wildlife(sim, 300)
+    assert any(o.kind == "deer" and w.under_sky(o.x, o.y) for o in w.objects.values())
 
 
 def test_drift_carries_off_the_surface_edge():
@@ -170,6 +188,11 @@ def test_rain_and_wind_never_reach_a_rack_or_a_crop_below(two_levels):
     food._dry(sim, t)
     assert racks[0].data["drying"] == {"meat": 2 * food.DRY_EVERY}  # wind dries it twice as fast up top
     assert racks[1].data["drying"] == {"meat": 2 * food.DRY_EVERY}  # below, as on a still day
+    weather.set_weather(w, "clear", 10_000)
+    w.tick = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)  # night: only up top does it dry more slowly
+    food._dry(sim, w.tick)
+    assert racks[0].data["drying"] == {"meat": 2 * food.DRY_EVERY + food.DRY_EVERY // 2}
+    assert racks[1].data["drying"] == {"meat": 3 * food.DRY_EVERY}
 
 
 def test_no_building_sites_or_wells_underground(two_levels):

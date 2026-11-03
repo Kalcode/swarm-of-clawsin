@@ -97,7 +97,7 @@ def _ambience(sim, t: int) -> None:
         elif o.kind in ANIMALS and _awake_near(w, o.x, o.y, 9) and rng.random() < 0.15:
             if _ready(w, f"animal:{o.kind}", ANIMAL_COOLDOWN):
                 w.sound(o.x, o.y, f"a {o.kind.replace('_', ' ')} calling", radius=9, kind=f"animal:{o.kind}")
-    for c in awake:
+    for c in awake:  # not cave water (u): still pools don't babble (revisit if a stream flows below)
         spot = next(((x, y) for y in range(c.y - RIVER_REACH, c.y + RIVER_REACH + 1)
                      for x in range(c.x - RIVER_REACH, c.x + RIVER_REACH + 1)
                      if w.in_bounds(x, y) and w.tile(x, y) in "wW"), None)
