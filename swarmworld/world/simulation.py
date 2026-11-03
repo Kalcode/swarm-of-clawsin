@@ -11,7 +11,7 @@ from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
 from .model import ANIMALS, Creature, World, wet
 from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
-from .registry import KINDS, SYSTEMS, call_safely
+from .registry import KINDS, LANDMARK_SOURCES, SYSTEMS, call_safely
 
 INSPIRATION_CHANCE = {"curious": 0.12, "tinkerer": 0.12, "builder": 0.07, "teacher": 0.05}  # per thought
 SATIETY_EVERY = 24  # one point every 12 s: about 20 minutes from full to starving
@@ -473,11 +473,14 @@ class Simulation:
                 cp["name"] = cp["name"].replace("'s camp", f"'s {('second', 'third', 'fourth')[min(names[cp['name']] - 2, 2)]} camp")
         cx, cy = w.center
         fixed = [{"name": f"the {direction(o.x - cx, o.y - cy)} terminal", "x": o.x, "y": o.y, "kind": "terminal", "size": 1}
-                 for o in w.objects.values() if o.kind == "terminal" and o.data.get("builder") is None]
+                 for o in w.objects.values() if o.kind == "terminal" and o.data.get("builder") is None
+                 and (w.region_at(o.x, o.y) or w.regions[0]).name == "surface"]
         lake = self._lake()
         if lake:
             fixed.append({"name": "the lake", "x": lake[0], "y": lake[1], "kind": "lake", "size": 1})
         fixed.append({"name": "the meadow", "x": cx, "y": cy, "kind": "meadow", "size": 1})
+        for source in LANDMARK_SOURCES:  # what packs know: each a list of {"name", "x", "y", "kind"}
+            fixed += [{"size": 1, **lm} for lm in call_safely("landmark source", source, w, default=None) or ()]
         w.landmarks = camps + fixed
 
     def _lake(self) -> tuple[int, int] | None:
@@ -485,7 +488,8 @@ class Simulation:
         w = self.world
         key = (id(w.tiles), w.tiles_version)
         if self._lake_cache is None or self._lake_cache[0] != key:
-            water = [(x, y) for y, row in enumerate(w.tiles) for x, t in enumerate(row) if t == "W"]
+            y0, y1 = w.region_bounds()[1::2]  # the surface's rows: deep water is no lake
+            water = [(x, y) for y in range(y0, y1) for x, t in enumerate(w.tiles[y]) if t == "W"]
             at = (sum(x for x, _ in water) // len(water), sum(y for _, y in water) // len(water)) if water else None
             self._lake_cache = (key, at)
         return self._lake_cache[1]
@@ -538,7 +542,7 @@ class Simulation:
             spec = KINDS.get(o.kind, {})  # shy kinds (wild game) say so in their data: they flee sooner and farther
             wary, flee = spec.get("wary", WARY_RANGE), spec.get("flee", FLEE_STEPS)
             near = [c for c in w.creatures.values() if not c.collapsed and c.name not in d.get("fed_by", ())
-                    and max(abs(c.x - o.x), abs(c.y - o.y)) < wary] if not owner and not d.get("tamed_by") else []
+                    and max(abs(c.x - o.x), abs(c.y - o.y)) < wary and w.same_region((c.x, c.y), (o.x, o.y))] if not owner and not d.get("tamed_by") else []
             following = bool(owner and max(abs(owner.x - o.x), abs(owner.y - o.y)) <= 6
                              and any(owner.inventory.get(f, 0) > 0 for f in ANIMAL_LURE))
             if near:

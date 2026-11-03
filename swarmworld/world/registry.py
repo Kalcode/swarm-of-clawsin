@@ -353,6 +353,36 @@ def extra_perception(world: "World", c: "Creature") -> list[str]:
     return lines
 
 
+# ------------------------------------------------------------------ landmarks and handoffs
+LANDMARK_SOURCES: list[Callable[["World"], list[dict]]] = []
+
+
+def register_landmarks(fn: Callable[["World"], list[dict]]) -> None:
+    """Named places a pack knows: fn(world) returns [{"name", "x", "y", "kind"}, ...], merged into world.landmarks each
+    time the simulation works them out (every 60 ticks). Creatures hear of a place only in its own region. A failing
+    source is skipped."""
+    source = _caller()
+    _check_free("landmarks", id(fn), source, shown=getattr(fn, "__qualname__", repr(fn)))
+    _OWNERS[("landmarks", id(fn))] = source
+    LANDMARK_SOURCES.append(fn)
+
+
+@dataclass(frozen=True)
+class Handoff:
+    verb: str
+    to: str
+    when: Callable[["World", "Creature", "Intention"], bool]
+
+
+HANDOFFS: list[Handoff] = []
+
+
+def register_handoff(verb: str, to: str, when: Callable[["World", "Creature", "Intention"], bool]) -> None:
+    """In apply_intention, an intention for `verb` becomes the verb `to` when when(world, creature, intention) is true
+    (the first match in registration order; a failing `when` counts as False)."""
+    HANDOFFS.append(Handoff(verb, to, when))
+
+
 # ------------------------------------------------------------------ placing a pack's things
 @dataclass(frozen=True)
 class Populate:
@@ -392,7 +422,8 @@ def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
 @contextmanager
 def sandbox():
     """Everything registered inside the block is undone when it ends (for tests)."""
-    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE)
+    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE, LANDMARK_SOURCES,
+            HANDOFFS)
     saved = [list(x) if isinstance(x, list) else dict(x) for x in live]
     try:
         yield

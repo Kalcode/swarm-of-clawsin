@@ -44,12 +44,13 @@ def data_dir(tmp_path):
 @pytest.fixture
 def two_levels():
     """A factory: two_levels(24) is a size x size grass World with a 24-row "deep" region (floor of cave floor, a
-    sky-less region without weather) added below the rock band. Rows 0-23 are the surface, 24-55 rock, 56-79 the deep."""
+    sky-less region without weather) added below a rock band of `gap` rows (default REGION_GAP; tests of the region
+    rules pass gap=0). Rows 0-23 are the surface, 24-55 rock, 56-79 the deep."""
     from swarmworld.world.catalog import Catalog
-    from swarmworld.world.model import World
+    from swarmworld.world.model import REGION_GAP, World
 
-    def make(size: int = 24) -> World:
+    def make(size: int = 24, gap: int = REGION_GAP) -> World:
         w = World(size, size, [["g"] * size for _ in range(size)], Catalog.load())
-        w.add_region("deep", -1, [["c"] * size for _ in range(size)], sky=False, weather=False)
+        w.add_region("deep", -1, [["c"] * size for _ in range(size)], sky=False, weather=False, gap=gap)
         return w
     return make

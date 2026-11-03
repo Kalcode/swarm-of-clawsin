@@ -66,13 +66,13 @@ def run_terminal(world: World, term: WorldObject) -> None:
         except (TypeError, ValueError):
             r = 5
         out = []
-        for y in range(term.y - r, term.y + r + 1):
+        for y in world.view_rows(term.y, r):
             for x in range(term.x - r, term.x + r + 1):
                 o = world.object_at(x, y)
                 if o and o is not term:
                     out.append({"kind": o.kind, "name": o.name, "dx": o.x - term.x, "dy": o.y - term.y})
         for c in world.creatures.values():
-            if dist(c.x, c.y, term.x, term.y) <= r:
+            if dist(c.x, c.y, term.x, term.y) <= r and world.same_region((c.x, c.y), (term.x, term.y)):
                 out.append({"kind": "creature", "name": c.name, "dx": c.x - term.x, "dy": c.y - term.y})
         out.sort(key=lambda t: max(abs(t["dx"]), abs(t["dy"])))
         return out[:40]
@@ -84,7 +84,7 @@ def run_terminal(world: World, term: WorldObject) -> None:
             return None
         best = None
         for o in world.objects.values():
-            if o is term:
+            if o is term or not world.same_region((o.x, o.y), (term.x, term.y)):
                 continue
             if want in o.kind.replace("_", " ") or want in o.name.lower():
                 d = dist(o.x, o.y, term.x, term.y)

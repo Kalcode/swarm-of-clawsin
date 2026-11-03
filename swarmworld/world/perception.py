@@ -90,17 +90,17 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
     for o, d, _ in visible_objects(world, c):
         if (o.kind in REMEMBERED_KINDS or o.kind in YIELDS) and (o.kind not in nearest or d < nearest[o.kind][0]):
             nearest[o.kind] = (d, o.x, o.y)
-    for y in range(c.y - r, c.y + r + 1):
+    for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
             if world.in_bounds(x, y) and world.tile(x, y) in "wW":
                 d = dist(c.x, c.y, x, y)
                 if "water" not in nearest or d < nearest["water"][0]:
                     nearest["water"] = (d, x, y)
     for lm in getattr(world, "landmarks", []):
-        if dist(c.x, c.y, lm["x"], lm["y"]) <= LANDMARK_RANGE:
+        if dist(c.x, c.y, lm["x"], lm["y"]) <= LANDMARK_RANGE and world.same_region((c.x, c.y), (lm["x"], lm["y"])):
             c.landmarks_seen.add(lm["name"])
     for kind, (x, y, _t) in list(c.spots.items()):
-        if kind not in nearest and dist(c.x, c.y, x, y) <= r:  # should be in view, isn't: it's gone
+        if kind not in nearest and dist(c.x, c.y, x, y) <= r and world.same_region((c.x, c.y), (x, y)):  # should be in view, isn't: it's gone
             del c.spots[kind]
     for kind, (_d, x, y) in nearest.items():
         c.spots[kind] = (x, y, tick)
@@ -130,7 +130,7 @@ def sight_range(world: World, creature: Creature) -> int:
 def visible_objects(world: World, creature: Creature, rng: int | None = None) -> list[tuple[WorldObject, int, str]]:
     r = sight_range(world, creature) if rng is None else rng
     out = []
-    for y in range(creature.y - r, creature.y + r + 1):
+    for y in world.view_rows(creature.y, r):
         for x in range(creature.x - r, creature.x + r + 1):
             o = world.object_at(x, y)
             if o:
@@ -139,7 +139,7 @@ def visible_objects(world: World, creature: Creature, rng: int | None = None) ->
     if rng is None and r < DAY_SIGHT:  # in the dark, fires and lights still glow from afar
         seen = {o.id for o, _, _ in out}
         far = []
-        for y in range(creature.y - GLOW_SIGHT, creature.y + GLOW_SIGHT + 1):
+        for y in world.view_rows(creature.y, GLOW_SIGHT):
             for x in range(creature.x - GLOW_SIGHT, creature.x + GLOW_SIGHT + 1):
                 o = world.object_at(x, y)
                 if o and o.id not in seen and ((o.kind == "campfire" and o.data.get("lit")) or glows(o)
@@ -161,7 +161,7 @@ def visible_creatures(world: World, creature: Creature, rng: int | None = None) 
     r = sight_range(world, creature) if rng is None else rng
     out = []
     for c in world.creatures.values():
-        if c.id == creature.id:
+        if c.id == creature.id or not world.same_region((creature.x, creature.y), (c.x, c.y)):
             continue
         d = dist(creature.x, creature.y, c.x, c.y)
         if d <= r:
@@ -175,7 +175,7 @@ def visible_piles(world: World, creature: Creature) -> list[tuple[int, int, int,
     out = []
     for (x, y), pile in world.ground.items():
         d = dist(creature.x, creature.y, x, y)
-        if d <= r and pile:
+        if d <= r and pile and world.same_region((creature.x, creature.y), (x, y)):
             out.append((x, y, d, direction(x - creature.x, y - creature.y)))
     return sorted(out, key=lambda t: t[2])
 
@@ -252,7 +252,7 @@ def inventory_text(world: World, c: Creature) -> str:
 
 def _far_features(world: World, c: Creature, r: int) -> str:
     seen: dict[str, tuple[int, str]] = {}
-    for y in range(c.y - r, c.y + r + 1):
+    for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
             if not world.in_bounds(x, y) or (x == c.x and y == c.y):
                 continue
@@ -361,7 +361,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     marks = []
     for lm in getattr(world, "landmarks", []):
         d = dist(c.x, c.y, lm["x"], lm["y"])
-        if d <= LANDMARK_RANGE:
+        if d <= LANDMARK_RANGE and world.same_region((c.x, c.y), (lm["x"], lm["y"])):
             marks.append((d, "you are at " + lm["name"] if d <= 3 else f"{lm['name']} {_where(d, direction(lm['x'] - c.x, lm['y'] - c.y))}"))
     if marks:
         lines.append("Places you know: " + "; ".join(t for _, t in sorted(marks)[:4]) + ".")
@@ -369,7 +369,8 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     if far:
         lines.append("Around you: " + far + ".")
     in_view = {o.kind for o, _, _ in visible_objects(world, c)} | ({"water"} if far and "water" in far else set())
-    recalled = sorted((dist(c.x, c.y, x, y), kind, x, y) for kind, (x, y, _t) in c.spots.items() if kind not in in_view)
+    recalled = sorted((dist(c.x, c.y, x, y), kind, x, y) for kind, (x, y, _t) in c.spots.items()
+                      if kind not in in_view and world.same_region((c.x, c.y), (x, y)))
     if recalled:
         lines.append("You remember: " + ", ".join(f"{spot_name(k)} {_where(d, direction(x - c.x, y - c.y))}"
                                                   for d, k, x, y in recalled[:RECALL_SHOWN]) + ".")
