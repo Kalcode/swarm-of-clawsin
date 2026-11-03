@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import time
 
+from urllib.parse import quote
+
 from aiohttp import web
 
 from .public import PUBLISHER, Doc
@@ -78,26 +80,21 @@ def redirect(to: str, cache: str) -> web.Response:
     return web.Response(status=302, headers={"Location": to, "Cache-Control": cache, "X-Content-Type-Options": "nosniff"})
 
 
-def bare_only(request: web.Request) -> web.Response | None:
-    """An unversioned document has no query: any query is a cache-busting key, so it is sent to the bare URL (a small,
-    short-cached answer in place of a body the edge would store under a new key)."""
-    return redirect(request.rel_url.raw_path, REDIRECT_CACHE) if request.query_string else None
-
-
-def versioned(request: web.Request, version: str) -> web.Response | None:
-    """A versioned document is asked for with exactly ?v=<current>; any other query (or none) is sent there."""
-    if request.query_string and request.query.getall("v", []) == [version] and len(request.query) == 1:
+def versioned(request: web.Request, path: str, version: str) -> web.Response | None:
+    """A versioned document is served for exactly the raw query v=<current> (no padding, no percent-encoding: another
+    spelling is another edge key); anything else is sent, with a short cache, to the canonical URL."""
+    if request.rel_url.raw_query_string == f"v={version}":
         return None
-    return redirect(f"{request.rel_url.raw_path}?v={version}", REDIRECT_CACHE)
+    return redirect(f"{path}?v={version}", REDIRECT_CACHE)
 
 
 async def live_json(request: web.Request) -> web.Response:
-    return bare_only(request) or _serve(request, request.app[PUBLISHER].live_doc(), LIVE_CACHE)
+    return _serve(request, request.app[PUBLISHER].live_doc(), LIVE_CACHE)
 
 
 async def static_json(request: web.Request) -> web.Response:
     pub = request.app[PUBLISHER]
-    return versioned(request, pub.static_version) or _serve(request, pub.static_doc(), IMMUTABLE)
+    return versioned(request, "/public/static.json", pub.static_version) or _serve(request, pub.static_doc(), IMMUTABLE)
 
 
 _last_log = [-60.0]
@@ -114,8 +111,6 @@ def failed() -> web.Response:
 
 
 async def creature_json(request: web.Request) -> web.Response:
-    if (r := bare_only(request)) is not None:
-        return r
     try:
         doc = request.app[PUBLISHER].creature_doc(request.match_info["cid"])
     except Exception:
@@ -124,20 +119,16 @@ async def creature_json(request: web.Request) -> web.Response:
 
 
 async def almanac_json(request: web.Request) -> web.Response:
-    if (r := bare_only(request)) is not None:
-        return r
     return doc_response(request, request.app[PUBLISHER].almanac_doc(), MINUTE)
 
 
 async def history_json(request: web.Request) -> web.Response:
-    if (r := bare_only(request)) is not None:
-        return r
     return doc_response(request, request.app[PUBLISHER].history_doc(), MINUTE)
 
 
 async def chronicle_json(request: web.Request) -> web.Response:
     pub = request.app[PUBLISHER]
-    return versioned(request, pub.chronicle_version) or doc_response(request, pub.chronicle_doc(), IMMUTABLE)
+    return versioned(request, "/public/chronicle.json", pub.chronicle_version) or doc_response(request, pub.chronicle_doc(), IMMUTABLE)
 
 
 async def not_public(request: web.Request) -> web.Response:
@@ -167,12 +158,13 @@ async def app_file(request: web.Request) -> web.Response:
         return web.Response(status=404, text="not found",
                             headers={"Cache-Control": APP_MISSING, "X-Content-Type-Options": "nosniff"})
     body, gz, content_type, version = found
-    q = request.query
-    v = q.get("v")
-    if set(q) - {"v"} or (v is not None and (v != version or len(q.getall("v")) > 1)):
-        # a cache-busting key: sent to the current URL (v dropped, or set to the current one), never a body under it
-        to = request.rel_url.raw_path + (f"?v={version}" if v is not None else "")
-        return redirect(to, APP_SHORT)
+    raw = request.rel_url.raw_query_string
+    if rel.endswith(".html"):  # a page ignores its query (?skin= among it): the same bytes and 60 s whatever it is
+        v = None
+    elif raw in ("", f"v={version}"):
+        v = version if raw else None
+    else:  # another spelling is another edge key: sent to the canonical URL
+        return redirect(f"/public/app/{quote(rel)}?v={version}", APP_SHORT)
     headers = {"Content-Type": content_type, "Cache-Control": app_cache(rel, content_type, v, version),
                "Vary": "Accept-Encoding", "X-Content-Type-Options": "nosniff"}
     if gz is not None and _takes_gzip(request.headers.get("Accept-Encoding")):

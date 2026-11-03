@@ -10,7 +10,7 @@ import pytest
 from swarmworld.server.app import WEB_DIR, create_app
 from swarmworld.server.public_app import PUBLIC_APP, PublicApp
 
-from .test_public_http import PROXIED, raw_get
+from .test_public_http import PROXIED, raw_get, raw_head
 
 LIMEZU_BYTES = b"LIMEZU-LICENSED-ART"
 SFX_BYTES = b"SFX-LICENSED-SAMPLE"
@@ -297,7 +297,7 @@ async def test_the_page_scripts_images_and_fonts_cache_as_ruled(aiohttp_client):
     assert (await c.get("/public/app/style.css")).headers["Cache-Control"] == "public, max-age=60"
     for url, kind, cache in (("/public/app/assets/kenney-1bit/colored_transparent_packed.png", "image/png", "public, max-age=86400"),
                              ("/public/app/assets/fonts/Jersey10-Regular.woff2", "font/woff2", "public, max-age=86400"),
-                                                          (f"/public/app/assets/fonts/Jersey10-Regular.woff2?v={v}", "font/woff2",
+                             (f"/public/app/assets/fonts/Jersey10-Regular.woff2?v={v}", "font/woff2",
                               "public, max-age=31536000, immutable")):
         r = await c.get(url)
         assert r.status == 200 and r.headers["Content-Type"] == kind and r.headers["Cache-Control"] == cache, url
@@ -388,15 +388,23 @@ async def test_other_versions_and_unknown_queries_are_redirected(aiohttp_client)
     c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=3600))
     v = c.app[PUBLIC_APP].version
     short = "public, max-age=60"
-    for url, to in (("viewer.js?v=bogus", f"viewer.js?v={v}"), ("viewer.js?x=1", "viewer.js"),
-                    (f"viewer.js?v={v}&x=1", f"viewer.js?v={v}"), ("viewer.js?v=bogus&x=1", f"viewer.js?v={v}"),
-                    ("index.html?v=bogus", f"index.html?v={v}"), ("assets/fonts/Jersey10-Regular.woff2?v=old",
-                                                              f"assets/fonts/Jersey10-Regular.woff2?v={v}")):
-        r = await c.get(f"/public/app/{url}", allow_redirects=False)
-        assert r.status == 302 and r.headers["Location"] == f"/public/app/{to}" and r.headers["Cache-Control"] == short, url
-        assert await r.read() == b""
-    for url in ("viewer.js", f"viewer.js?v={v}", "index.html", f"index.html?v={v}"):
-        assert (await c.get(f"/public/app/{url}", allow_redirects=False)).status == 200, url
+    font = "assets/fonts/Jersey10-Regular.woff2"
+    enc = f"%76={v}"
+    for name in ("viewer.js", "style.css", font):
+        for q in ("v=bogus", "x=1", f"v={v}&x=1", "v=bogus&x=1", f"v={v}&", f"&v={v}", enc, f"v={v[:3]}%{ord(v[3]):02X}{v[4:]}",
+                  f"v={v}&v={v}", "&", "v="):
+            status, h, body = await raw_head(c, f"/public/app/{name}?{q}")
+            assert status == 302 and h["location"] == f"/public/app/{name}?v={v}" and body == b"", (name, q)
+            assert h["cache-control"] == short
+        for q in ("", f"?v={v}"):
+            assert (await c.get(f"/public/app/{name}{q}", allow_redirects=False)).status == 200, (name, q)
+    # the pages take any query (?skin= among them), serve the page with its 60 s cache, and never redirect
+    for page in ("", "index.html", "almanac.html"):
+        for q in ("", "?skin=ascii", "?v=bogus", f"?v={v}", "?x=1&", "?%76=1"):
+            r = await c.get(f"/public/app/{page}{q}", allow_redirects=False)
+            assert r.status == 200 and r.headers["Cache-Control"] == short, (page, q)
+    status, h, _ = await raw_head(c, "/%70ublic/app/viewer.js?v=bogus")
+    assert status == 404 or (status == 302 and h["location"] == f"/public/app/viewer.js?v={v}")
     assert (await c.get("/public/app/nope.js?v=bogus", allow_redirects=False)).status == 404  # nothing to redirect to
     r = await c.get("/public/app/viewer.js?v=bogus", headers={"CF-Connecting-IP": "203.0.113.9"}, allow_redirects=False)
     assert r.status == 302
@@ -420,7 +428,6 @@ async def test_app_files_are_gzipped_once_and_served_gzipped(aiohttp_client):
                       auto_decompress=False)
     assert "Content-Encoding" not in png.headers  # already compressed formats stay as they are
     # the same bytes object each time: gzipped at load, not per request
-    files, _ = app[PUBLIC_APP]._snap
     assert app[PUBLIC_APP].serve_full("viewer.js")[1] is app[PUBLIC_APP].serve_full("viewer.js")[1]
 
 

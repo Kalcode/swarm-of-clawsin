@@ -49,6 +49,18 @@ async def raw_get(client, target: str, headers: bytes = b"") -> tuple[int, bytes
     return int(head.split()[1]), body
 
 
+async def raw_head(client, target: str) -> tuple[int, dict, bytes]:
+    """As raw_get, plus the response headers (names lowercased): the target reaches the server exactly as written."""
+    reader, writer = await asyncio.open_connection(client.server.host, client.server.port)
+    writer.write(f"GET {target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode())
+    await writer.drain()
+    data = await reader.read()
+    writer.close()
+    head, _, body = data.partition(b"\r\n\r\n")
+    lines = head.decode().split("\r\n")
+    return int(lines[0].split()[1]), {k.lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}, body
+
+
 def test_all_proxy_headers_are_sampled():
     assert set(PROXIED) == set(PROXY_HEADERS)
 
@@ -363,13 +375,29 @@ async def test_cache_busting_queries_get_a_small_redirect_not_a_body(client):
     for extra in (f"?v={v}&x=1", f"?x=1&v={v}", f"?v={v}&v={v}"):
         r = await client.get("/public/static.json" + extra, allow_redirects=False)
         assert r.status == 302 and r.headers["Location"] == f"/public/static.json?v={v}", extra
-    cid = next(iter(client.app[STATE].world.creatures), None)
-    for path in ("live.json", "almanac.json", "history.json", "creature/nobody.json"):
-        r = await client.get(f"/public/{path}?x=1", allow_redirects=False)
-        assert r.status == 302 and r.headers["Location"] == f"/public/{path}", path
-        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
-        assert (await client.get(f"/public/{path}?x=1")).status in (200, 404)  # the redirect is followed to the bare URL
-        assert (await client.get(f"/public/{path}", allow_redirects=False)).status in (200, 404)
+    for extra in ("?x=1", "?v=whatever", "?", "?x=1&y=2", "?%76=1"):
+        for path in ("live.json", "almanac.json", "history.json", "creature/nobody.json"):
+            bare = await client.get(f"/public/{path}", allow_redirects=False)
+            r = await client.get(f"/public/{path}{extra}", allow_redirects=False)
+            assert r.status == bare.status and r.status in (200, 404), (path, extra)  # never a 3xx
+            assert await r.read() == await bare.read()
+            for h in ("Cache-Control", "ETag", "Vary", "Content-Encoding"):
+                assert r.headers.get(h) == bare.headers.get(h), (path, extra, h)
+
+
+async def test_raw_query_is_compared_exactly(client):
+    v = (await (await client.get("/public/live.json")).json())["static"]
+    cv = (await (await client.get("/public/live.json")).json())["chronicle_version"]
+    for name, ver in (("static", v), ("chronicle", cv)):
+        enc = ver.replace("-", "%2D")
+        assert enc != ver
+        assert (await client.get(f"/public/{name}.json?v={ver}", allow_redirects=False)).status == 200
+        for q in (f"v={ver}&", f"v={ver}&&&", f"&v={ver}", f"%76={ver}", f"v={enc}", f"v={ver}&v={ver}", "v=", "&"):
+            status, h, body = await raw_head(client, f"/public/{name}.json?{q}")
+            assert status == 302 and h["location"] == f"/public/{name}.json?v={ver}" and body == b"", (name, q)
+            assert h["cache-control"] == "public, max-age=2, s-maxage=3"
+    status, h, _ = await raw_head(client, "/%70ublic/static.json?v=bogus")
+    assert status == 404 or (status == 302 and h["location"] == f"/public/static.json?v={v}")
 
 
 async def test_the_viewer_only_asks_for_urls_the_origin_answers_directly():
@@ -387,4 +415,4 @@ async def test_redirects_obey_the_proxy_guard(client):
             r = await client.get(path, headers=headers, allow_redirects=False)
             assert r.status == 404, path
     r = await client.get("/public/live.json?x=1", headers=TUNNEL, allow_redirects=False)
-    assert r.status == 302
+    assert r.status == 200 and (await client.get("/public/static.json?v=x", headers=TUNNEL, allow_redirects=False)).status == 302

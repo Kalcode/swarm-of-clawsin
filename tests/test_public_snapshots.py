@@ -278,3 +278,17 @@ def test_a_failing_publish_is_retried_at_the_next_interval_not_every_tick(st, pu
     fake.t += 4
     assert pub.due()
 
+
+
+def test_a_failed_static_build_does_not_use_up_a_version(st, pub, fake, monkeypatch):
+    pub.publish()
+    v1, body1 = pub.static_version, pub.static_doc().body
+    fake.t += 400  # static is due
+    monkeypatch.setattr("swarmworld.server.public.public_inventions", lambda s: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        pub.publish()
+    assert pub.static_version == v1 and pub.static_doc().body == body1
+    monkeypatch.undo()
+    fake.t += 4
+    pub.publish()
+    assert pub.static_version != v1 and json.loads(pub.static_doc().body)["version"] == pub.static_version
