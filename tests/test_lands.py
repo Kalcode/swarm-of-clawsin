@@ -167,6 +167,8 @@ def test_need_weights_the_theme():
     assert hungry.most_common(1)[0][0] == "stony_hills"
     assert hungry["stony_hills"] >= 1.5 * calm["stony_hills"]
     assert hungry["ruins"] < 0.08 * 300 and calm["ruins"] < 0.08 * 300
+    # ruins are rare but real: with at most 32 new lands, a filled map should usually find one or two
+    assert calm["ruins"] >= 0.01 * 300
 
 
 def test_water_and_rock_at_the_seam_favour_their_themes():

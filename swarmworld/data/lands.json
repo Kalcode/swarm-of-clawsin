@@ -62,7 +62,7 @@
       "min": {"sheep": 2, "cow": 1}
     },
     "ruins": {
-      "label": "old ruins", "noun": "Ruins", "base": 0.04, "supplies": null,
+      "label": "old ruins", "noun": "Ruins", "base": 0.25, "supplies": null,
       "fit": {},
       "biome": "m", "ground": {"g": 0.75, "d": 0.25},
       "objects": {"rock": [0.012, {}], "bush": [0.015, {"berries": 6}], "tree": [0.01, {"wood": 6}]},
