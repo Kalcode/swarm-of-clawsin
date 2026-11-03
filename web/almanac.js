@@ -1221,7 +1221,7 @@
       if (b && b.dataset.skin !== SK.name) setSkin(b.dataset.skin, true);
     });
     $('refresh-btn').addEventListener('click', () => load(true));
-    $('back-link').href = './' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '');
+    $('back-link').href = './' + (TOKEN && !PUBLIC ? '?token=' + encodeURIComponent(TOKEN) : '');  // never repeat a token on the public page
 
     $('tt-search').addEventListener('input', (e) => {
       S.q = e.target.value.trim().toLowerCase();
