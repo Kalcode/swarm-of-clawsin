@@ -17,8 +17,9 @@ from aiohttp import web
 
 from ..world.events import Event
 from .almanac import Almanac
-from .public_view import (public_almanac, public_card, public_detail, public_event, public_history,
-                          public_inventions, public_metrics, public_object, public_society, public_wishes)
+from .public_view import (public_almanac, public_buildings, public_card, public_chronicle, public_detail, public_event,
+                          public_history, public_inventions, public_landmarks, public_metrics, public_object,
+                          public_society, public_static, public_wishes)
 
 SCHEMA = 1
 PUBLIC_EVERY = 3.0
@@ -72,7 +73,7 @@ class Publisher:
         self._static: Doc | None = None
         self._static_shape: tuple | None = None
         self._live: Doc | None = None
-        self._creatures: dict[str, Doc | None] = {}
+        self._creatures: dict[str, Doc] = {}  # only creatures that exist: unknown ids are never remembered
         self._creatures_seq = -1
         self._slow: dict[str, tuple[float, int, Doc]] = {}  # name -> (built at, n, doc)
         self._chronicle: tuple[int, Doc] | None = None
@@ -132,13 +133,10 @@ class Publisher:
             del self._trails[cid]
 
     def _build_static(self, now: float, shape: tuple) -> None:
-        w = self.st.world
-        init = w.to_init()
         self._static_n += 1
-        doc = {k: init[k] for k in STATIC_KEYS if k in init}
-        doc.update(schema=SCHEMA, type="static", version=self.static_version,
-                   objects=[public_object(o) for o in init["objects"]], inventions=public_inventions(self.st))
-        self._static = encode(doc, self.static_version)
+        parts = {"schema": SCHEMA, "type": "static", "version": self.static_version,
+                 **public_static(self.st.world.to_init()), "inventions": public_inventions(self.st)}
+        self._static = encode({k: parts[k] for k in STATIC_KEYS if k in parts}, self.static_version)
         self._static_at, self._static_shape = now, shape
         self._upsert.clear()
         self._removed.clear()
@@ -175,9 +173,10 @@ class Publisher:
             "static": self.static_version, "creatures": cards,
             "objects_upsert": [public_object(o) for o in self._upsert.values()],
             "objects_removed": sorted(self._removed), "tiles": list(self._tiles.values()),
-            "buildings": w.building_dicts(), "landmarks": getattr(w, "landmarks", []),
+            "buildings": public_buildings(w.building_dicts()),
+            "landmarks": public_landmarks(getattr(w, "landmarks", [])),
             "events": [e for t, e in self._events if t > horizon],
-            "chronicle": st.chronicle[-CHRONICLE_TAIL:], "chronicle_version": self.chronicle_version,
+            "chronicle": public_chronicle(st.chronicle[-CHRONICLE_TAIL:]), "chronicle_version": self.chronicle_version,
             "society": public_society(st), "wishes": public_wishes(st), "metrics": public_metrics(st),
         }
         self.builds["live"] += 1
@@ -194,12 +193,14 @@ class Publisher:
     def creature_doc(self, cid: str) -> Doc | None:
         if self._creatures_seq != self.seq:
             self._creatures, self._creatures_seq = {}, self.seq
-        if cid not in self._creatures:
+        doc = self._creatures.get(cid)
+        if doc is None:
             detail = public_detail(self.st, cid)
-            self._creatures[cid] = encode(detail, f"{self.boot}-{self.seq}-{cid}") if detail is not None else None
-            if detail is not None:
-                self.builds["creature"] += 1
-        return self._creatures[cid]
+            if detail is None:
+                return None  # not cached: a flood of made-up ids costs a dict lookup each and no memory
+            doc = self._creatures[cid] = encode(detail, f"{self.boot}-{self.seq}-{cid}")
+            self.builds["creature"] += 1
+        return doc
 
     def _slow_doc(self, name: str, tag: str, build) -> Doc:
         now = self.clock()
@@ -219,7 +220,7 @@ class Publisher:
     def chronicle_doc(self) -> Doc:
         n = len(self.st.chronicle)
         if self._chronicle is None or self._chronicle[0] != n:
-            self._chronicle = (n, encode(list(self.st.chronicle), self.chronicle_version))
+            self._chronicle = (n, encode(public_chronicle(self.st.chronicle), self.chronicle_version))
             self.builds["chronicle"] += 1
         return self._chronicle[1]
 

@@ -195,3 +195,46 @@ def test_public_documents_keep_only_listed_fields(busy):
     assert all(set(e) == set(pv.SOCIETY_EDGE_KEYS) for e in public_society(busy)["edges"])
     row = {"tick": 1, "day": 1, "models": {"m": {"crafted": 1, "extra": 2}}, "world": {"ties": 1, "extra": 3}, "extra": 4}
     assert public_history([row]) == [{"tick": 1, "day": 1, "models": {"m": {"crafted": 1}}, "world": {"ties": 1}}]
+
+
+def test_static_parts_buildings_landmarks_and_chapters_are_classified(busy):
+    busy.sim.tick()  # names the landmarks
+    w = busy.world
+    init = w.to_init()
+    assert set(init) <= set(pv.STATIC_INIT_KEYS) | set(pv.STATIC_INIT_PRIVATE), set(init) - set(pv.STATIC_INIT_KEYS)
+    assert init["regions"] and all(set(r) <= set(pv.REGION_KEYS) for r in init["regions"])
+    assert all(set(k) <= set(pv.VIEW_KIND_KEYS) for k in init["kinds"].values())
+    glyphs = [k["glyph"] for k in init["kinds"].values() if "glyph" in k]
+    assert glyphs and all(set(g) <= set(pv.GLYPH_KEYS) for g in glyphs)
+    assert init["nature"] and set(init["nature"]) <= set(pv.NATURE_KEYS)
+    assert any(lm.get("by_sight") for lm in w.landmarks)  # the fixture reaches every landmark field
+    assert all(set(lm) <= set(pv.LANDMARK_KEYS) | set(pv.LANDMARK_PRIVATE) for lm in w.landmarks)
+    assert w.building_dicts() and all(set(b) <= set(pv.BUILDING_KEYS) for b in w.building_dicts())
+    assert busy.chronicle and all(set(ch) <= set(pv.CHAPTER_KEYS) for ch in busy.chronicle)
+    # and the public copies keep those fields (nothing is picked away by mistake)
+    s = pv.public_static(init)
+    assert set(s) == set(pv.STATIC_INIT_KEYS)
+    for k in ("tick", "width", "height", "tiles", "regions", "items", "kinds", "nature", "buildings"):
+        assert s[k] == init[k], k
+    assert s["objects"] == [pv.public_object(o) for o in init["objects"]]
+    assert s["landmarks"] == [{k: v for k, v in lm.items() if k != "by_sight"} for lm in init["landmarks"]]
+    assert pv.public_chronicle(busy.chronicle) == busy.chronicle
+
+
+def test_static_and_live_parts_keep_only_listed_fields(busy):
+    init = busy.world.to_init()
+    init["secret"] = 1
+    init["regions"][0]["secret"] = 1
+    init["kinds"]["tree"]["secret"] = 1
+    next(k for k in init["kinds"].values() if "glyph" in k)["glyph"]["secret"] = 1
+    init["nature"]["secret"] = 1
+    init["objects"][0]["secret"] = 1
+    init["items"]["odd"] = {"secret": 1}
+    init["buildings"] = [{**init["buildings"][0], "secret": 1}]
+    init["landmarks"] = [{"name": "a cave", "x": 1, "y": 2, "kind": "cave", "size": 1, "by_sight": True, "secret": 1}]
+    text = json.dumps(pv.public_static(init))
+    assert "secret" not in text and "by_sight" not in text and "odd" not in text
+    chapter = {"tick": 1, "day": 1, "phase": "dawn", "text": "It began.", "secret": 1}
+    assert pv.public_chronicle([chapter]) == [{"tick": 1, "day": 1, "phase": "dawn", "text": "It began."}]
+    assert pv.public_buildings([{"id": "b1", "design": "hut", "secret": 1}]) == [{"id": "b1", "design": "hut"}]
+    assert pv.public_landmarks(init["landmarks"]) == [{"name": "a cave", "x": 1, "y": 2, "kind": "cave", "size": 1}]

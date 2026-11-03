@@ -222,3 +222,20 @@ async def test_the_tick_loop_publishes(aiohttp_client):
     await asyncio.sleep(0.5)
     assert pub.seq >= seq0 + 3
     assert (await (await client.get("/api/metrics")).json())["tick_ms"]["n"] > 0
+
+
+def test_every_part_of_live_static_and_chronicle_is_picked(st, pub):
+    w = st.world
+    st.sim.tick()  # names the landmarks
+    assert any(lm.get("by_sight") for lm in w.landmarks)
+    w.landmarks.append({"name": "a cave", "x": 1, "y": 2, "kind": "cave", "size": 1, "secret": "s3cr3t"})
+    w.ext.setdefault("building", {}).setdefault("built", {})["b1"] = {
+        "design": "hut", "x0": 1, "y0": 1, "x1": 3, "y1": 3, "door": [2, 3], "roof": True, "by": ["Holt"], "tick": 5,
+        "secret": "s3cr3t"}
+    st.chronicle.append({"tick": 1, "day": 1, "phase": "dawn", "text": "It began.", "secret": "s3cr3t"})
+    pub.publish()
+    for doc in (pub.live_doc(), pub.static_doc(), pub.chronicle_doc()):
+        assert b"s3cr3t" not in doc.body and b"by_sight" not in doc.body
+    live = live_of(pub)
+    assert live["chronicle"] == [{"tick": 1, "day": 1, "phase": "dawn", "text": "It began."}]
+    assert any(b["id"] == "b1" for b in live["buildings"]) and any(lm["name"] == "a cave" for lm in live["landmarks"])

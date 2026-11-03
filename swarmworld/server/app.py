@@ -7,6 +7,7 @@ import contextlib
 import ipaddress
 import json
 import logging
+import secrets
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -16,6 +17,7 @@ from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
 from .public import PUBLIC_EVERY, PUBLIC_LINK, PUBLISHER, Publisher
+from .public_http import add_public_routes
 from .state import ServerState
 
 log = logging.getLogger("swarmworld.server")
@@ -45,6 +47,43 @@ def home_network(remote: str | None, headers) -> bool:
 
 def is_home_network(request: web.Request) -> bool:
     return home_network(request.remote, request.headers)
+
+
+def token_matches(given: str | None, token: str | None) -> bool:
+    """The join token, compared in constant time as ASCII bytes: anything else (missing, empty, non-ASCII, the
+    undecodable bytes a header can carry) is refused, never an error."""
+    if not given or not token:
+        return False
+    try:
+        return secrets.compare_digest(given.encode("ascii"), token.encode("ascii"))
+    except UnicodeEncodeError:
+        return False
+
+
+def _matched_route(request: web.Request) -> str:
+    """The canonical path of the route the router matched ("" when none did: a 404 or 405 to come)."""
+    resource = request.match_info.route.resource
+    return resource.canonical if resource is not None else ""
+
+
+@web.middleware
+async def proxied_reach_only_public(request: web.Request, handler):
+    """A request relayed by a tunnel or proxy (any of PROXY_HEADERS) reaches the public viewer and nothing else: a
+    route registered under /public/ (judged by the route the router matched, so an encoded slash such as
+    /public%2F..%2Findex.html, which goes to the file server, can't pass), or GET /api/almanac with the join token.
+    / sends it to the public app; everything else is a 404, as if it weren't there: no steward action, wish answer,
+    voice, node or viewer socket, private viewer file or other API. The handlers' own checks stay as a second layer."""
+    if not any(h in request.headers for h in PROXY_HEADERS):
+        return await handler(request)
+    route = _matched_route(request)
+    if route == "/public" or route.startswith("/public/"):
+        return await handler(request)
+    if (request.method == "GET" and route == "/api/almanac"
+            and token_matches(request.headers.get("X-Swarm-Token"), request.app[STATE].token)):
+        return await handler(request)
+    if request.method in ("GET", "HEAD") and request.path == "/":
+        raise web.HTTPFound("/public/app/")
+    raise web.HTTPNotFound()
 
 
 async def tick_loop(app: web.Application) -> None:
@@ -206,7 +245,7 @@ async def api_inventions(request: web.Request) -> web.Response:
 async def api_voice(request: web.Request) -> web.Response:
     """A voice from the sky: the human experimenter speaks into the world. Only from the home network, or with the join token."""
     st = request.app[STATE]
-    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+    if not is_home_network(request) and not token_matches(request.headers.get("X-Swarm-Token"), st.token):
         raise web.HTTPForbidden(text="the voice from the sky only speaks from the home network")
     body = await request.json()
     text = " ".join(str(body.get("text", "")).split())[:300]
@@ -223,7 +262,7 @@ async def api_wishes(request: web.Request) -> web.Response:
 async def api_wish_answer(request: web.Request) -> web.Response:
     """Answer a wish from the sky, grant it, or note it. Only from this machine, or with the join token."""
     st = request.app[STATE]
-    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+    if not is_home_network(request) and not token_matches(request.headers.get("X-Swarm-Token"), st.token):
         raise web.HTTPForbidden(text="wishes can only be answered from the home network")
     try:
         body = await request.json()
@@ -255,7 +294,7 @@ async def api_almanac(request: web.Request) -> web.Response:
     """Everything in the game, this world's discoveries and census, and the roadmap (web/almanac.html). For the
     user, not the creatures; only from this machine, or with the join token."""
     st = request.app[STATE]
-    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+    if not is_home_network(request) and not token_matches(request.headers.get("X-Swarm-Token"), st.token):
         raise web.HTTPForbidden(text="the almanac only opens on the home network, or with the join token")
     return web.Response(text=request.app[ALMANAC].text(st), content_type="application/json")
 
@@ -291,7 +330,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
                resume: bool = True, harness: Harness | None = None, embedder=None,
                log_prompts: bool = False, public_every: float = PUBLIC_EVERY,
                public_link: str | None = None) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[proxied_reach_only_public])
     st = ServerState(seed=seed, token=token, tick_seconds=tick_seconds, run_dir=run_dir, harness=harness,
                      log_prompts=log_prompts)
     st.world_path = world_path
@@ -324,6 +363,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_post("/api/admin/{action}", api_admin)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/api/almanac", api_almanac)
+    add_public_routes(app)  # before the catch-all, so nothing under /public/ is ever a file from web/
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)
 
