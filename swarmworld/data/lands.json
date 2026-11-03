@@ -1,0 +1,72 @@
+{
+  "baseline": {"stone": 390, "wood": 2000, "food": 720},
+  "sources": {
+    "stone": ["rock", "flint_outcrop", "iron_vein", "copper_vein"],
+    "wood": ["tree", "pine", "driftwood"],
+    "food": ["bush", "herb_patch", "mushroom_patch", "rabbit", "deer", "boar"]
+  },
+  "terminal_chance": 0.15,
+  "ruins_texts": [
+    "Weathered letters on the stone: 'WE BUILT HERE ONCE. THE WIND KEPT WHAT WE LEFT.'",
+    "Worn marks, half gone: 'THE RING OF STONES REMEMBERS A HEARTH. WARM IT AGAIN.'",
+    "Faint carving: 'WHOEVER FINDS THIS, THE LAND IS WIDER THAN YOU THINK.'",
+    "Moss-covered letters: 'WE WALKED OUT TO FIND THE EDGE. THERE WAS ONLY MORE.'",
+    "Cracked stone, still legible: 'REST HERE. THE OLD ROAD STARTS AT YOUR FEET.'"
+  ],
+  "themes": {
+    "stony_hills": {
+      "label": "stony hills", "noun": "Hills", "base": 1.0, "supplies": "stone",
+      "fit": {"rock": 3.0, "water": 0.5, "meadow": 0.9},
+      "biome": "h", "ground": {"r": 0.95, "d": 0.05},
+      "objects": {"rock": [0.14, {}], "flint_outcrop": [0.025, {}], "iron_vein": [0.014, {"ore": 8}],
+                  "copper_vein": [0.02, {"ore": 8}]},
+      "min": {"rock": 12, "flint_outcrop": 2, "iron_vein": 1, "copper_vein": 1}
+    },
+    "berry_groves": {
+      "label": "berry groves", "noun": "Grove", "base": 1.0, "supplies": "food",
+      "fit": {"forest": 1.5, "meadow": 1.2, "rock": 0.6, "water": 0.8},
+      "biome": "o", "ground": {"g": 0.55, "f": 0.45},
+      "objects": {"bush": [0.07, {"berries": 6}], "tree": [0.12, {"wood": 6}], "flower_patch": [0.02, {}],
+                  "mushroom_patch": [0.01, {}]},
+      "min": {"bush": 25, "tree": 4}
+    },
+    "deep_pines": {
+      "label": "deep pines", "noun": "Pines", "base": 1.0, "supplies": "wood",
+      "fit": {"forest": 3.0, "rock": 0.8, "water": 0.7, "meadow": 0.9},
+      "biome": "p", "ground": {"f": 0.8, "g": 0.2},
+      "objects": {"pine": [0.22, {"wood": 6}], "mushroom_patch": [0.02, {}], "bush": [0.01, {"berries": 6}]},
+      "min": {"pine": 60, "mushroom_patch": 3}
+    },
+    "marsh": {
+      "label": "a marsh", "noun": "Marsh", "base": 0.8, "supplies": null,
+      "fit": {"water": 4.0, "meadow": 0.9, "rock": 0.5},
+      "biome": "k", "ground": {"g": 0.65, "d": 0.35},
+      "objects": {"reed_bed": [0.1, {}], "clay": [0.03, {"clay": 6}], "flower_patch": [0.01, {}],
+                  "bush": [0.01, {"berries": 6}]},
+      "min": {"reed_bed": 8, "clay": 3}
+    },
+    "lake": {
+      "label": "a lake", "noun": "Lake", "base": 0.7, "supplies": null,
+      "fit": {"water": 4.0, "rock": 0.5},
+      "biome": "m", "ground": {"g": 0.85, "d": 0.15},
+      "objects": {"reed_bed": [0.04, {}], "clay": [0.02, {"clay": 6}], "driftwood": [0.08, {}],
+                  "tree": [0.02, {"wood": 6}], "bush": [0.02, {"berries": 6}]},
+      "min": {"reed_bed": 3, "clay": 2}
+    },
+    "plains": {
+      "label": "open plains", "noun": "Plains", "base": 1.5, "supplies": "food",
+      "fit": {"meadow": 1.3, "rock": 0.5, "water": 0.8},
+      "biome": "m", "ground": {"g": 0.9, "d": 0.1},
+      "objects": {"flower_patch": [0.04, {}], "tree": [0.008, {"wood": 6}], "bush": [0.02, {"berries": 6}],
+                  "herb_patch": [0.01, {}], "rabbit": [0.004, {}], "sheep": [0.004, {}], "cow": [0.003, {}]},
+      "min": {"sheep": 2, "cow": 1}
+    },
+    "ruins": {
+      "label": "old ruins", "noun": "Ruins", "base": 0.04, "supplies": null,
+      "fit": {},
+      "biome": "m", "ground": {"g": 0.75, "d": 0.25},
+      "objects": {"rock": [0.012, {}], "bush": [0.015, {"berries": 6}], "tree": [0.01, {"wood": 6}]},
+      "min": {"rock": 6}
+    }
+  }
+}
