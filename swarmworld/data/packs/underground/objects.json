@@ -6,5 +6,16 @@
   "mine_shaft": {"name": "mine shaft", "aliases": ["shaft", "mine shaft", "way down"],
                  "look": "mine_shaft", "glyph": {"char": "▼", "color": "#a8714a"}},
   "ladder": {"name": "ladder", "aliases": ["ladder", "way up"],
-             "look": "ladder", "glyph": {"char": "H", "color": "#c8a070"}}
+             "look": "ladder", "glyph": {"char": "H", "color": "#c8a070"}},
+  "coal_seam": {"name": "coal seam", "aliases": ["coal", "seam", "coal seam"], "blocking": true,
+                "look": "coal_seam", "glyph": {"char": "%", "color": "#2b2b2f"},
+                "yields": {"items": {"coal": [1, 2]}, "tool": "pickaxe", "uses": 6}},
+  "crystal_cluster": {"name": "crystal cluster", "aliases": ["crystal", "crystals", "cluster", "crystal cluster"],
+                      "blocking": true, "glow": 2, "look": "crystal_cluster", "glyph": {"char": "*", "color": "#9fe0f0"},
+                      "yields": {"items": {"crystal": [1, 1]}, "tool": "pickaxe", "uses": 3}},
+  "cave_mushrooms": {"name": "cave mushrooms", "aliases": ["cave mushroom", "glowcaps", "pale mushrooms"], "glow": 1,
+                     "look": "cave_mushrooms", "glyph": {"char": "\"", "color": "#b8d8c0"},
+                     "yields": {"items": {"mushroom": [1, 2]}, "uses": 3, "becomes": "cave_mushrooms_picked", "regrow": 900}},
+  "cave_mushrooms_picked": {"name": "picked-over cave mushrooms", "aliases": ["picked cave mushrooms", "mushroom stalks"],
+                            "look": "cave_mushrooms_picked", "glyph": {"char": ",", "color": "#7a8a80"}}
 }

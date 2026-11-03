@@ -363,6 +363,11 @@ def _has_tool(c: Creature, tools: tuple[str, ...]) -> str | None:
     return next((t for t in tools if c.inventory.get(t, 0) > 0), None)
 
 
+def _tagged(world: World, tag: str) -> tuple[str, ...]:
+    """The items carrying a tag: a yields tool that is no item id is a tag, and any carried item with it serves."""
+    return tuple(i for i, it in world.catalog.items.items() if tag in it.tags)
+
+
 def _spent(obj: WorldObject) -> bool:
     """Used up for now: a picked-over bush, a stump, or a kind from data that has given all it has until it regrows."""
     if obj.kind in EMPTY_KINDS or obj.kind in DEPLETED:
@@ -374,7 +379,7 @@ def _gather_yields(world: World, c: Creature, obj: WorldObject, got: Counter) ->
     """One use of a kind with generic yields (objects.json): its items, then what it turns into once used up.
     Returns a refusal, True when the object is used up (stop), or False to keep going."""
     y = YIELDS[obj.kind]
-    if y["tool"] and not _has_tool(c, (y["tool"],)):
+    if y["tool"] and not _has_tool(c, (y["tool"],) if y["tool"] in world.catalog.items else _tagged(world, y["tool"])):
         if got:
             return True
         return ActionResult(False, f"You'd need a {world.catalog.name(y['tool'])} to gather from the {obj.name}.")

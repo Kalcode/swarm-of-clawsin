@@ -252,9 +252,7 @@
  },
  "charcoal": {
   "name": "charcoal",
-  "aliases": [
-   "coal"
-  ],
+  "aliases": [],
   "tags": [
    "fuel"
   ],

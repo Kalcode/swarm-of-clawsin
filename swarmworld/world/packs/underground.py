@@ -11,8 +11,10 @@ swarmworld/data/packs/underground/).
   a cave mouth and its exit, and later a mine shaft or an open pit with a ladder below.
 - Landmarks: the four largest caverns and the pool by name, each way down by its name and its way up as "the way up to
   <name>". Creatures hear of a place only in its own region.
+- What lies in the deep: iron and copper veins, coal seams, crystal clusters, cave mushrooms and loose rock on the cave
+  floor, placed once (`_stock_deep`).
 
-State: world.ext["underground"] = {"seed": int, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
+State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
 "up": [x, y], "down": [x, y]}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
 roll their own random.Random, seeded from the deep's seed), so the surface's weather, animals and placement roll as
 before."""
@@ -30,7 +32,7 @@ from ..caves import BORDER, carve_deep, carve_passage
 from ..catalog import DATA
 from ..model import SOLID_TILES, WATER_TILES
 from ..perception import direction, dist
-from ..registry import register_landmarks, register_populate
+from ..registry import KINDS, register_landmarks, register_populate
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..model import Region, World
@@ -61,7 +63,10 @@ def add_portal(world: World, kind: str, name: str, up: tuple[int, int], down: tu
     if any(end in world.grid for end, _ in ends):
         raise ValueError(f"a {kind} portal needs its ends free of objects: {up}, {down}")
     have = _mine(world).setdefault("portals", [])
-    pid = f"p{max((int(p['id'][1:]) for p in have), default=0) + 1}"
+    mine = _mine(world)  # ids count up and are never reused, even when the highest portal is gone
+    n = mine.get("next_portal") or max((int(p["id"][1:]) for p in have), default=0) + 1
+    mine["next_portal"] = n + 1
+    pid = f"p{n}"
     for end, k in ends:
         world.add_object(k, *end, portal=pid)
     portal = {"id": pid, "kind": kind, "name": name, "up": list(up), "down": list(down)}
@@ -143,10 +148,20 @@ def _mouth_sites(world: World, rng: random.Random) -> list[tuple[int, int]]:
     return sites
 
 
-def _caves(deep: Region, caverns: list[tuple[int, int, int]], pool: tuple[int, int]) -> list[dict]:
-    """The named caves: the largest caverns by CONFIG's cave_names, then the pool, at their middles."""
-    named = [{"name": n, "x": x, "y": deep.y0 + y} for n, (x, y, _) in zip(CONFIG["cave_names"], caverns)]
-    return named + [{"name": CONFIG["pool_name"], "x": pool[0], "y": deep.y0 + pool[1]}]
+def _caves(world: World, deep: Region, caverns: list[tuple[int, int, int]], pool: tuple[int, int]) -> list[dict]:
+    """The named caves: the largest caverns by CONFIG's cave_names, then the pool. Each landmark stands on the dry cave
+    floor nearest the middle (the pool's middle is often water), never on the way up from a cave mouth or on another
+    landmark."""
+    middles = [(n, x, deep.y0 + y) for n, (x, y, _) in zip(CONFIG["cave_names"], caverns)]
+    middles.append((CONFIG["pool_name"], pool[0], deep.y0 + pool[1]))
+    taken = {tuple(p["down"]) for p in portals(world)}
+    floor = [(x, y) for y in range(deep.y0, deep.y1) for x in range(world.width) if world.tile(x, y) == "c"]
+    named = []
+    for name, mx, my in middles:
+        x, y = min((p for p in floor if p not in taken), key=lambda p: (dist(*p, mx, my), p[1], p[0]), default=(mx, my))
+        taken.add((x, y))
+        named.append({"name": name, "x": x, "y": y})
+    return named
 
 
 def grow_deep(world: World) -> None:
@@ -160,7 +175,6 @@ def grow_deep(world: World) -> None:
     mine = _mine(world)
     dm = carve_deep(rng, world.width, world.region("surface").height)
     deep = world.add_region("deep", -1, dm.rows, sky=False, weather=False)
-    mine["caves"] = _caves(deep, dm.caverns, dm.pool)
     cx, cy = world.center
     seen: Counter = Counter()
     for up in _mouth_sites(world, rng):
@@ -171,12 +185,82 @@ def grow_deep(world: World) -> None:
         world.set_tile(*down, "c")
         carve_passage(world, down)
         add_portal(world, "cave", name, up, down)
+    mine["caves"] = _caves(world, deep, dm.caverns, dm.pool)
     world.changed_tiles.clear()
     world.changed_tiles.update(earlier)
 
 
+# ------------------------------------------------------------------ what lies in the deep
+ORE_DATA = {"iron_vein": {"ore": 8}, "copper_vein": {"ore": 8}}  # data a placed kind starts with
+ON_ROCK = {"iron_vein", "copper_vein", "coal_seam", "crystal_cluster"}  # these go on floor that touches rock
+CLUSTERS = {"crystal_cluster": "the crystal cave", "coal_seam": "the black seam"}  # a third lie near this cave
+CLUSTER_REACH = 6
+PORTAL_CLEAR = 2
+STEPS = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def _blocks_nothing(world: World, x: int, y: int) -> bool:
+    """True when a blocking object on (x, y) cuts no walk: its open neighbours still join around it, within the ring of
+    eight tiles that surrounds it."""
+    ring = [(x + dx, y + dy) for dx, dy in ((-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0))]
+    free = [p for p in ring if world.walkable(*p)]
+    open_sides = [p for p in free if abs(p[0] - x) + abs(p[1] - y) == 1]
+    if len(open_sides) < 2:
+        return True
+    seen, todo = {open_sides[0]}, [open_sides[0]]
+    while todo:
+        px, py = todo.pop()
+        for dx, dy in STEPS:
+            n = (px + dx, py + dy)
+            if n in free and n not in seen:
+                seen.add(n)
+                todo.append(n)
+    return all(p in seen for p in open_sides)
+
+
+def _stock_deep(world: World) -> None:
+    """Scatter the deep's ore, coal, crystal, mushrooms and rock over its cave floor, once (ext "placed"): CONFIG's
+    counts per 128x128 of deep, scaled by area, at least 2 of each. Veins, seams and crystals stand on floor touching
+    rock; a third of the crystals lie near the crystal cave and a third of the coal near the black seam, where there
+    is room. Blocking things never cut a walk, and none lies within PORTAL_CLEAR of a way up. Rolled from the deep's
+    own seed + 1."""
+    mine = _mine(world)
+    deep = world.region("deep")
+    if mine.get("placed") or deep is None:
+        return
+    mine["placed"] = True
+    rng = random.Random(deep_seed(world) + 1)
+    blocked = {tuple(p["down"]) for p in portals(world)} | {(c["x"], c["y"]) for c in mine.get("caves", ())}
+    exits = [tuple(p["down"]) for p in portals(world)]
+    area = world.width * (deep.y1 - deep.y0)
+    floor = [(x, y) for y in range(deep.y0, deep.y1) for x in range(world.width) if world.tile(x, y) == "c"
+             and (x, y) not in blocked and all(dist(x, y, *e) >= PORTAL_CLEAR for e in exits)]
+    caves = {c["name"]: (c["x"], c["y"]) for c in mine.get("caves", ())}
+    for kind, per in CONFIG["counts"].items():
+        want = max(2, round(per * area / (128 * 128)))
+        blocking = KINDS[kind].get("blocking")
+        spots = [p for p in floor if kind not in ON_ROCK
+                 or any(world.tile(p[0] + dx, p[1] + dy) in SOLID_TILES for dx, dy in STEPS)]
+        rng.shuffle(spots)
+        if kind in CLUSTERS and CLUSTERS[kind] in caves:  # a third near their cave first, the rest anywhere
+            home = caves[CLUSTERS[kind]]
+            spots.sort(key=lambda p: dist(*p, *home) > CLUSTER_REACH)  # stable: near ones keep their shuffled order
+            near = [p for p in spots if dist(*p, *home) <= CLUSTER_REACH]
+            rest = spots[len(near):]
+            spots = near[:want // 3] + rest + near[want // 3:]
+        placed = 0
+        for p in spots:
+            if placed == want:
+                break
+            if p in world.grid or (blocking and not _blocks_nothing(world, *p)):
+                continue
+            world.add_object(kind, *p, **ORE_DATA.get(kind, {}))
+            placed += 1
+
+
 def _populate(world: World, rng, fresh: bool) -> None:  # new worlds and old saves alike; never rolls the rng given
     grow_deep(world)
+    _stock_deep(world)
 
 
 # ------------------------------------------------------------------ landmarks
@@ -189,6 +273,7 @@ def _places(world: World) -> list[dict]:
     return out
 
 
+perception.REMEMBERED_KINDS.update({"coal_seam", "crystal_cluster"})  # the deep's finds, to come back to
 perception.REMEMBERED_KINDS.update({k for ends in PORTAL_OBJECTS.values() for k in ends if k})  # ways to find again
 register_populate(PACK, _populate)
 register_landmarks(_places)

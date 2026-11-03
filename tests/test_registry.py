@@ -625,7 +625,8 @@ def test_installed_data_is_consistent():
         assert set(spec["gives"]) <= items, kind
         y = spec["yields"]
         if y:
-            assert set(y["items"]) <= items and (y["tool"] is None or y["tool"] in items), kind
+            assert set(y["items"]) <= items and (y["tool"] is None or y["tool"] in items
+                                                     or any(y["tool"] in it.tags for it in cat.items.values())), kind
             assert y["becomes"] is None or y["becomes"] in registry.KINDS, kind
 
 
