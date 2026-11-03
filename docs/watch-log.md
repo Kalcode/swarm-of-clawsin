@@ -254,3 +254,22 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mod (watching), eat-grass:** 35 refused meals, all from the student, though the hint now names food 4 steps away.
   Round-2 data.
 - **mod, the rope stone:** 69 actions. The fad has settled into a background habit.
+
+### 15:07 watch (tick 15,976)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no public watchers. The one traceback was the 14:40 bad voice
+  JSON.
+- **Minds since tick 14,181:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 970 | 90% (from 86%) | 9.1 s |
+  | Student | 1,022 | 76% (from 81%) | 13.1 s |
+
+  No failure streaks. The student dropped because of hunger: 73 refused meals, and Ira collapsed again at tick 14,848.
+- **mod (done 15:13), eat-grass, final fix:** the hint named the food, but the student kept trying to eat grass.
+  `eat` of something inedible now walks to the nearest food in sight and eats there, for every mind. It's a body
+  reflex, the same as "eat berries" walking to a bush. Watch: collapses should stop. The student's habit still goes to
+  round 2.
+- **add (seen):** Teo invented the "bark-to-stone converter" ("to get rope-stones fast"); the fad's inventor is still
+  at it. Mirth invented a "warm reed blanket", and worked on a tent site.
+- **mod (watching), Mirth:** 4 more prayers since the no-gift answer, down from 6.
