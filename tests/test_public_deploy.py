@@ -199,7 +199,7 @@ def test_a_process_that_only_mentions_cloudflared_is_not_ours(tmp_path, fake_clo
 
 def test_the_stop_message_does_not_overstate():
     text = (ROOT / "scripts/public-tunnel.sh").read_text()
-    assert "nothing new is public" not in text and "cached copies" in text and "Cloudflare's edge" in text
+    assert "nothing is public now" not in text and "Purge Everything" in text and "Copies already cached" in text
     doc = (ROOT / "docs/public-viewer.md").read_text()
     assert "Purge Everything" in doc
 
