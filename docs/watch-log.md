@@ -159,3 +159,30 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mod (watching), the rope stone:** 345 actions in this stretch, steady at about 20%. Mirth invented the "sparkstone"
   (spark fragments, stone and 2 rope); Vex invented "plant fiber rope" (2 strong cord and 2 …). The fad is spawning
   inventions.
+
+### 13:07 watch (tick 8,797)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no errors, no public watchers.
+- **Minds since tick 7,496:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 685 | 81% | 8.9 s |
+  | Student | 777 | 75% | 13.9 s |
+
+  The student is a little faster, now that the Air's four creatures are on the PC.
+- **mod (done 13:09), stone:** stone is the top need. Evidence:
+  - wishes: "two stones for the campfire" said 51 times, "stone for the fire" 14, "please give us some stones"
+    wished twice;
+  - 21 failed attempts to make a "stone tablet";
+  - nobody has gathered from a boulder since the 12:17 answer.
+
+  The 87 boulders within 40 steps are out of sight (the nearest is 23 south), and creatures don't explore that far
+  unprompted. I spoke from the sky to the meadow and pointed them south. Next time: has anyone gathered stone from a
+  boulder?
+  The balance fix from 12:45 still stands: boulders near camp slowly come back, or camps leave rubble. So does the text
+  fix: a material refusal names the source the creature remembers.
+- **mod (watching), the rope stone:** fading as stone runs out, at 181 actions, down from 345 to 411. Teo, its
+  inventor, has spent his last turns trying to get stone back out of rope stones.
+- **mod (follow-up), eat-grass:** 22 refused meals this stretch, up from 12. Still no collapses since tick 3,208.
+- **tweak:** gpt-oss "program"s a terminal from afar 18 times ("There's no terminal within reach to program"). Like
+  `eat` and `gather`, `program` could walk to a terminal it sees or remembers before refusing.
