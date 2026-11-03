@@ -41,6 +41,25 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
    8. A rate limit (Security > WAF > Rate limiting rules), scoped to the snapshot documents only, `http.host eq "<host>" and starts_with(http.request.uri.path, "/public/") and not starts_with(http.request.uri.path, "/public/app/")`: per IP, 120 requests per minute, Block for a minute. On the Free plan the period is limited (10 seconds): use 20 requests per 10 seconds per IP, and drop the `http.host` clause if it is not offered; the options vary by plan. A watcher polls about 25 snapshot requests a minute. Never include `/public/app/`: one page load fetches about 110 files (scripts, art sheets, sounds), which would block every new visitor.
 6. Caching > Tiered Cache > turn on Smart Tiered Caching.
 
+## This deployment (Nov 3)
+
+- **Hostname:** https://swarm-world.4rc4de.com, tunnel `swarm-world`, config `~/.cloudflared/swarm-world.yml`. Start it
+  with `scripts/public-tunnel.sh start` and stop it with `scripts/public-tunnel.sh stop`.
+- **A sign-in of its own:** this Mac's `~/.cloudflared/cert.pem` belongs to another zone, the one serving the other
+  tunnels. So the 4rc4de.com sign-in lives in `~/.cloudflared/cert-4rc4de.pem`, and management commands for this tunnel
+  pass it explicitly, e.g. `cloudflared tunnel --origincert ~/.cloudflared/cert-4rc4de.pem info swarm-world`. Running
+  the tunnel doesn't need the sign-in at all, only the credentials file named in the config.
+- **The Free plan's rate-limit form:**
+  - the only field offered is URI Path, so the host clause is dropped;
+  - the expression is
+    `(http.request.uri.path wildcard r"/public/*" and not http.request.uri.path contains "/public/app/")`;
+  - per IP, 20 requests per 10 seconds, Block for 10 seconds.
+- **Checked from outside after start:**
+  - `live.json` is served from the edge (`cf-cache-status: HIT`);
+  - `/`, and `/?token=…`, redirect to `/public/app/`;
+  - `/api/*`, the websockets, the private pages, the three traversal probes and `CATALOG.md` all answer 404;
+  - POSTs answer 404, except `/public/here`, which answers 204 and isn't cached.
+
 ## Posting day
 
 - [ ] 1. Start the world with real minds. The GPU budget versus training is your call. Set `PUBLIC_LINK` (the link shown in the About panel), which needs a world restart: stop the running world first (`start-world.sh` refuses a second copy), then `PUBLIC_LINK=https://<host>/ ./start-world.sh`.
