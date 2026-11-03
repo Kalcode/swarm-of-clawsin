@@ -76,3 +76,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   shortage is gathering speed, and recipes that eat it (rope takes 3, a rope stone 6). Not granted.
 - **add (idea):** if fiber still dominates by day 2, add a perception hint when gathering fiber by hand, e.g.
   "a stone knife would cut twice as much".
+- **tweak (defaults, 11:40):** `start-world.sh` still defaults to 12 Gemma 4 E4B and 8 Qwen3.5-4B creatures, though
+  Gemma is out (it loops; issue 003). The README now flags it, as do its "How many creatures" table and
+  docs/gaming-pc.md. Proposal:
+  - default the Mac to the latest student (`swarm-student-<date>`, with `HARNESS_ALL=plan,disclose,recall`) when one is
+    in ~/models, otherwise Qwen3.5-9B;
+  - drop Gemma from the setup's download loop.
+
+  Not done yet: it changes what the quick start gives a newcomer, so it waits for a quiet moment. Edit start-world.sh
+  only as `.new` + `mv`.
