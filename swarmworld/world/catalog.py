@@ -46,6 +46,7 @@ class Recipe:
     station: str | None = None
     count: int = 1
     known_at_start: bool = False
+    alt: bool = False  # another way to make an output that has a main recipe
 
     @property
     def id(self) -> str:
@@ -103,9 +104,12 @@ class Catalog:
         recipe_from: dict[str, str] = {}
         for source, path in data_files("recipes.json", data_dir):
             for r in json.loads(path.read_text()):
-                if r["output"] in recipe_from:
+                if r.get("alt"):
+                    if r["output"] not in recipe_from:
+                        raise ValueError(f"alternative recipe for '{r['output']}' in {source} has no main recipe")
+                elif r["output"] in recipe_from:
                     raise defined_twice("recipe", r["output"], recipe_from[r["output"]], source)
-                recipe_from[r["output"]] = source
+                recipe_from.setdefault(r["output"], source)
                 recipes.append(Recipe(
                     output=r["output"],
                     inputs=dict(r["inputs"]),
@@ -113,6 +117,7 @@ class Catalog:
                     station=r.get("station"),
                     count=r.get("count", 1),
                     known_at_start=r.get("known_at_start", False),
+                    alt=bool(r.get("alt", False)),
                 ))
         return cls(items, recipes)
 
@@ -186,10 +191,12 @@ class Catalog:
         return [r for r in self.recipes if not r.known_at_start and named(r.output) and all(named(i) for i in r.inputs)]
 
     def recipe_for(self, output_id: str) -> Recipe | None:
-        for r in self.recipes:
-            if r.output == output_id:
-                return r
-        return None
+        """The main recipe for an output."""
+        return next((r for r in self.recipes if r.output == output_id and not r.alt), None)
+
+    def recipes_for(self, output_id: str) -> list[Recipe]:
+        """Every way to make an output, the main recipe first."""
+        return sorted((r for r in self.recipes if r.output == output_id), key=lambda r: r.alt)
 
     def describe_recipe(self, r: Recipe) -> str:
         parts = " + ".join(f"{n} {self.name(i)}" if n > 1 else self.name(i) for i, n in r.inputs.items())

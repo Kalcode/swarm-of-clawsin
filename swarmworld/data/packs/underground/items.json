@@ -45,5 +45,17 @@
       "tool"
     ],
     "desc": "A burning torch. It lights the dark around you, and burns down to a stick."
+  },
+  "crystal_lamp": {
+    "name": "crystal lamp",
+    "aliases": [
+      "lamp",
+      "crystal light"
+    ],
+    "placeable": true,
+    "tags": [
+      "tool"
+    ],
+    "desc": "A crystal set in a holder; it glows without burning out."
   }
 }

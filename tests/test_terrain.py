@@ -24,8 +24,9 @@ def test_resources_present():
         assert k["copper_vein"] >= 4
         assert k["iron_vein"] >= 3
         assert k["clay"] >= 6
-        assert k["terminal"] == 2
-        assert k["tablet"] == 2
+        surface = Counter(o.kind for o in w.objects.values() if w.region_at(o.x, o.y) is w.region("surface"))
+        assert surface["terminal"] == 2  # the deep has an ancient one of its own
+        assert surface["tablet"] == 2
 
 
 def test_spawn_walkable():

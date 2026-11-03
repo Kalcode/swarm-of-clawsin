@@ -9,6 +9,8 @@
              "look": "ladder", "glyph": {"char": "H", "color": "#c8a070"}},
   "open_pit": {"name": "open pit", "aliases": ["pit", "open pit", "hole", "way down"],
                "look": "open_pit", "glyph": {"char": "◎", "color": "#4a3b30"}},
+  "crystal_lamp": {"name": "crystal lamp", "aliases": ["lamp", "crystal lamp"], "glow": 3,
+                   "look": "crystal_lamp", "glyph": {"char": "♦", "color": "#bff0ff"}},
   "coal_seam": {"name": "coal seam", "aliases": ["coal", "seam", "coal seam"], "blocking": true,
                 "look": "coal_seam", "glyph": {"char": "%", "color": "#2b2b2f"},
                 "yields": {"items": {"coal": [1, 2]}, "tool": "pickaxe", "uses": 6}},

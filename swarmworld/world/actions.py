@@ -973,6 +973,7 @@ def _craft(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, f"{world.catalog.name(iid).capitalize()} isn't something you make; it's found or gathered.")
     if iid not in c.known_recipes:
         return ActionResult(False, f"You don't know how to make {world.catalog.name(iid)} yet. Try combining materials to discover it, or ask someone who knows.")
+    r = next((a for a in world.catalog.recipes_for(iid) if _recipe_ready(world, c, a)), r)  # an alternative it can finish now
     return _try_recipe(world, c, r, it.count, "craft")
 
 
@@ -1131,6 +1132,9 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
     return ActionResult(True, f"The {animal.name} eats warily from your hand. Maybe it will trust you if you feed it again.")
 
 
+FUEL = {"stick": 300, "log": 900, "charcoal": 1200, "plant_fiber": 60}  # campfire ticks per item; packs add theirs
+
+
 def _feed_fire(world: World, c: Creature, fire: WorldObject, it: Intention) -> ActionResult:
     if dist(c.x, c.y, fire.x, fire.y) > 1:
         return _walk_then(world, c, fire, it)
@@ -1138,7 +1142,7 @@ def _feed_fire(world: World, c: Creature, fire: WorldObject, it: Intention) -> A
     iid, err = _resolve_held(world, c, name)
     if not iid:
         return ActionResult(False, err)
-    fuel = {"stick": 300, "log": 900, "charcoal": 1200, "plant_fiber": 60}.get(iid)
+    fuel = FUEL.get(iid)
     if not fuel:
         return ActionResult(False, f"The {world.catalog.name(iid)} won't burn.")
     n = min(max(it.count, 1), c.inventory[iid])
