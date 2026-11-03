@@ -353,10 +353,14 @@ def _gather_yields(world: World, c: Creature, obj: WorldObject, got: Counter) ->
         if got:
             return True
         return ActionResult(False, f"You'd need a {world.catalog.name(y['tool'])} to gather from the {obj.name}.")
+    rolled = False
     for item, (lo, hi) in y["items"].items():
         n = world.rng.randint(lo, hi)
         if n:
             got[item] += n
+            rolled = True
+    if not rolled:  # nothing came of it this time: nothing used up
+        return False
     obj.data["uses"] = obj.data.get("uses", y["uses"]) - 1
     if obj.data["uses"] > 0:
         return False

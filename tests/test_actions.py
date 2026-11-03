@@ -606,3 +606,17 @@ def test_myth_can_become_an_invention(world):
     assert not res.ok and "could invent it" in res.message
     res = act(world, c, action="invent", target="berry-rope", items=["rope", "berries"], text="a warm rope rubbed with berries")
     assert res.ok and "inv_berry_rope" in c.inventory
+
+
+def test_a_gather_that_yields_nothing_spends_no_use(world, monkeypatch):
+    from swarmworld.world.registry import YIELDS
+    c = creature(world)
+    patch = world.add_object("herb_patch", 11, 10)
+    uses = YIELDS["herb_patch"]["uses"]
+    monkeypatch.setitem(YIELDS, "herb_patch", dict(YIELDS["herb_patch"], items={"herbs": [0, 0]}))
+    act(world, c, action="gather", target="herb patch")
+    assert not c.inventory.get("herbs") and patch.kind == "herb_patch"
+    assert patch.data.get("uses", uses) == uses  # nothing came of it, so nothing was used up
+    monkeypatch.setitem(YIELDS, "herb_patch", dict(YIELDS["herb_patch"], items={"herbs": [1, 1]}))
+    assert act(world, c, action="gather", target="herb patch").ok and c.inventory["herbs"] == 1
+    assert patch.data["uses"] == uses - 1
