@@ -186,3 +186,24 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mod (follow-up), eat-grass:** 22 refused meals this stretch, up from 12. Still no collapses since tick 3,208.
 - **tweak:** gpt-oss "program"s a terminal from afar 18 times ("There's no terminal within reach to program"). Like
   `eat` and `gather`, `program` could walk to a terminal it sees or remembers before refusing.
+
+### 13:37 watch (tick 10,595)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no errors, no public watchers.
+- **Minds since tick 8,797:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 887 | 81% | 9.2 s |
+  | Student | 1,095 | 75% | 12.9 s |
+- **mod (follow-up), stone: worked.** After the 13:09 voice, 10 creatures headed south to the boulder field, and 48
+  stone gathers followed ("Gale gathered 3 stone, 1 flint"). Stone flows again. The balance fix (boulders coming back
+  near camp) stays open for when this field runs out.
+- **tweak (done 13:39), the combine parser:** 35 of 37 "Combine what?" failures were gpt-oss writing the ingredients
+  as a JSON-looking list in `target`, with empty items. Dree was 13 failures in a row. `combine` now strips the brackets
+  and quotes.
+- **mod (watching), eat-grass:** 34 refused meals, all from the student: it tries to eat plant fiber (16) or grass
+  (15) even with the food hint. It's a learned habit the hint doesn't break. Round 2 should take the teacher's answers
+  in exactly these hungry moments; a single sky voice won't fix it. Still no collapses since tick 3,208.
+- **add (seen):** Mirth wished to the sky: "I wish for flint, so I can strike a fire." Flint turns up while gathering
+  stone, so the trip south answers it.
+- **mod (watching), the rope stone:** 166 actions, steady and lower.
