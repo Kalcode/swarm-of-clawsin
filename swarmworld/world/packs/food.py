@@ -522,12 +522,25 @@ def _populate(world: World, rng, fresh: bool) -> None:
     mine = _state(world)
     if mine.get("placed"):
         return
-    x0, y0, x1, y1 = world.region_bounds("surface")
+    _place_habitats(world, rng, world.region_bounds("surface"),
+                    {kind: population(world, kind) for kind in habitat_kinds()})
+    mine["placed"] = True
+
+
+def _place_habitats(world: World, rng, bounds: tuple[int, int, int, int], counts: dict[str, int]) -> None:
+    """Each habitat kind, counts[kind] of it, sampled from the fitting tiles inside bounds."""
+    x0, y0, x1, y1 = bounds
     for kind, hab in habitat_kinds().items():
         spots = [(x, y) for y in range(y0, y1) for x in range(x0, x1) if _fits(world, x, y, hab)]
-        for x, y in rng.sample(spots, min(population(world, kind), len(spots))):
+        for x, y in rng.sample(spots, min(counts.get(kind, 0), len(spots))):
             world.add_object(kind, x, y)
-    mine["placed"] = True
+
+
+def _populate_land(world: World, rng, bounds: tuple[int, int, int, int]) -> None:
+    """A new land's game and forage, at the surface's density for its area (a small land may get none)."""
+    x0, y0, x1, y1 = bounds
+    area = (x1 - x0) * (y1 - y0)
+    _place_habitats(world, rng, bounds, {k: round(h["per_4096"] * area / 4096) for k, h in habitat_kinds().items()})
 
 
 def _wildlife(sim: Simulation, t: int) -> None:
@@ -585,7 +598,7 @@ def _cook_line(world: World, c: Creature) -> str | None:
 register_perception(_rack_line, priority=60)
 register_perception(_cook_line, priority=65)
 register_perception(_fishing_line, priority=72)
-register_populate("food game and forage", _populate)
+register_populate("food game and forage", _populate, land=_populate_land)
 
 
 def _shift(world: World, n: int) -> None:
