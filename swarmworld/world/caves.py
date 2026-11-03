@@ -145,7 +145,8 @@ def carve_deep(rng: random.Random, width: int, height: int) -> DeepMap:
             if (xx - px) ** 2 + (yy - py) ** 2 <= r * r:
                 water[yy, xx] = True
     open_ |= water
-    _join(rng, open_)  # a clamped pool may sit apart from the caves
+    if (px, py) != (mx, my):
+        _join(rng, open_)  # a clamped pool may sit apart from the caves
     rows = ["".join("u" if water[yy, xx] else "c" if open_[yy, xx] else "R" for xx in range(width))
             for yy in range(height)]
     return DeepMap(rows, caverns, (px, py))
