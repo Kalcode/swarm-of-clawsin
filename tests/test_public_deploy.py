@@ -102,7 +102,9 @@ def test_a_faithful_copy_of_the_template_is_not_blocked_by_its_comments(tmp_path
     "warp-routing:\n  enabled: true\n", "  - service: tcp://127.0.0.1:22\n", "  - service: unix:/tmp/s.sock\n",
     "  - service: ssh://127.0.0.1:22\n", "  - service: rdp://127.0.0.1:3389\n", "  - service: bastion\n",
     "  - service: http://10.0.0.5:80\n", "  - service: http://localhost:7777\n", "# private-network is fine in a comment\nprivate-network: 1\n",
-    "originRequest:\n  proxyType: socks\n", "originRequest: {proxyType: socks}\n", "  - hostname: x.example.com\n    originRequest: {noTLSVerify: true}\n    service: http://127.0.0.1:7777\n",
+    "originRequest:\n  proxyType: socks\n", "  - service: http://127.0.0.1:8000\n", "  - hostname: llm.example.com\n    service: http://127.0.0.1:8000\n",
+    "ingress: [{hostname: h, service: ssh://127.0.0.1:22}]\n", "  - {hostname: h, originRequest: {proxyType: socks}, service: http://127.0.0.1:7777}\n",
+    '"warp-routing": {enabled: true}\n', "'originRequest': x\n", "list: [a, b]\n", "originRequest: {proxyType: socks}\n", "  - hostname: x.example.com\n    originRequest: {noTLSVerify: true}\n    service: http://127.0.0.1:7777\n",
     "proxyType: socks\n"])
 def test_start_refuses_a_config_that_could_expose_the_world(tmp_path, fake_cloudflared, bad):
     cfg = tmp_path / "cfg.yml"
@@ -187,14 +189,41 @@ def test_inline_comments_are_ignored_and_the_allowed_extras_pass(tmp_path, fake_
 
 
 def test_a_process_that_only_mentions_cloudflared_is_not_ours(tmp_path, fake_cloudflared):
-    other = subprocess.Popen(["bash", "-c", "sleep 30", "cloudflared"])
+    other = subprocess.Popen(["bash", "-c", "sleep 30; true", "cloudflared"])  # ps: "bash -c sleep 30; true cloudflared"
     try:
+        ps = subprocess.run(["ps", "-p", str(other.pid), "-o", "command="], capture_output=True, text=True).stdout
+        assert ps.split()[0].endswith("bash") and "cloudflared" in ps  # the setup is what the test says it is
         (tmp_path / "cloudflared.pid").write_text(str(other.pid))
         out = tunnel(tmp_path, "stop").stdout
         assert other.poll() is None and "no tunnel started by this script was running" in out
     finally:
         other.kill()
         other.wait()
+
+
+def test_a_cloudflared_path_with_a_space_is_ours(tmp_path):
+    d = tmp_path / "My Tools"
+    d.mkdir()
+    fake = d / "cloudflared"
+    fake.write_text('#!/bin/bash\necho "$@" > "' + str(tmp_path) + '/marker"\nexec -a "$0" bash -c \'sleep 60 & trap "kill $!; exit 0" TERM; wait\'\n')
+    fake.chmod(0o755)
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text(GOOD)
+    try:
+        assert tunnel(tmp_path, "start", CONFIG=str(cfg), CLOUDFLARED=str(fake)).returncode == 0
+        assert "running (pid" in tunnel(tmp_path, "status", CLOUDFLARED=str(fake)).stdout
+    finally:
+        out = tunnel(tmp_path, "stop", CLOUDFLARED=str(fake)).stdout
+    assert "nothing new is public" in out
+
+
+def test_the_service_port_is_the_worlds(tmp_path, fake_cloudflared):
+    cfg = tmp_path / "cfg.yml"
+    cfg.write_text(GOOD.replace("7777", "7790"))
+    r = tunnel(tmp_path, "start", CONFIG=str(cfg))
+    assert r.returncode == 1 and "7790" in r.stdout and not (tmp_path / "marker").exists()
+    assert tunnel(tmp_path, "start", CONFIG=str(cfg), WORLD_PORT="7790").returncode == 0
+    tunnel(tmp_path, "stop")
 
 
 def test_the_stop_message_does_not_overstate():
@@ -218,3 +247,9 @@ def test_the_cache_rules_are_host_scoped_and_the_query_rule_is_required():
         for s in ("almanac.json", "history.json", "creature/", "rate limit"):
             assert s in text, s
     assert "never" in rules.lower() and "static.json" in rules
+
+
+def test_rule_2_covers_the_pages_and_says_what_the_origin_does():
+    for text in ((ROOT / "deploy/cloudflare/cache-rules.md").read_text(), (ROOT / "docs/public-viewer.md").read_text()):
+        assert "/public/app/almanac.html" in text and "20 requests per 10 seconds" in text and "never get that far" not in text
+    assert "never a redirect" in (ROOT / "deploy/cloudflare/cache-rules.md").read_text()

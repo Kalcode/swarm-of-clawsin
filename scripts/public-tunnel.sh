@@ -3,7 +3,7 @@
 #   start   run cloudflared in the background (needs ~/.cloudflared/swarm-world.yml; docs/public-viewer.md)
 #   stop    the kill switch: stop the tunnel this script started; the world keeps running
 #   status  running (pid N) or not running; no network
-# Environment: CONFIG, CLOUDFLARED, PIDFILE, LOG (and SWARM_TUNNEL_TEST_KILL, SWARM_TUNNEL_TEST_STOP_TICKS for tests)
+# Environment: CONFIG, CLOUDFLARED, PIDFILE, LOG, WORLD_PORT (default 7777) (and SWARM_TUNNEL_TEST_KILL, SWARM_TUNNEL_TEST_STOP_TICKS for tests)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-$HOME/.cloudflared/swarm-world.yml}"
@@ -12,6 +12,7 @@ PIDFILE="${PIDFILE:-runs/cloudflared.pid}"
 LOG="${LOG:-runs/cloudflared.log}"
 KILL="${SWARM_TUNNEL_TEST_KILL:-kill}"
 STOP_TICKS="${SWARM_TUNNEL_TEST_STOP_TICKS:-50}"  # tenths of a second to wait after TERM (5 s)
+WORLD_PORT="${WORLD_PORT:-7777}"  # the only port a service may point at
 
 # The keys a config may use: the template's, plus a few harmless settings. Anything else (originRequest, warp-routing,
 # private-network routes, ...) could deliver traffic without the proxy headers, so it is refused by name.
@@ -27,13 +28,16 @@ running_pid() {
   cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
   first="${cmd#"${cmd%%[![:space:]]*}"}"  # trim leading space
   first="${first%%[[:space:]]*}"
-  [[ -n "$first" && "$(basename "$first")" == "$(basename "$CLOUDFLARED")" ]] || return 1
+  # the first word's basename is ours; or the command is exactly what we launched (a path with a space in it)
+  if [[ "$cmd" != "$CLOUDFLARED" && "$cmd" != "$CLOUDFLARED "* ]]; then
+    [[ -n "$first" && "$(basename "$first")" == "$(basename "$CLOUDFLARED")" ]] || return 1
+  fi
   echo "$pid"
 }
 
 # A config may only carry plain HTTP to this machine's world (docs/public-viewer.md, "The one rule").
 check_config() {
-  local code bad key
+  local code bad key line
   if [[ ! -f "$CONFIG" ]]; then
     echo "Fill in $CONFIG first (copy deploy/cloudflare/tunnel.yml; see docs/public-viewer.md)"
     return 1
@@ -44,6 +48,12 @@ check_config() {
     echo "Fill in $CONFIG first (copy deploy/cloudflare/tunnel.yml; see docs/public-viewer.md)"
     return 1
   fi
+  # YAML flow style and quoted keys hide keys from the check below, so a config may not use them
+  line="$(grep -nE '[{\[]|^[[:space:]-]*["'"'"'][^"'"'"']*["'"'"'][[:space:]]*:' <<<"$code" | head -1 || true)"
+  if [[ -n "$line" ]]; then
+    echo "Refusing to start: $CONFIG uses flow style or a quoted key ($line); write plain block YAML like the template (docs/public-viewer.md, \"The one rule\")."
+    return 1
+  fi
   while IFS= read -r key; do
     [[ -n "$key" ]] || continue
     if [[ "$ALLOWED_KEYS" != *" $key "* ]]; then
@@ -51,9 +61,9 @@ check_config() {
       return 1
     fi
   done < <(sed -nE 's/^[[:space:]-]*([A-Za-z0-9_-]+):.*$/\1/p' <<<"$code")
-  bad="$(grep -E '^[[:space:]]*-?[[:space:]]*service:' <<<"$code" | sed -E 's/^[[:space:]]*-?[[:space:]]*service:[[:space:]]*//; s/[[:space:]]+$//' | grep -vE '^(http://127\.0\.0\.1:[0-9]+/?|http_status:[0-9]+)$' || true)"
+  bad="$(grep -E '^[[:space:]]*-?[[:space:]]*service:' <<<"$code" | sed -E 's/^[[:space:]]*-?[[:space:]]*service:[[:space:]]*//; s/[[:space:]]+$//' | grep -vE "^(http://127\.0\.0\.1:${WORLD_PORT}/?|http_status:[0-9]+)\$" || true)"
   if [[ -n "$bad" ]]; then
-    echo "Refusing to start: $CONFIG has a service other than http://127.0.0.1:<port> or http_status:<code>: $bad"
+    echo "Refusing to start: $CONFIG has a service other than http://127.0.0.1:$WORLD_PORT (the world) or http_status:<code>: $bad"
     return 1
   fi
 }

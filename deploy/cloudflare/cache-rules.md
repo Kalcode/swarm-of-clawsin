@@ -16,15 +16,15 @@ Scope every rule to your hostname: a zone often holds other services, and a path
 
 ## Rule 2, "Swarm World ignore query string" (required)
 
-- When: `http.host eq "<your hostname>" and (http.request.uri.path eq "/public/live.json" or http.request.uri.path eq "/public/almanac.json" or http.request.uri.path eq "/public/history.json" or starts_with(http.request.uri.path, "/public/creature/"))`
+- When: `http.host eq "<your hostname>" and (http.request.uri.path eq "/public/live.json" or http.request.uri.path eq "/public/almanac.json" or http.request.uri.path eq "/public/history.json" or starts_with(http.request.uri.path, "/public/creature/") or http.request.uri.path in {"/public/app/" "/public/app/index.html" "/public/app/almanac.html"})`
 - Cache key: **Ignore query string**, plus the same cache eligibility and TTL settings as rule 1 (a rule that sets the cache key must also say "eligible", or order it after rule 1 and let both apply).
-- Why it is required: these documents take no query, so every `?x=random` is a made-up cache key that would miss at the edge and reach the Mac. (The world also answers such a request with a small redirect to the bare URL, but ignoring the query at the edge means it never gets that far.)
+- Why it is required: these documents and the two pages take no query, so every `?x=random` would be a made-up cache key that misses at the edge and reaches the Mac. With the query ignored, they all share one entry. The world answers a request with a query exactly as it answers the bare URL (same body, headers and ETag, never a redirect), so what the edge stores under the shared key is always the real document.
 - Never apply this to `static.json` or `chronicle.json`: their `?v=` is the version and must stay in the key. The world redirects any other `v` (and a missing one) to the current version, so a made-up `v` costs one tiny answer, not a body. Rule 1 alone covers them, and the app files under `/public/app/`.
 
 ## Rule 3, a rate limit (suggested)
 
 - Security > WAF > Rate limiting rules, scoped like the others: `http.host eq "<your hostname>" and starts_with(http.request.uri.path, "/public/")`.
-- Counting: per IP, e.g. **120 requests per minute**, action Block for a minute. A watcher makes about 25 a minute (a live poll every 3 s plus a few details), so this is generous even for an office behind one address; a script hammering the origin hits it quickly.
+- Counting: per IP, e.g. **120 requests per minute**, action Block for a minute. The dashboard's options differ by plan: on the Free plan the period is limited (10 seconds), so use **20 requests per 10 seconds per IP** on `/public/` and a 10-second block, and drop the `http.host` clause if the field is not offered. A watcher makes about 25 a minute (a live poll every 3 s plus a few details), so this is generous even for an office behind one address; a script hammering the origin hits it quickly.
 - A request the edge answers from cache still counts toward the limit, which is the point: it stops one visitor from using up the connection or the free-plan quota.
 
 ## Tiered Cache

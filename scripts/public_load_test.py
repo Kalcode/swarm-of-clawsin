@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Do watchers slow the world?  Starts a throwaway world and a mock node, measures a quiet phase, then a phase with
 many pollers fetching /public/* the way the public app does, and compares tick time, tick rate and CPU.
 
