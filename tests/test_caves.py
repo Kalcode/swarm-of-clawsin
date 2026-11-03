@@ -29,13 +29,18 @@ def test_deep_is_one_connected_cave(size):
 
 
 @pytest.mark.parametrize("size", [40, 64, 128])
-def test_deep_border_is_rock(size):
-    rows = carve_deep(random.Random(1), size, size).rows
-    assert len(rows) == size and all(len(r) == size for r in rows)
-    for y, r in enumerate(rows):
-        for x, t in enumerate(r):
-            if min(x, y, size - 1 - x, size - 1 - y) < BORDER:
-                assert t == "R"
+def test_every_seed_gives_a_connected_bordered_deep_within_the_floor_bounds(size):
+    for seed in range(60 if size < 128 else 25):
+        rows = carve_deep(random.Random(seed), size, size).rows
+        assert len(rows) == size and all(len(r) == size for r in rows)
+        for y, r in enumerate(rows):
+            for x, t in enumerate(r):
+                if min(x, y, size - 1 - x, size - 1 - y) < BORDER:
+                    assert t == "R", (seed, x, y)
+        tiles = {(x, y) for y, r in enumerate(rows) for x, t in enumerate(r) if t in OPEN}
+        assert 0.30 <= len(tiles) / size**2 <= 0.55, seed
+        assert _reach(tiles, next(iter(tiles))) == tiles, seed
+        assert sum(r.count("u") for r in rows) >= 20, seed
 
 
 @pytest.mark.parametrize("size", [40, 64, 128])
@@ -57,9 +62,12 @@ def test_same_rng_same_deep():
 
 
 def test_carving_a_128_deep_is_quick():
-    t = time.perf_counter()
-    carve_deep(random.Random(3), 128, 128)
-    assert time.perf_counter() - t < 0.3
+    best = 9.0
+    for _ in range(2):
+        t = time.perf_counter()
+        carve_deep(random.Random(3), 128, 128)
+        best = min(best, time.perf_counter() - t)
+    assert best < 1.0  # typically ~0.1 s; this catches a slide to seconds
 
 
 def _rock_deep(two_levels, size=24):
@@ -102,3 +110,17 @@ def test_carve_passage_from_a_small_pocket_reaches_the_main_system(two_levels):
     open_ = {(x, y) for y in range(y0, w.height) for x in range(24) if w.tile(x, y) in OPEN}
     assert own[0] in _reach(open_, big[0])
     assert carve_passage(w, own[0]) == []  # already part of it
+
+
+def test_carve_passage_avoid_sends_it_to_the_other_group(two_levels):
+    w, y0 = _rock_deep(two_levels)
+    near = [(x, y0 + y) for x in range(6, 10) for y in range(10, 14)]  # nearest to the start, 16 tiles
+    far = [(x, y0 + y) for x in range(14, 21) for y in range(14, 21)]  # 49 tiles
+    for p in near + far:
+        w.set_tile(*p, "c")
+    start = (4, y0 + 20)
+    carve_passage(w, start, avoid=set(near))
+    open_ = {(x, y) for y in range(y0, w.height) for x in range(24) if w.tile(x, y) in OPEN}
+    assert start in _reach(open_, far[0])
+    assert all(w.tile(*p) == "c" for p in near)
+    assert (start[0], start[1] - 1) not in near

@@ -95,14 +95,33 @@ def _join(rng: random.Random, open_: np.ndarray) -> None:
             open_[min(ay, by):max(ay, by) + 1, min(ax, bx):max(ax, bx) + 1] = True
 
 
+FLOOR_SHARE = (0.30, 0.55)  # the share of the deep that is cave floor or water
+FREE_TRIES = 5  # re-rolls at the standard rock chance before it is nudged
+MAX_TRIES = 40
+
+
 def carve_deep(rng: random.Random, width: int, height: int) -> DeepMap:
-    rock = np.array([[rng.random() < ROCK_CHANCE for _ in range(width)] for _ in range(height)])
+    """A deep whose floor share lies within FLOOR_SHARE: a map that falls outside is re-rolled from the same rng (so
+    the result is still fixed by the seed), and after FREE_TRIES the rock chance is nudged toward the bound missed."""
+    chance = ROCK_CHANCE
+    for attempt in range(MAX_TRIES):
+        deep = _carve(rng, width, height, chance)
+        share = sum(r.count("c") + r.count("u") for r in deep.rows) / (width * height)
+        if FLOOR_SHARE[0] <= share <= FLOOR_SHARE[1]:
+            break
+        if attempt >= FREE_TRIES - 1:
+            chance += 0.01 if share > FLOOR_SHARE[1] else -0.01
+    return deep
+
+
+def _carve(rng: random.Random, width: int, height: int, chance: float) -> DeepMap:
+    rock = np.array([[rng.random() < chance for _ in range(width)] for _ in range(height)])
     _border(rock)
     for _ in range(PASSES):
         rock = _smooth(rock)
         _border(rock)
     open_ = ~rock
-    caverns = []
+    caverns = []  # sizes as grown, before the tunnels and the stream and pool add to them
     for g in _components(open_):
         if len(g) < MIN_POCKET:
             for x, y in g:
