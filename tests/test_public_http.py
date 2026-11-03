@@ -22,7 +22,8 @@ from .test_server import _join
 TUNNEL = {"CF-Connecting-IP": "203.0.113.9"}
 # one sample value for every header that marks a relayed request
 PROXIED = {"CF-Connecting-IP": "203.0.113.9", "CF-Ray": "8f3a1c2b3d4e5f60-LHR", "X-Forwarded-For": "203.0.113.9",
-           "X-Real-IP": "203.0.113.9", "Forwarded": "for=203.0.113.9;proto=https"}
+           "X-Real-IP": "203.0.113.9", "Forwarded": "for=203.0.113.9;proto=https", "Cdn-Loop": "cloudflare",
+           "Via": "1.1 proxy.example"}
 
 
 @pytest.fixture
@@ -49,6 +50,19 @@ async def raw_get(client, target: str, headers: bytes = b"") -> tuple[int, bytes
 
 def test_all_proxy_headers_are_sampled():
     assert set(PROXIED) == set(PROXY_HEADERS)
+
+
+async def test_a_relay_that_only_says_via_or_cdn_loop_is_still_a_relay(client):
+    """Cloudflare marks every request it relays with CDN-Loop, and an HTTP proxy adds Via; header names ignore case."""
+    for line in (b"Via: 1.1 proxy.example\r\n", b"via: 1.1 proxy.example\r\n", b"CDN-Loop: cloudflare\r\n",
+                 b"cdn-loop: cloudflare; loops=1\r\n"):
+        for target in ("/api/state", "/index.html", "/api/wishes"):
+            status, _ = await raw_get(client, target, line)
+            assert status == 404, (target, line)
+        status, _ = await raw_get(client, "/public/live.json", line)
+        assert status == 200, line
+    status, _ = await raw_get(client, "/api/state")
+    assert status == 200
 
 
 async def test_live_headers_gzip_and_etag(client):
@@ -221,8 +235,29 @@ async def test_a_malformed_or_foreign_token_is_refused_never_a_500(aiohttp_clien
 def test_token_matches_compares_ascii_bytes():
     assert token_matches("secret", "secret")
     for given, token in (("Secret", "secret"), ("secre", "secret"), ("sécret", "sécret"), ("secret\udcff", "secret"),
-                         ("\udcff", "\udcff"), (None, "secret"), ("", ""), ("secret", None), ("secret", "")):
+                         ("\udcff", "\udcff"), (None, "secret"), ("", ""), ("secret", None), ("secret", ""),
+                         (12345, "12345"), (["secret"], "secret"), ({"t": "secret"}, "secret"), (b"secret", "secret"),
+                         (True, "secret")):
         assert not token_matches(given, token), (given, token)
+
+
+async def test_a_node_hello_compares_the_token_as_bytes(aiohttp_client):
+    """The brain-node handshake uses the same comparison as the HTTP paths: anything but the exact ASCII token (a
+    number, a list, a non-ASCII string, even one equal to a non-ASCII token) is a bad token, never a crash."""
+    for token, sent in (("secret", "Secret"), ("secret", 12345), ("secret", ["secret"]), ("secret", {"t": "secret"}),
+                        ("secret", None), ("secret", ""), ("secret", "sécret"), ("sécret", "sécret")):
+        c = await aiohttp_client(create_app(seed=7, token=token, tick_seconds=0.02, public_every=0))
+        ws = await c.ws_connect("/ws/node")
+        await ws.send_json({"type": "hello", "node": "x", "token": sent, "slots": 1,
+                            "models": [{"tag": "mock", "creatures": 1}], "hardware": {}})
+        reply = await ws.receive_json(timeout=5)
+        assert reply == {"type": "error", "message": "bad join token"}, (token, sent)
+        await ws.close()
+        assert not c.app[STATE].nodes, (token, sent)
+    c = await aiohttp_client(create_app(seed=7, token="secret", tick_seconds=0.02, public_every=0))
+    ws, welcome = await _join(c, n=1, token="secret")
+    assert len(welcome["creatures"]) == 1
+    await ws.close()
 
 
 async def test_the_handlers_still_refuse_a_proxied_request_on_their_own(client):
@@ -247,6 +282,22 @@ async def test_publishing_off(aiohttp_client):
     c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=0))
     assert PUBLISHER not in c.app and (await c.get("/public/live.json")).status == 404
     assert (await c.get("/public/live.json", headers=TUNNEL)).status == 404
+
+
+async def test_publishing_off_still_keeps_public_paths_off_the_file_server(aiohttp_client):
+    """With --public-every 0 nothing is published, yet /public/ still never reaches the web/ file server: a dot
+    segment can't turn /public/../index.html into a viewer file, and the public app isn't served."""
+    c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=0))
+    for url in ("/public", "/public/", "/public/live.json", "/public/app", "/public/app/", "/public/app/index.html",
+                "/public/app/viewer.js", "/public/x"):
+        r = await c.get(url)
+        assert r.status == 404 and r.headers["Cache-Control"] == "public, max-age=3", url
+    for target in ("/public/../index.html", "/public/%2e%2e/viewer.js", "/public/app/../../index.html",
+                   "/public/../assets/kenney-1bit/colored_transparent_packed.png"):
+        for headers in (b"", b"CF-Connecting-IP: 203.0.113.9\r\n"):
+            status, body = await raw_get(c, target, headers)
+            assert status == 404 and b"<html" not in body.lower() and b"PNG" not in body, (target, headers)
+    assert (await c.get("/index.html")).status == 200   # the private viewer is still there, from this machine
 
 
 def test_the_cli_has_the_public_flags():

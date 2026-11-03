@@ -17,6 +17,7 @@ from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
 from .public import PUBLIC_EVERY, PUBLIC_LINK, PUBLISHER, Publisher
+from .public_app import PUBLIC_APP, PublicApp
 from .public_http import add_public_routes
 from .state import ServerState
 
@@ -24,7 +25,7 @@ log = logging.getLogger("swarmworld.server")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 STATE = web.AppKey("state", ServerState)
 ALMANAC = web.AppKey("almanac", Almanac)
-PROXY_HEADERS = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "Forwarded")
+PROXY_HEADERS = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "Forwarded", "Cdn-Loop", "Via")
 
 
 def is_direct_local(request: web.Request) -> bool:
@@ -51,8 +52,8 @@ def is_home_network(request: web.Request) -> bool:
 
 def token_matches(given: str | None, token: str | None) -> bool:
     """The join token, compared in constant time as ASCII bytes: anything else (missing, empty, non-ASCII, the
-    undecodable bytes a header can carry) is refused, never an error."""
-    if not given or not token:
+    undecodable bytes a header can carry, a number or list from a node's JSON hello) is refused, never an error."""
+    if not isinstance(given, str) or not isinstance(token, str) or not given or not token:
         return False
     try:
         return secrets.compare_digest(given.encode("ascii"), token.encode("ascii"))
@@ -176,7 +177,7 @@ async def node_ws(request: web.Request) -> web.WebSocketResponse:
                 if kind != "hello":
                     await ws.send_json({"type": "error", "message": "say hello first"})
                     continue
-                if (st.token and data.get("token") != st.token) or (not st.token and not direct):
+                if (st.token and not token_matches(data.get("token"), st.token)) or (not st.token and not direct):
                     msg = "bad join token" if st.token else "joining from outside this machine needs a join token (start the world with --token)"
                     await ws.send_json({"type": "error", "message": msg})
                     await ws.close()
@@ -344,6 +345,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
         app[PUBLIC_LINK] = public_link
     if public_every > 0:
         app[PUBLISHER] = pub = Publisher(st, app[ALMANAC], every=public_every)
+        app[PUBLIC_APP] = PublicApp(WEB_DIR, link=public_link)  # reads web/ on first use, not here
         try:
             pub.publish()  # the documents exist from the start
         except Exception:
