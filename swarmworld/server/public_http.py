@@ -5,10 +5,15 @@ builds a document from request data; an unknown creature or path is a short-cach
 
 from __future__ import annotations
 
+import logging
+import time
+
 from aiohttp import web
 
 from .public import PUBLISHER, Doc
 from .public_app import APP_ASSET, APP_MISSING, APP_SHORT, PUBLIC_APP
+
+log = logging.getLogger("swarmworld.server")
 
 LIVE_CACHE = "public, max-age=2, s-maxage=3, stale-while-revalidate=10"
 IMMUTABLE = "public, max-age=31536000, immutable"
@@ -78,8 +83,24 @@ async def static_json(request: web.Request) -> web.Response:
     return _serve(request, doc, IMMUTABLE if request.query.get("v") == pub.static_version else LIVE_CACHE)
 
 
+_last_log = [-60.0]
+
+
+def failed() -> web.Response:
+    """A short-cached 503 with a small JSON body (no traceback text); the cause is logged at most once a minute."""
+    now = time.monotonic()
+    if now - _last_log[0] >= 60.0:
+        _last_log[0] = now
+        log.exception("public creature document failed to build")
+    return web.Response(status=503, body=b'{"error":"not ready"}', content_type="application/json",
+                        headers={"Cache-Control": "public, max-age=2, s-maxage=3", "X-Content-Type-Options": "nosniff"})
+
+
 async def creature_json(request: web.Request) -> web.Response:
-    doc = request.app[PUBLISHER].creature_doc(request.match_info["cid"])
+    try:
+        doc = request.app[PUBLISHER].creature_doc(request.match_info["cid"])
+    except Exception:
+        return failed()
     return doc_response(request, doc, LIVE_CACHE) if doc is not None else missing()
 
 

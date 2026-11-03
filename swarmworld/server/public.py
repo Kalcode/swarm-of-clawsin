@@ -46,7 +46,7 @@ class Doc:
 
 
 def encode(obj, etag: str) -> Doc:
-    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode()
+    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode()  # a lone surrogate (a model can write one) must not fail the build
     return Doc(body, gzip.compress(body, 6, mtime=0), etag)
 
 
@@ -119,6 +119,12 @@ class Publisher:
 
     def publish(self) -> None:
         now = self.clock()
+        try:
+            self._publish(now)
+        finally:
+            self._last_publish = now  # a failing build is retried at the next interval, not at every tick
+
+    def _publish(self, now: float) -> None:
         w = self.st.world
         shape = (len(w.catalog.items), len(w.regions))
         if (self._static is None or now - self._static_at >= STATIC_EVERY_S or self._deltas() > STATIC_MAX_DELTAS
@@ -126,7 +132,6 @@ class Publisher:
             self._build_static(now, shape)
         self.seq += 1
         self._live = self._build_live()
-        self._last_publish = now
         self._last_tick = w.tick
         self._creatures, self._creatures_seq = {}, self.seq
         for cid in [c for c in self._trails if c not in w.creatures]:

@@ -326,3 +326,28 @@ async def test_publishing_off_still_keeps_public_paths_off_the_file_server(aioht
 def test_the_cli_has_the_public_flags():
     out = subprocess.run([sys.executable, "-m", "swarmworld.server", "--help"], capture_output=True, text=True).stdout
     assert "--public-every" in out and "--public-link" in out
+
+
+async def test_a_lone_surrogate_does_not_break_the_creature_route(client):
+    from .test_public_snapshots import poison
+    st = client.app[STATE]
+    cid = poison(st)
+    client.app[PUBLISHER].publish()
+    r = await client.get(f"/public/creature/{cid}.json")
+    assert r.status == 200 and (await r.json())["id"] == cid
+    assert (await client.get("/public/live.json")).status == 200
+
+
+async def test_a_creature_document_that_fails_to_build_is_a_short_cached_503(client, monkeypatch, caplog):
+    cid = "anyid"
+
+    def boom(self, cid):
+        raise RuntimeError("secret traceback text")
+    monkeypatch.setattr(type(client.app[PUBLISHER]), "creature_doc", boom)
+    for _ in range(3):
+        r = await client.get(f"/public/creature/{cid}.json")
+        assert r.status == 503
+        assert r.headers["Cache-Control"] == "public, max-age=2, s-maxage=3"
+        body = await r.text()
+        assert json.loads(body) and "traceback" not in body and "RuntimeError" not in body
+    assert len([x for x in caplog.records if "creature document" in x.getMessage()]) == 1  # once a minute

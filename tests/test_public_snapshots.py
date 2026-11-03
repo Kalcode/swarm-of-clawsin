@@ -239,3 +239,42 @@ def test_every_part_of_live_static_and_chronicle_is_picked(st, pub):
     live = live_of(pub)
     assert live["chronicle"] == [{"tick": 1, "day": 1, "phase": "dawn", "text": "It began."}]
     assert any(b["id"] == "b1" for b in live["buildings"]) and any(lm["name"] == "a cave" for lm in live["landmarks"])
+
+
+LONE = "half \ud83c an emoji"
+
+
+def poison(st):
+    """A lone surrogate (valid in a JSON escape, so a model can write one) in a say, a sign, a wish quote and a thought."""
+    w = st.world
+    if not w.creatures:
+        st.register_node(type("W", (), {"send_json": lambda s, m: None})(), {"node": "n", "slots": 2, "models": [{"tag": "mock", "creatures": 2}]})
+    c = next(iter(w.creatures.values()))
+    c.say, c.say_until = LONE, w.tick + 10
+    x, y = next((x, y) for x in range(5, 60) for y in range(5, 60) if (x, y) not in w.grid)
+    w.add_object("sign", x, y, text=LONE)
+    st.wishes.add("Mara", "lamp", "said", LONE, w.tick)
+    st.last[c.id] = {"thought": LONE, "perception": "", "intention": "", "result": ""}
+    return c.id
+
+
+def test_a_lone_surrogate_in_model_text_publishes_everywhere(st, pub):
+    cid = poison(st)
+    pub.publish()
+    for doc in (pub.live_doc(), pub.static_doc(), pub.creature_doc(cid)):
+        assert json.loads(doc.body) and gzip.decompress(doc.gz) == doc.body
+        doc.body.decode("ascii")  # \udXXX escapes, nothing a strict UTF-8 encoder would refuse
+    assert "\\ud83c" in pub.live_doc().body.decode() or "\\ud83c" in pub.static_doc().body.decode()
+
+
+def test_a_failing_publish_is_retried_at_the_next_interval_not_every_tick(st, pub, fake, monkeypatch):
+    pub.publish()
+    monkeypatch.setattr(pub, "_build_live", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    fake.t += 4
+    assert pub.due()
+    with pytest.raises(RuntimeError):
+        pub.publish()
+    assert not pub.due()  # the interval restarted
+    fake.t += 4
+    assert pub.due()
+
