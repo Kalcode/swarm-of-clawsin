@@ -960,6 +960,12 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         hint = it.target
     if not names:
         return ActionResult(False, "Combine what? List the items you want to put together.")
+    # "combine fish and campfire": a station is where you work, never an ingredient (no recipe takes one), even when
+    # the creature also carries one that isn't set down yet
+    stations = {r.station for r in world.catalog.recipes if r.station}
+    kept = [n for n in names if world.catalog.resolve(n) not in stations]
+    if kept:
+        names = kept
     ids, missing = set(), []
     for n in names:
         iid, err = _resolve_held(world, c, n)

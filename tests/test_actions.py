@@ -722,3 +722,12 @@ def test_placing_a_basket_in_the_open_still_works(world):
     c = creature(world)
     c.inventory["basket"] = 1
     assert act(world, c, action="place", target="basket").ok
+
+
+def test_a_station_named_among_the_ingredients_is_where_you_work_not_what_you_use(world):
+    # gpt-oss combines items ["fish", "campfire"] beside a fire: 25 "nothing comes of it" in half an hour
+    c = creature(world)
+    c.inventory.update({"fish": 1, "campfire": 1})  # one carried, not yet set down, and one burning beside it
+    world.add_object("campfire", 11, 10, lit=True, lit_until=world.tick + 1000)
+    res = act(world, c, action="combine", items=["fish", "campfire"])
+    assert res.ok and c.inventory.get("cooked_fish", 0) == 1
