@@ -23,8 +23,8 @@ Scope every rule to your hostname: a zone often holds other services, and a path
 
 ## Rule 3, a rate limit (suggested)
 
-- Security > WAF > Rate limiting rules, scoped like the others: `http.host eq "<your hostname>" and starts_with(http.request.uri.path, "/public/")`.
-- Counting: per IP, e.g. **120 requests per minute**, action Block for a minute. The dashboard's options differ by plan: on the Free plan the period is limited (10 seconds), so use **20 requests per 10 seconds per IP** on `/public/` and a 10-second block, and drop the `http.host` clause if the field is not offered. A watcher makes about 25 a minute (a live poll every 3 s plus a few details), so this is generous even for an office behind one address; a script hammering the origin hits it quickly.
+- Security > WAF > Rate limiting rules, scoped to the snapshot documents only: `http.host eq "<your hostname>" and starts_with(http.request.uri.path, "/public/") and not starts_with(http.request.uri.path, "/public/app/")`. Never include `/public/app/`: one page load fetches about 110 files (scripts, art sheets, sounds), so a limit there blocks every new visitor on their first load; those files are long-cached at the edge anyway.
+- Counting: per IP, e.g. **120 requests per minute**, action Block for a minute. The dashboard's options differ by plan: on the Free plan the period is limited (10 seconds), so use **20 requests per 10 seconds per IP** on the snapshot documents and a 10-second block, and drop the `http.host` clause if the field is not offered. A watcher makes about 25 a minute (a live poll every 3 s plus a few details), so this is generous even for an office behind one address; a script hammering the origin hits it quickly.
 - A request the edge answers from cache still counts toward the limit, which is the point: it stops one visitor from using up the connection or the free-plan quota.
 
 ## Tiered Cache
