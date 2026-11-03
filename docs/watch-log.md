@@ -292,3 +292,22 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   reflexes should then feed them. Check for collapses next time.
 - **tweak (idea):** a creature lying down to sleep while hungry, with food within a few steps, could eat first: a
   bedtime reflex. Only if collapses come back.
+
+### 16:09 watch (tick 19,699)
+- **admin:** the PC wound down at 16:08, and its 12 gpt-oss creatures sleep until morning. 12 student creatures are
+  awake; tunnel up, no errors.
+- **Minds since tick 17,771:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 908 | 85% | 9.1 s |
+  | Student | 1,094 | 88% | 13.4 s |
+
+  The student was ahead for the first time this stretch (with the world's eat reflex helping it).
+- **mod (follow-up), hungry sleepers: fine.** Jun went from 10 to 27 after waking. The lowest awake satiety is now Ula
+  at 22.
+- **mod (morning), Suki:** Suki (gpt-oss) ended the day with 21 failures in a row: "You don't have any plant fiber rope"
+  and "You don't have any rope". 44 and 41 of those across gpt-oss in this stretch: wanting an item it doesn't have.
+  - **tweak:** like the material hints, "You don't have any X" could add how X is made when the creature knows the
+    recipe ("You know how: 2 strong cord + ..."), and where to get it when it's a material.
+  - Check Suki when the PC rejoins.
