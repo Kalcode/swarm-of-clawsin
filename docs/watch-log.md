@@ -311,3 +311,19 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - **tweak:** like the material hints, "You don't have any X" could add how X is made when the creature knows the
     recipe ("You know how: 2 strong cord + ..."), and where to get it when it's a material.
   - Check Suki when the PC rejoins.
+
+### 16:48 (review follow-ups deployed)
+- **tweak (balance), seeds as food:** the reviewer counted 765 eat intents that name seeds today (570 from the student,
+  177 from gpt-oss), and 630 seed meals against 441 berry meals. Seeds (food value 3) are a staple, which eats the next
+  harvest.
+  - Lower their food value to 1.
+  - Or say "you'd rather plant these" when eating seeds while berries are in reach.
+  - Watch whether farming ever starts.
+- **tweak (minor):** plain `eat` with no target and only seeds carried still eats 6 seeds beside a bush (15 times
+  today). Other open items, all small:
+  - one berry per bush eat;
+  - herbs win over a nearby bush when nothing is carried;
+  - an invention with a station input can't be combined;
+  - three weak test assertions.
+
+  Details in .superpowers/sdd/hotfix-review-nov3.md.
