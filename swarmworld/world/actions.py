@@ -907,8 +907,10 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                 return done
             if done:
                 break
-        else:
-            return ActionResult(False, f"You can't gather anything from the {obj.name}.")
+        else:  # "gather stone" beside the stone tablet: say where the stone they want comes from
+            want = next((iid for w in _words(it.target or "") if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
+            hint = f" {world.catalog.name(want).capitalize()}: {SOURCE_HINT[want]}." if want else ""
+            return ActionResult(False, f"You can't gather anything from the {obj.name}.{hint}")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
                    and "invention" in world.catalog.items[i].tags), None) if got else None
     if helper:

@@ -680,3 +680,19 @@ def test_with_no_food_in_sight_it_says_what_food_is(world):
     c.inventory["plant_fiber"] = 1
     res = act(world, c, action="eat", target="plant fiber")
     assert not res.ok and "Berries" in res.message and "mushrooms" in res.message
+
+
+def test_gathering_stone_from_the_stone_tablet_says_where_stone_comes_from(world):
+    # gpt-oss creatures beside the old tablet tried "gather stone" 53 times in half an hour with no boulder in sight
+    c = creature(world)
+    world.add_object("tablet", 11, 10)
+    res = act(world, c, action="gather", target="stone tablet")
+    assert not res.ok and "can't gather anything from the stone tablet" in res.message
+    assert "Stone: knock it off boulders." in res.message
+
+
+def test_an_unrelated_refusal_adds_no_hint(world):
+    c = creature(world)
+    world.add_object("tablet", 11, 10)
+    res = act(world, c, action="gather", target="tablet")
+    assert not res.ok and res.message.endswith("can't gather anything from the stone tablet.")
