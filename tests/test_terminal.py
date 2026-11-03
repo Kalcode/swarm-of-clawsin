@@ -78,3 +78,40 @@ def test_a_single_expression_shows_its_value():
     term.data.update(code="scan(5)", screen=[])
     run_terminal(w, term)
     assert any("Tam" in line for line in term.data["screen"]) and len(term.data["screen"]) >= 2
+
+
+def _walk_until_done(w, c, steps=80):
+    from swarmworld.world.actions import step_activity
+    for _ in range(steps):
+        if not c.activity:
+            break
+        step_activity(w, c)
+
+
+def test_program_walks_to_a_terminal_in_sight_then_programs_it():
+    w, sim, term, coder, listener, notes = _setup()
+    coder.x, coder.y = 15, 10
+    res = apply_intention(w, coder, Intention("program", target="terminal", text='say("hi")'))
+    assert res.ok and coder.activity  # walking, not "no terminal within reach"
+    _walk_until_done(w, coder)
+    assert term.data["code"] == 'say("hi")' and term.data["programmer"] == "Tam"
+
+
+def test_program_walks_to_a_remembered_terminal_out_of_sight():
+    w, sim, term, coder, listener, notes = _setup()
+    w.remove_object(term.id)
+    term = w.add_object("terminal", 25, 25, code="", screen=[], memory={})
+    coder.x, coder.y = 3, 3
+    assert "no terminal" in apply_intention(w, coder, Intention("program", target="terminal", text="x=1")).message
+    coder.spots["terminal"] = (25, 25, w.tick)
+    res = apply_intention(w, coder, Intention("program", target="terminal", text='say("hi")'))
+    assert res.ok and coder.activity
+    _walk_until_done(w, coder, 120)
+    assert term.data["code"] == 'say("hi")'
+
+
+def test_program_without_code_still_walks_to_a_terminal_in_sight():
+    w, sim, term, coder, listener, notes = _setup()
+    coder.x, coder.y = 15, 10
+    res = apply_intention(w, coder, Intention("program", target="terminal"))
+    assert res.ok and coder.activity

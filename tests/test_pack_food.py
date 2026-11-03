@@ -125,6 +125,24 @@ def test_fishing_line_says_what_bites_here_once():
 
 
 # ------------------------------------------------------------------ cooking
+def test_cooking_hint_only_beside_a_fire_with_raw_fish():
+    w = grass_world()
+    c = creature(w)
+    fire = campfire(w, 12, 10)
+    plain = perceive(w, c)
+    assert "cook your fish" not in plain  # no fish
+    c.inventory["trout"] = 1
+    assert "You could cook your fish here: combine it beside the fire." in perceive(w, c)
+    fire.data["lit"] = False
+    assert "cook your fish" not in perceive(w, c)  # cold ashes
+    fire.data["lit"] = True
+    c.x = 16
+    assert "cook your fish" not in perceive(w, c)  # too far
+    c.x, c.inventory["trout"] = 10, 0
+    c.inventory["cooked_trout"] = 1
+    assert "cook your fish" not in perceive(w, c)
+
+
 def test_cook_stew_at_fire():
     w = grass_world()
     c = creature(w)

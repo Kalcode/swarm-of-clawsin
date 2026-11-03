@@ -16,9 +16,16 @@
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
 cd "$(dirname "$0")"
-MODEL="${MODEL:-gemma-4-e4b-it-4bit}"
+# Default minds: the newest distilled student (~/models/swarm-student-*) with all three harness layers, else Qwen3.5-9B alone.
+# (Gemma 4 E4B is out: it loops, issue 003.)
+STUDENT="$(ls -d "$HOME"/models/swarm-student-*/ 2>/dev/null | sort | tail -n 1 || true)"; STUDENT="${STUDENT%/}"  # folders only
+if [[ -z "${MODEL:-}" && -n "$STUDENT" ]]; then
+  MODEL="$(basename "$STUDENT")"
+  HARNESS_ALL="${HARNESS_ALL-plan,disclose,recall}"
+fi
+MODEL="${MODEL:-Qwen3.5-9B-MLX-4bit}"
 CREATURES="${CREATURES:-12}"
-MODEL2="${MODEL2-Qwen3.5-4B-MLX-4bit:8}"
+MODEL2="${MODEL2-}"
 SLOTS="${SLOTS:-12}"
 SEED="${SEED:-7}"
 TICK="${TICK:-1.0}"   # seconds per world tick; slower worlds give each creature more thoughts per day

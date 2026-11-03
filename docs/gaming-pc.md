@@ -41,7 +41,7 @@ New-NetFirewallRule -DisplayName "Ollama (home network)" -Direction Inbound -Pro
 
 ## 3. Pull the candidate models
 
-The Mac's Gemma 4 E4B fails at basic actions (see [issue 003](../issues/003-replace-gemma.md)). Pull what fits the GPU's
+Gemma 4 E4B is out: it loops (see [issue 003](../issues/003-replace-gemma.md)). Pull what fits the GPU's
 memory. Tag names change; confirm each on [ollama.com/library](https://ollama.com/library) before pulling.
 
 | GPU memory | Pull |

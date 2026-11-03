@@ -253,3 +253,10 @@ def test_rule_2_covers_the_pages_and_says_what_the_origin_does():
     for text in ((ROOT / "deploy/cloudflare/cache-rules.md").read_text(), (ROOT / "docs/public-viewer.md").read_text()):
         assert "/public/app/almanac.html" in text and "20 requests per 10 seconds" in text and "never get that far" not in text
     assert "never a redirect" in (ROOT / "deploy/cloudflare/cache-rules.md").read_text()
+
+
+def test_start_world_defaults_to_the_student_or_qwen_not_gemma():
+    text = (ROOT / "start-world.sh").read_text()
+    assert "gemma-4-e4b-it-4bit" not in text.split("set -euo pipefail", 1)[1]
+    assert "swarm-student-*" in text and 'HARNESS_ALL="${HARNESS_ALL-plan,disclose,recall}"' in text
+    assert 'MODEL="${MODEL:-Qwen3.5-9B-MLX-4bit}"' in text and 'MODEL2="${MODEL2-}"' in text

@@ -1810,7 +1810,7 @@
   // sky, granted with an item, or noted as something we'll build.
   const wish = {
     list: [], canAnswer: false, blocked: false, loaded: false, err: null, busy: false, again: false, at: 0,
-    pending: new Set(), drafts: new Map(), deferred: false,
+    pending: new Set(), drafts: new Map(), deferred: false, foldOpen: false,
   };
   const WISH_SOURCES = {
     said: 'Said out loud (“I wish…”, “we need…”)',
@@ -1925,7 +1925,12 @@
       ? `Wishes aren’t available (${wish.err}). They appear once the server starts collecting them.`
       : wish.loaded ? 'No wishes yet. They appear when creatures say “I wish…” or “we need…”, fail to make something the world doesn’t know, or whisper a wish to the sky.'
         : 'Loading wishes…');
-    const html = wish.list.map((w, i) => wishCard(w, i, can)).join('');
+    const main = wish.list.filter((w) => !w.reflected_only), fold = wish.list.filter((w) => w.reflected_only);
+    let html = main.map((w, i) => wishCard(w, i, can)).join('');
+    if (fold.length) {      // wishes only ever reflected on: their own collapsed section, after the explicit ones
+      html += `<li class="wish-fold"><details${wish.foldOpen ? ' open' : ''}><summary>Only came up while reflecting <span class="num">${fold.length}</span></summary>` +
+        `<ol class="wish-list">${fold.map((w, i) => wishCard(w, i, can)).join('')}</ol></details></li>`;
+    }
     const a = document.activeElement;
     const inside = !!a && a !== box && box.contains(a);
     if (!force && inside && a.tagName === 'INPUT' && box._html !== html) { wish.deferred = true; return; }
@@ -1987,6 +1992,7 @@
 
   function bindWishes() {
     const box = $('wish-list');
+    box.addEventListener('toggle', (e) => { if (e.target.closest && e.target.closest('.wish-fold')) wish.foldOpen = e.target.open; }, true);
     const keyOf = (el) => (el && box.contains(el) ? el.dataset.key || null : null);
     box.addEventListener('input', (e) => {
       if (e.target.dataset.key) wish.drafts.set(e.target.dataset.key, e.target.value);

@@ -2085,3 +2085,7 @@ html.lz-ui[data-skin="limezu"] .htable th { color: var(--lz-ink-2); }
   /* the brand keeps its campfire so every button still fits */
   html.lz-ui[data-skin="limezu"] .brand { width: 24px; overflow: hidden; }
 }
+
+.wish-fold { list-style: none; margin-top: 10px; }
+.wish-fold > details > summary { cursor: pointer; color: var(--muted, #9a9aa8); font-size: 0.9em; padding: 6px 0; }
+.wish-fold > details > ol { margin: 8px 0 0; padding: 0; }

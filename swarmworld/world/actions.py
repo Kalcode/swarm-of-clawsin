@@ -42,7 +42,7 @@ VECTORS = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-
 TOOLS_AXE = ("stone_axe",)
 SOURCE_HINT = {
     "plant_fiber": "pull it from grass", "stick": "break them off trees", "log": "chop trees while carrying an axe",
-    "stone": "knock it off boulders", "flint": "it turns up when you gather from boulders", "berries": "pick them from berry bushes",
+    "stone": "knock it off boulders, or pick up loose stone in the caves below (climb down at a cave mouth)", "flint": "it turns up when you gather from boulders", "berries": "pick them from berry bushes",
     "clay": "dig it from clay banks", "sand": "scoop it up on sandy ground", "fish": "catch them in water with a fishing rod",
     "wheat": "grow it from wheat seeds", "egg": "a chicken that trusts you lays them",
 }
@@ -486,6 +486,15 @@ def _items_text(world: World, items: Counter) -> str:
     return ", ".join(f"{n} {world.catalog.name(i)}" for i, n in items.items() if n > 0) or "nothing"
 
 
+def _source_hint(world: World, c: Creature, iid: str) -> str:
+    """Where an item comes from, as a sentence; for stone, which way a cave mouth the creature knows lies."""
+    hint = SOURCE_HINT[iid]
+    mouth = c.spots.get("cave_mouth") if iid == "stone" else None
+    if mouth and world.same_region((c.x, c.y), (mouth[0], mouth[1])):
+        hint += f"; a cave mouth you know lies {direction(mouth[0] - c.x, mouth[1] - c.y)}"
+    return hint
+
+
 # --------------------------------------------------------------------- crafting
 def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> ActionResult:
     cat = world.catalog
@@ -493,7 +502,7 @@ def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> A
     for iid, n in r.inputs.items():
         have = c.inventory.get(iid, 0)
         if have < n:
-            where = f" {cat.name(iid).capitalize()}: {SOURCE_HINT[iid]}." if iid in SOURCE_HINT else ""
+            where = f" {cat.name(iid).capitalize()}: {_source_hint(world, c, iid)}." if iid in SOURCE_HINT else ""
             if via == "combine":
                 return ActionResult(False, f"You sense these could become something, but you'd need {n} {cat.name(iid)} (you have {have}).{where}")
             return ActionResult(False, f"To make {cat.name(r.output)} you need {n} {cat.name(iid)}, but you have {have}.{where}")
@@ -909,7 +918,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                 break
         else:  # "gather stone" beside the stone tablet: say where the stone they want comes from
             want = next((iid for w in _words(it.target or "") if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
-            hint = f" {world.catalog.name(want).capitalize()}: {SOURCE_HINT[want]}." if want else ""
+            hint = f" {world.catalog.name(want).capitalize()}: {_source_hint(world, c, want)}." if want else ""
             return ActionResult(False, f"You can't gather anything from the {obj.name}.{hint}")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
                    and "invention" in world.catalog.items[i].tags), None) if got else None
@@ -1399,7 +1408,20 @@ def _write(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, f'You carve into the {surface.name}: "{text}"')
 
 
+INERT_LINE = "It doesn't seem to do anything yet."
+
+
+def _inert_invention(world: World, iid: str | None) -> bool:
+    """An invention that is no food, no tool and has no effect: it matched nothing the world knows how to do."""
+    inv = next((v for v in getattr(world.catalog, "inventions", []) if v["id"] == iid), None)
+    return bool(inv) and not inv.get("effects") and not inv.get("food") and not inv.get("tool")
+
+
 def _read(world: World, c: Creature, it: Intention) -> ActionResult:
+    iid = world.catalog.resolve(it.target) if it.target else None
+    if iid and _inert_invention(world, iid) and (c.inventory.get(iid, 0) > 0 or any(
+            o.kind == "creation" and o.data.get("item") == iid for o, _, _ in visible_objects(world, c, 1))):
+        return ActionResult(True, f"The {world.catalog.name(iid)}: {world.catalog.items[iid].desc} {INERT_LINE}")
     readable = {"sign", "tablet", "terminal", "wishing_stone"}
     obj = find_object(world, c, it.target or "sign", max_dist=1, kinds=readable)
     if not obj:  # carvings on trees and boulders
@@ -1439,8 +1461,11 @@ def _program(world: World, c: Creature, it: Intention) -> ActionResult:
     term = find_object(world, c, it.target or "terminal", max_dist=1, kinds={"terminal"})
     if not term:
         far = find_object(world, c, it.target or "terminal", kinds={"terminal"})
-        if far and code:
+        if far:
             return _walk_then(world, c, far, it)
+        spot = _recall(world, c, it.target or "terminal", {"terminal"})  # one remembered, out of sight
+        if spot:
+            return _walk_to_spot(world, c, *spot, then=it)
         return ActionResult(False, "There's no terminal within reach to program.")
     if not code:
         return ActionResult(False, 'The terminal blinks, waiting. Its screen says it wants a Lua program, written in text. '
@@ -1587,7 +1612,8 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
         kind += "; resting beside it restores you like a bed"
     if "light" in effects:
         kind += "; once placed it lights up the night"
-    return ActionResult(True, f"You invent the {name}: {desc} It is {kind}. Recipe: {recipe}. Others can learn it if you share how.")
+    inert = f" {INERT_LINE}" if not (food or tool or effects) else ""
+    return ActionResult(True, f"You invent the {name}: {desc} It is {kind}.{inert} Recipe: {recipe}. Others can learn it if you share how.")
 
 
 def _teach(world: World, c: Creature, it: Intention) -> ActionResult:

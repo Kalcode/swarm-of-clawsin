@@ -41,6 +41,7 @@ WET = set(CONFIG["drying"]["wet_weather"])
 FAST = set(CONFIG["drying"]["fast_weather"])
 FILL = CONFIG["water"]["fill"]  # empty container -> full
 WEAPONS = {k: v for k, v in CONFIG["weapons"].items() if isinstance(v, dict)}
+RAW_FISH = ("fish", "perch", "trout", "eel")
 COOK_STATIONS = ("campfire", "oven", "smoker")
 STALK_TRIES = 3  # walks after the same animal before it has got away
 MISS_PER_STEP = 0.06  # each step farther than arm's length makes a hit less likely
@@ -569,6 +570,19 @@ register_technique(Technique(
 register_system("food drying", DRY_EVERY, _dry)
 register_system("food spoilage", SPOIL_EVERY, _spoil)
 register_system("food wildlife", WILDLIFE_EVERY, _wildlife)
+def _cook_line(world: World, c: Creature) -> str | None:
+    """Raw fish in hand within 2 steps of a burning campfire: only 2 fish were cooked in a whole day, so say how."""
+    if not any(c.inventory.get(i, 0) > 0 for i in RAW_FISH):
+        return None
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            o = world.object_at(c.x + dx, c.y + dy)
+            if o and o.kind == "campfire" and o.data.get("lit"):
+                return "You could cook your fish here: combine it beside the fire."
+    return None
+
+
 register_perception(_rack_line, priority=60)
+register_perception(_cook_line, priority=65)
 register_perception(_fishing_line, priority=72)
 register_populate("food game and forage", _populate)

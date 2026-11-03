@@ -28,6 +28,7 @@ NOT_A_THING = re.compile(r"^(to|you|it|that|this|them|him|her|us|me|my|your|our|
 KINDS = ("said", "failed", "wished", "reflected")
 QUOTES = 4
 MAX_WISHES = 300
+REFLECTED_SHOWN = 30  # the board's separate cap for wishes that only ever came up in reflections
 
 
 OPENERS = (("there", "were"), ("there", "was"), ("there", "is"), ("there", "are"), ("there", "would", "be"),
@@ -102,8 +103,13 @@ class Wishes:
         key = re.sub(r"(?<=[a-z]{3})s\b", "", thing)  # roofs ~ roof
         w = self.items.get(key)
         if w is None:
-            if len(self.items) >= MAX_WISHES:
-                return False
+            if len(self.items) >= MAX_WISHES:  # full: the oldest thing only ever reflected on makes room
+                stale = min((k for k, v in self.items.items() if v["status"] == "open" and v["kinds"]["reflected"]
+                             and not (v["kinds"]["wished"] + v["kinds"]["failed"] + v["kinds"]["said"])),
+                            key=lambda k: self.items[k]["last_tick"], default=None)
+                if stale is None:
+                    return False
+                del self.items[stale]
             self.seq += 1
             w = self.items[key] = {"id": f"w{self.seq}", "thing": thing, "kinds": dict.fromkeys(KINDS, 0), "by": {},
                                    "quotes": [], "first_tick": tick, "last_tick": tick, "status": "open",
@@ -126,12 +132,17 @@ class Wishes:
         if exists:  # they want something the world has: a need, or a recipe nobody has found
             score //= 3
         return {**w, "by": [{"name": n, "n": k} for n, k in sorted(w["by"].items(), key=lambda kv: -kv[1])],
-                "creatures": creatures, "total": total, "score": score, "exists": exists}
+                "creatures": creatures, "total": total, "score": score, "exists": exists,
+                "reflected_only": w["kinds"]["reflected"] > 0 and not (w["kinds"]["wished"] + w["kinds"]["failed"] + w["kinds"]["said"])}
 
-    def ranked(self, limit: int = 60) -> list[dict]:
+    def ranked(self, limit: int = 60, reflected_limit: int = REFLECTED_SHOWN) -> list[dict]:
+        """Explicit wishes first (wished, then failed, then the score, which counts what was said), capped at
+        `limit`; then the ones only ever reflected on, capped separately, flagged `reflected_only`."""
         views = [self.view(w) for w in self.items.values()]
-        views.sort(key=lambda v: (v["status"] == "closed", -v["score"], -v["last_tick"]))
-        return views[:limit]
+        views.sort(key=lambda v: (v["reflected_only"], v["status"] == "closed", -v["kinds"]["wished"], -v["kinds"]["failed"],
+                                  -v["score"], -v["kinds"]["reflected"], -v["last_tick"]))
+        explicit = [v for v in views if not v["reflected_only"]]
+        return explicit[:limit] + [v for v in views if v["reflected_only"]][:reflected_limit]
 
     def get(self, wid: str) -> dict | None:
         return next((w for w in self.items.values() if w["id"] == wid), None)
