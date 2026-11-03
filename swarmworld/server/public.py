@@ -17,6 +17,7 @@ from aiohttp import web
 
 from ..world.events import Event
 from .almanac import Almanac
+from .watching import Watching
 from .public_view import (public_almanac, public_buildings, public_card, public_chronicle, public_detail, public_event,
                           public_history, public_inventions, public_landmarks, public_metrics, public_object,
                           public_society, public_static, public_wishes)
@@ -33,7 +34,7 @@ SLOW_EVERY_S = 60.0
 
 LIVE_KEYS = ("schema", "type", "boot", "seq", "every", "tick_seconds", "tick", "from_tick", "clock", "static", "creatures",
              "objects_upsert", "objects_removed", "tiles", "buildings", "landmarks", "events", "chronicle",
-             "chronicle_version", "society", "wishes", "metrics")
+             "chronicle_version", "society", "wishes", "metrics", "watching", "here")
 STATIC_KEYS = ("schema", "type", "version", "tick", "width", "height", "tiles", "regions", "objects", "items", "kinds",
                "nature", "landmarks", "buildings", "inventions")
 
@@ -52,11 +53,12 @@ def encode(obj, etag: str) -> Doc:
 
 class Publisher:
     def __init__(self, st, almanac: Almanac | None = None, every: float = PUBLIC_EVERY, clock=time.monotonic,
-                 boot: str | None = None):
+                 boot: str | None = None, watching: Watching | None = None):
         self.st = st
         self.almanac = almanac or Almanac()
         self.every = every
         self.clock = clock
+        self.watching = watching or Watching()
         self.boot = boot or f"{time.time_ns():x}{secrets.token_hex(2)}"
         self.seq = 0
         self.builds: Counter = Counter()
@@ -173,6 +175,8 @@ class Publisher:
             if c.id in paths:
                 card["path"] = paths[c.id]
             cards.append(card)
+        watching, here = self.watching.snapshot()
+        st.watching = watching  # the home viewer's metrics message carries it too
         horizon = tick - math.ceil(EVENT_WINDOW_S / st.tick_seconds)
         doc = {
             "schema": SCHEMA, "type": "live", "boot": self.boot, "seq": self.seq, "every": self.every,
@@ -185,6 +189,7 @@ class Publisher:
             "events": [e for t, e in self._events if t > horizon],
             "chronicle": public_chronicle(st.chronicle[-CHRONICLE_TAIL:]), "chronicle_version": self.chronicle_version,
             "society": public_society(st), "wishes": public_wishes(st), "metrics": public_metrics(st),
+            "watching": watching, "here": here,
         }
         self.builds["live"] += 1
         return encode(doc, f"{self.boot}-{self.seq}")

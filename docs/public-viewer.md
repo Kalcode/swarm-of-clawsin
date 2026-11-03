@@ -57,6 +57,24 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
   `curl --path-as-is -s -o /dev/null -w '%{http_code}\n' https://<host>/public/%2e%2e/api/state`
 - [ ] 6. Watch the Mac: `curl -s http://127.0.0.1:7777/api/metrics` (look at `tick_ms`) and `top -pid <world pid>`.
 
+## The watching count
+
+The header shows "N watching". Edge caching hides every watcher's poll from the Mac, so each open page also sends a small
+uncached check-in: `POST /public/here` with `{"id": "<32 hex>"}`, once after the first `live.json`, then every 30 s
+(`here.every`) with probability `here.sample`, never while the tab is hidden. The Mac counts the distinct ids it heard
+from in the last 90 s (at most 5 per address, 100,000 in all) and puts the number in `live.json` as `watching`, so
+everyone gets it through the cache they already poll.
+
+- **Privacy:** the id is random per page load, made in the browser and kept in memory (no cookie, no localStorage). The
+  Mac keeps ids and addresses in memory only, an address as a hash salted with a random value made at boot; nothing is
+  saved, logged or published but the total.
+- **Ceiling:** `here.sample` shrinks as the crowd grows (smoothed over about a minute), so the origin hears about 10
+  check-ins a second at most, however many are watching. Past roughly 300 watchers the count is an estimate. It is
+  corrected for the chance that a page is heard at all within the window (three tries), not just divided by the sample.
+- **Cloudflare:** it never caches a POST, so no new cache rule is needed. The rate-limit rule already covers
+  `/public/here` (it is under `/public/`, outside `/public/app/`): a watcher sends about 2 requests a minute.
+- The home-network viewer shows the same count (its metrics message carries `watching`).
+
 ## The kill switch
 
 `scripts/public-tunnel.sh stop` stops the tunnel this script started, at once (TERM, then KILL after 5 s). It checks that the process is really gone and exits 1 with an error if it is not; it only touches a pid that is really `cloudflared`. If it says "no tunnel started by this script was running", a `cloudflared` started another way (for example `cloudflared service install`, or a terminal) may still be serving: run `pgrep -fl cloudflared` and stop that one yourself. The world keeps running and nothing new reaches the public once no cloudflared is left.

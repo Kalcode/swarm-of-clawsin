@@ -113,6 +113,7 @@ class ServerState:
         self.owner: dict[str, str] = {}
         self.jobs: dict[str, Job] = {}
         self.metrics = Metrics()
+        self.watching = 0   # public viewers, as the Publisher last counted them (never saved)
         self.viewers: set[web.WebSocketResponse] = set()
         self.last: dict[str, dict] = {}
         self.recent_acts: dict[str, deque] = {}
@@ -862,4 +863,4 @@ class ServerState:
         return {"p50": at(0.5), "p95": at(0.95), "max": round(xs[-1], 1), "n": len(xs)}
 
     def metrics_message(self) -> str:
-        return json.dumps({**self.metrics.snapshot(self.world, self.started), "tick_ms": self.tick_stats()})
+        return json.dumps({**self.metrics.snapshot(self.world, self.started), "tick_ms": self.tick_stats(), "watching": self.watching})

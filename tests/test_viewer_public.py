@@ -64,8 +64,10 @@ const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) =>
 function rig(lives, statics, extra) {
   const t = { now: 0, timers: [], urls: [], reloads: 0, liveN: 0, staticN: 0, hiddenNow: false };
   const respond = (body) => Promise.resolve({ ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) });
-  const fakeFetch = (url) => {
+  t.posts = [];
+  const fakeFetch = (url, init) => {
     t.urls.push(url);
+    if (url === '/public/here') { t.posts.push(JSON.parse(init.body)); return t.hereFails ? Promise.reject(new Error('net')) : Promise.resolve({ ok: true, status: 204 }); }
     if (url.startsWith('/public/live.json')) {
       const item = lives[Math.min(t.liveN++, lives.length - 1)];
       return item === 'fail' ? Promise.reject(new Error('net')) : respond(item);
@@ -184,6 +186,40 @@ SCENARIOS = {
       const before = t.msgs.filter((m) => m.type === 'tick').length;
       await t.advance(1000);
       out.v = { ticks_before_retry: before, ticks_after_retry: t.msgs.filter((m) => m.type === 'tick').length };""",
+    "here_id": """
+      const ids = [SP.makeId(), SP.makeId()];
+      out.v = { ids, fixed: SP.makeId((a) => a.fill(10)) };""",
+    "here_sends": """
+      const live = Object.assign({}, D.LIVE1, { watching: 1234, here: { every: 30, sample: 0.5 } });
+      const R = { v: 0.4 };
+      const t = rig([live], [STATIC], { random: () => R.v });
+      await t.open();
+      const first = t.posts.length;                 // once, as soon as the first live document is in
+      await t.advance(30000);
+      const at30 = t.posts.length;                  // 0.4 < 0.5: sends
+      R.v = 0.6;
+      await t.advance(30000);
+      const at60 = t.posts.length;                  // 0.6 >= 0.5: skipped
+      t.hiddenNow = true;
+      R.v = 0.0;
+      await t.advance(30000);
+      const hidden = t.posts.length;                // hidden: skipped
+      t.hiddenNow = false;
+      await t.advance(30000);
+      out.v = { first, at30, at60, hidden, after: t.posts.length, ids: new Set(t.posts.map((p) => p.id)).size,
+                id: t.posts[0].id, metrics: t.msgs.find((m) => m.type === 'metrics') };""",
+    "here_probability": """
+      const live = Object.assign({}, D.LIVE1, { here: { every: 10, sample: 0.001 } });
+      const t = rig([live], [STATIC], { random: () => 0.5 });
+      await t.open();
+      await t.advance(100000);
+      out.v = t.posts.length;                       // the first only: 0.5 is never below 0.001""",
+    "here_fails": """
+      const t = rig([D.LIVE1], [STATIC]);
+      t.hereFails = true;
+      await t.open();
+      await t.advance(70000);
+      out.v = { open: t.sock.readyState === 1, posts: t.posts.length };""",
     "stale_forever": """
       const t = rig([D.LIVE_STALE], [STATIC]);
       await t.open();
@@ -446,7 +482,7 @@ def test_closing_during_the_static_retry_window_fetches_nothing_more(tmp_path):
 
 @needs_node
 def test_sockets_opened_and_closed_in_a_row_leave_one_timer(tmp_path):
-    assert run_public(tmp_path, "one_timer") == {"closed": 0, "open": 1}
+    assert run_public(tmp_path, "one_timer") == {"closed": 0, "open": 2}   # the poll and the check-in, one each
 
 
 @needs_node
@@ -817,3 +853,59 @@ def test_the_almanac_reads_the_public_document_in_public_mode():
     assert "v.about" in verbs and "What it does" in verbs
     assert "Couldn’t reach the world" in src and "Trying again every minute." in src
     assert "d.roadmap ?" in function_body(src, "renderCounts")
+
+
+@needs_node
+def test_the_page_id_is_32_hex_chars_and_new_each_time(tmp_path):
+    out = run_public(tmp_path, "here_id")
+    assert all(re.fullmatch(r"[0-9a-f]{32}", i) for i in out["ids"]) and out["ids"][0] != out["ids"][1]
+    assert out["fixed"] == "0a" * 16
+
+
+@needs_node
+def test_check_ins_follow_the_live_document_and_skip_a_hidden_tab(tmp_path):
+    out = run_public(tmp_path, "here_sends")
+    assert (out["first"], out["at30"], out["at60"], out["hidden"], out["after"]) == (1, 2, 2, 2, 3)
+    assert out["ids"] == 1 and re.fullmatch(r"[0-9a-f]{32}", out["id"])
+    assert out["metrics"]["watching"] == 1234 and out["metrics"]["ticks"] == 7
+
+
+@needs_node
+def test_the_probability_gate_uses_here_sample(tmp_path):
+    assert run_public(tmp_path, "here_probability") == 1
+
+
+@needs_node
+def test_a_failed_check_in_is_silent(tmp_path):
+    assert run_public(tmp_path, "here_fails") == {"open": True, "posts": 3}   # no retry storm: one try per interval
+
+
+def test_the_page_keeps_its_id_in_memory_only():
+    src = (WEB / "public.js").read_text()
+    assert "localStorage" not in src and "document.cookie" not in src
+
+
+@needs_node
+def test_the_header_counts_watchers_like_1_2k_and_hides_zero(tmp_path):
+    src = (WEB / "viewer.js").read_text()
+    fmt = re.search(r"  function fmtWatching\(n\) \{.*?\n  \}\n", src, re.S).group(0)
+    show = re.search(r"  function showWatching\(n\) \{.*?\n  \}\n", src, re.S).group(0)
+    script = tmp_path / "w.js"
+    script.write_text(
+        "const isNum = (v) => typeof v === 'number' && Number.isFinite(v);\n"
+        "const e = { h: { hidden: true }, n: { textContent: '' } };\n"
+        "const $ = (id) => (id === 'h-watching' ? e.h : e.n);\n"
+        "const setText = (el, t) => { el.textContent = t; };\n" + fmt + show +
+        "const out = {};\nfor (const v of [0, undefined, 1, 999, 1000, 1234, 9949, 9950, 12000, 150000]) {\n"
+        "  showWatching(v); out[String(v)] = e.h.hidden ? null : e.n.textContent; }\n"
+        "console.log(JSON.stringify(out));\n")
+    out = json.loads(subprocess.run([NODE, str(script)], capture_output=True, text=True, check=True).stdout)
+    assert out == {"0": None, "undefined": None, "1": "1", "999": "999", "1000": "1.0k", "1234": "1.2k", "9949": "9.9k",
+                   "9950": "10k", "12000": "12k", "150000": "150k"}
+
+
+def test_the_header_has_the_watching_count_with_a_person_icon():
+    html = (WEB / "index.html").read_text()
+    assert re.search(r'<span class="watching" id="h-watching" hidden [^>]*><span class="ico" data-ico="person"></span>'
+                     r'<span><b class="num" id="h-watching-n">0</b> watching</span></span>', html)
+    assert 'html.lz-ui[data-skin="limezu"] .watching' in (WEB / "style.css").read_text()
