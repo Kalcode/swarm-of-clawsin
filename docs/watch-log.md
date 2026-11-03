@@ -48,3 +48,31 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - a shorter prompt (the student needs fewer tips than a general model);
   - keeping the stable parts of the prompt first, so the cache hits more often;
   - fewer creatures per Mac when speed is the point.
+
+### 11:13 watch (tick 1,981)
+- **admin:** all healthy: 24 creatures awake; the nodes pc, student and macbook-air connected; the tunnel serving
+  `live.json` from the edge (`HIT`); no errors in the world or node logs.
+- **Minds since tick 600:**
+
+  | Model | Acts | Success | p50 | Note |
+  |---|---|---|---|---|
+  | gpt-oss | 725 | 94% | 8.9 s | down from 99%: harder phase, and the rope stone (below) |
+  | Student | 673 | 86% | 16.1 s | |
+  | Qwen3.5-4B (Air) | 84 | 85% | 33.5 s | |
+
+  No think errors anywhere.
+- **mod (watching), the rope-stone fad:**
+  - Teo (gpt-oss) invented the "rope stone" at tick 314: "a rope wrapped stone, useful for levers", made from
+    2 rope + 2 stone. Holt (student) learned it by watching, and it spread.
+  - 207 actions have involved it since, 152 of them succeeding: making it, giving it away, talking about it.
+  - It does nothing: no recipe uses it, and placing it is all it does. Yet it costs 2 rope (6 fiber) while fiber is the
+    most-wished-for thing.
+  - No intervention: it's culture, and I want to see whether it fades on its own.
+- **tweak (inventions):** an invention whose description matches no effect from the safe menu ends up inert, but
+  creatures can't tell. When they make or examine one, say something like "it doesn't seem to do anything yet", so a
+  useless fad costs less. Or let the inventor know at invent time what it does.
+- **mod (wishes), fiber:** the top explicit wish: said 19 times by Hux, Ira, Mika, Gil, Opal and Inka. Fiber is
+  actually unlimited: any grass or forest tile gives it, 1 per 2 ticks by hand and 2 with a stone knife. The felt
+  shortage is gathering speed, and recipes that eat it (rope takes 3, a rope stone 6). Not granted.
+- **add (idea):** if fiber still dominates by day 2, add a perception hint when gathering fiber by hand, e.g.
+  "a stone knife would cut twice as much".
