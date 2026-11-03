@@ -1,31 +1,35 @@
 """Digging: tunnels through the deep's rock and mine shafts of your own (data: swarmworld/data/packs/digging/).
 
-- dig (target), below: toward a rock wall beside you (a direction, or else the first wall beside you). With a pickaxe,
-  WALL_DIGS digs break it into cave floor, each giving a stone; the last also gives a piece of each vein or seam that
-  touches the wall. The rock along the deep's edges is too thick to dig.
+- dig (target), below: toward a rock wall on one of your four sides (north, south, east or west; else the first wall
+  beside you). With a pickaxe, WALL_DIGS digs break it into cave floor, each giving a stone; the last also gives a
+  piece of each vein or seam that touches the wall. The rock along the deep's edges is too thick to dig.
 - dig down, on the surface: with a pickaxe, SHAFT_DIGS digs where you stand, each giving dirt (stone on rocky ground),
-  sink a mine shaft. A chamber opens in the rock below with a ladder, and the shaft and the ladder are a way down and
-  back up (the underground pack's portals). The chamber is a pocket sealed in the rock: whoever climbs down digs their
-  way on. why_not_dig says where the ground may not be dug.
+  sink a mine shaft ("Ada's shaft", then "Ada's second shaft"...). A chamber opens in the rock below with a ladder,
+  and the shaft and the ladder are a way down and back up (the underground pack's portals, the chamber's tiles in
+  the portal's record). The chamber is a pocket sealed in the rock: whoever climbs down digs their way on.
+  why_not_dig says where the ground may not be dug; a shaft also needs room below for its ladder.
 - Anyone may help: digs at the same wall or shaft add to one shared count, and every digger is named.
-- What "dig" meant before stays: a target that names a resource ("dig clay", "dig sand", a boulder beside you), or a
-  bare "dig" on the surface by someone carrying no pickaxe or hoe, gathers.
+- What "dig" meant before stays on the surface: a bare "dig", or one naming anything but where to dig (down, here,
+  a trench, pit or hole, a direction), is a gather, exactly as before ("dig clay", "dig the boulder" over there).
+  Below, a target naming a resource ("dig coal") or a gatherable thing within reach gathers; the rest is digging.
 - Each dig is hard work (DIG_ENERGY); under MIN_ENERGY a creature must rest first.
 
 State: world.ext["digging"] = {"work": {"x,y": {"n", "by"}} for rock walls being dug, "shafts": {"x,y": {"n", "by"}}
 for shafts being sunk}, where n counts the digs so far and "by" names who dug. Nothing here draws from world.rng.
 
 The underground pack is imported inside the functions that need it, never at the top: importing it here would
-register it (its populate too) ahead of the food and nature packs, and a fresh world would be populated differently."""
+register it (its populate too) ahead of the food and nature packs, and a fresh world would be populated differently
+(tests/test_pack_digging.py::test_the_underground_populates_after_food_and_nature)."""
 
 from __future__ import annotations
 
+import itertools
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from ..actions import (PLANT_TOOLS, TOOLS_PICK, VECTORS, ActionResult, _busy, _dir_hint, _has_tool, _items_text, _words,
+from ..actions import (TOOLS_PICK, VECTORS, ActionResult, _busy, _dir_hint, _has_tool, _items_text, _words,
                        find_object)
-from ..caves import BORDER, carve_chamber
+from ..caves import BORDER, carve_chamber, chamber_tiles
 from ..model import WATER_TILES
 from ..perception import dist
 from ..registry import GATHERABLE, HANDLERS, ITEM_SOURCES, Technique, register_technique, register_verb
@@ -46,6 +50,7 @@ PACKED = {"terminal", "wishing_stone"}  # the ground within a step of these is t
 CHAMBER = {"shaft": 1, "pit": 2}  # the radius of the chamber a way down opens in the rock below it
 VEINS = {"iron_vein": "iron_ore", "copper_vein": "copper_ore", "coal_seam": "coal"}  # what a broken wall's vein gives
 SIDES = ("east", "south", "west", "north")  # the four sides, in the order perception.DIRS lists them
+ORDINALS = ("second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
 DOWN_WORDS = {"down", "shaft", "deeper"}
 # words that make "dig" a dig, never a gather, whatever else the target names
 DIG_WORDS = DOWN_WORDS | {"here", "wall", "walls", "tunnel", "through", "trench", "ditch", "pit", "hole"}
@@ -59,6 +64,8 @@ BARE_HANDS = "The rock is too hard for bare hands; you'd need a pickaxe."
 TOO_TIRED = "You're too worn out to dig; rest first."
 FLOOR = "Under the dust the cave floor is solid rock; dig into a wall instead."
 WATER = "Water fills it as fast as you dig."
+CORNER = "Dig straight north, south, east or west; you couldn't squeeze through a corner."
+NO_ROOM = "There's no room below for a ladder; dig your shaft somewhere else."
 
 
 def _state(world: World) -> dict:
@@ -128,35 +135,65 @@ def why_not_dig(world: World, c: Creature, x: int, y: int, deep: bool) -> str | 
     return None
 
 
+def ladder_spot(world: World, x: int, y: int, kind: str) -> tuple[int, int] | None:
+    """Where the ladder of a way down from (x, y) would stand, changing nothing: the spot below if nothing lies there,
+    else the nearest free tile of the chamber that would open (radius CHAMBER[kind]); None when there is no room."""
+    at = world.below(x, y)
+    if at is None:
+        return None
+    free = [p for p in chamber_tiles(world, *at, CHAMBER[kind]) if p not in world.grid]
+    return min(free, key=lambda p: (dist(*p, *at), abs(p[0] - at[0]) + abs(p[1] - at[1]), p[1], p[0]), default=None)
+
+
+def way_name(world: World, who: str, kind: str) -> str:
+    """A new way down's name, never one already taken: "Ada's shaft", then "Ada's second shaft" and so on."""
+    from .underground import portals  # here, not at the top: see the module's docstring
+    taken = {p["name"] for p in portals(world)}
+    names = itertools.chain([f"{who}'s {kind}"], (f"{who}'s {o} {kind}" for o in ORDINALS),
+                            (f"{who}'s {kind} {n}" for n in itertools.count(len(ORDINALS) + 2)))
+    return next(n for n in names if n not in taken)
+
+
 def make_way_down(world: World, x: int, y: int, kind: str, name: str) -> tuple[dict, list[tuple[int, int]]]:
     """Open a way down from (x, y) on the surface ("shaft" or "pit"): a chamber of radius CHAMBER[kind] carved in the
-    rock below, a ladder on the spot below (or, if something lies there, on the chamber's nearest free tile), and the
-    portal pairing it with the surface end. The chamber stays a pocket sealed in the rock. Check why_not_dig first.
-    Returns the portal and the chamber's tiles."""
-    from .underground import add_portal
-    at = world.below(x, y)
-    chamber = carve_chamber(world, *at, CHAMBER[kind])
-    free = [p for p in chamber if p not in world.grid]
-    ladder = min(free, key=lambda p: (dist(*p, *at), abs(p[0] - at[0]) + abs(p[1] - at[1]), p[1], p[0]))
-    return add_portal(world, kind, name, (x, y), ladder), chamber
+    rock below, a ladder on ladder_spot, and the portal pairing it with the surface end, its record keeping the
+    chamber's tiles ("chamber"). The chamber stays a pocket sealed in the rock. Check why_not_dig and ladder_spot
+    first: with no room for a ladder this raises ValueError and changes nothing. Returns the portal and the chamber."""
+    from .underground import add_portal  # here, not at the top: see the module's docstring
+    ladder = ladder_spot(world, x, y, kind)
+    if ladder is None:
+        raise ValueError(f"no room for a ladder below {(x, y)}")
+    chamber = carve_chamber(world, *world.below(x, y), CHAMBER[kind])
+    portal = add_portal(world, kind, name, (x, y), ladder)
+    portal["chamber"] = [list(p) for p in chamber]
+    return portal, chamber
 
 
 # ------------------------------------------------------------------ digging
-def _gathers(world: World, c: Creature, target: str) -> bool:
-    """What "dig" meant before this pack: the target names a resource (an item some kind gives, or sand or grass from
-    the land) or a gatherable thing within reach; or it names nothing, on the surface, by someone carrying no pickaxe
-    or hoe. A direction alone, or a word like down, here, wall or trench, means digging."""
-    words = _words(target)
-    if not words:
-        return not _below_ground(world, c.x, c.y) and not _has_tool(c, TOOLS_PICK + PLANT_TOOLS)
-    if DIG_WORDS & set(words):
-        return False
-    _, rest = _dir_hint(words)
-    if not rest:
-        return False
+def _names_resource(world: World, c: Creature, target: str, rest: list[str], reach: int | None) -> bool:
+    """The target names an item some kind gives (or sand or grass from the land), or a gatherable thing in sight
+    within reach (any distance with reach None)."""
     iid = world.catalog.resolve(target) or world.catalog.resolve(" ".join(rest))
     return (iid in ITEM_SOURCES or iid in LAND_ITEMS or bool(LAND_WORDS & set(rest))
-            or find_object(world, c, " ".join(rest), max_dist=1, kinds=GATHERABLE) is not None)
+            or find_object(world, c, " ".join(rest), max_dist=reach, kinds=GATHERABLE) is not None)
+
+
+def _gathers(world: World, c: Creature, target: str) -> bool:
+    """What "dig" meant before this pack, still a gather. On the surface: a bare dig, or a target with no word for
+    where to dig (DIG_WORDS or a direction), exactly as before; a direction with a resource named ("dig clay north").
+    Below: a target naming a resource, or a gatherable thing within reach."""
+    words = _words(target)
+    below = _below_ground(world, c.x, c.y)
+    if not words:
+        return not below
+    if DIG_WORDS & set(words):
+        return False
+    dirn, rest = _dir_hint(words)
+    if not rest:
+        return False
+    if not below and dirn is None:
+        return True
+    return _names_resource(world, c, target, rest, 1 if below else None)
 
 
 def _dig_at(world: World, c: Creature, what: str, x: int, y: int) -> dict:
@@ -175,6 +212,8 @@ def _tunnel(world: World, c: Creature, words: list[str]) -> ActionResult:
     if DOWN_WORDS & set(words):
         return ActionResult(False, "There is nothing deeper than the deep.")
     dirn, _ = _dir_hint(words)
+    if dirn is not None and dirn not in SIDES:
+        return ActionResult(False, CORNER)
     if dirn is None and "here" not in words:
         walls = [d for d in SIDES if world.tile(*_side(c.x, c.y, d)) == "R"]
         dirn = next((d for d in walls if _inside_deep(world, *_side(c.x, c.y, d))), walls[0] if walls else None)
@@ -220,6 +259,8 @@ def _shaft(world: World, c: Creature) -> ActionResult:
     why = why_not_dig(world, c, x, y, True)
     if why:
         return ActionResult(False, why)
+    if ladder_spot(world, x, y, "shaft") is None:
+        return ActionResult(False, NO_ROOM)
     if c.energy < MIN_ENERGY:
         return ActionResult(False, TOO_TIRED)
     rec = _dig_at(world, c, "shafts", x, y)
@@ -230,7 +271,7 @@ def _shaft(world: World, c: Creature) -> ActionResult:
         return _busy(c, DIG_TICKS, "digging a shaft",
                      f"You dig down where you stand and get 1 {world.catalog.name(item)} ({rec['n']} of {SHAFT_DIGS}).")
     del _state(world)["shafts"][f"{x},{y}"]
-    make_way_down(world, x, y, "shaft", f"{c.name}'s shaft")
+    make_way_down(world, x, y, "shaft", way_name(world, c.name, "shaft"))
     world.emit("place", c.id, x, y, f"{_names(rec['by'])} dug a mine shaft down into the deep.",
                object_kind="mine_shaft")
     return _busy(c, DIG_TICKS, "digging a shaft", "The ground gives way beneath your pickaxe: a shaft drops into the "

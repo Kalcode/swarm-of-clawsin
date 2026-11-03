@@ -100,16 +100,37 @@ def test_dig_clay_still_gathers_clay(two_levels):
 
 def test_bare_dig_without_a_tool_still_gathers(two_levels):
     seen = []
-    for verb in ("gather", "dig"):
+    for verb, kind, tools in (("gather", "bush", ()), ("dig", "bush", ()),
+                              ("gather", "rock", ("stone_pickaxe",)), ("dig", "rock", ("stone_pickaxe",))):
         w = two_levels(24)
-        w.add_object("bush", 6, 5)
-        c = person(w, "Ada", 5, 5)
+        w.add_object(kind, 6, 5)
+        c = person(w, "Ada", 5, 5, *tools)
         seen.append(outcome(w, c, apply_intention(w, c, Intention(verb))))
     assert seen[0] == seen[1] and seen[0][2] == {"berries": 3}
-    w = two_levels(24)  # with a pickaxe it is a dig
-    w.add_object("bush", 6, 5)
+    assert seen[2] == seen[3] and seen[2][2]["stone"] >= 1  # on the surface a bare dig gathers, whatever you carry
+    w = two_levels(24)  # it takes a word for where to dig
+    w.add_object("rock", 6, 5)
     c = person(w, "Ada", 5, 5, "stone_pickaxe")
-    assert dig(w, c).message == PLACEHOLDER and "berries" not in c.inventory
+    assert dig(w, c, "here").message == PLACEHOLDER and "stone" not in c.inventory
+
+
+def test_dig_a_thing_on_the_surface_is_gather_at_any_distance(two_levels):
+    for target, kind in (("boulder", "rock"), ("the clay bank", "clay"), ("tree", "tree"), ("berry bush", None),
+                         ("the boulder to the east", "rock")):
+        seen = []
+        for verb in ("gather", "dig"):
+            w = two_levels(24)
+            if kind:
+                w.add_object(kind, 10, 5)
+            c = person(w, "Ada", 5, 5, "stone_pickaxe")
+            res = apply_intention(w, c, Intention(verb, target=target))
+            act = c.activity or {}
+            seen.append((outcome(w, c, res), act.get("type"), act.get("path")))
+            while c.activity:
+                step_activity(w, c)
+            seen.append(dict(c.inventory))
+        assert seen[0] == seen[2] and seen[1] == seen[3], target
+        assert (seen[0][1] == "walk") == bool(kind), target  # walked 5 steps to it, or found none, as gather did
 
 
 def test_mine_still_gathers_ore(two_levels):
@@ -147,6 +168,10 @@ def test_dig_a_tunnel_through_rock(two_levels):
     w.add_object("rock", 10, 64)  # a boulder in reach: "the rock wall" still means the wall
     assert dig(w, c).message == "You chip at the rock wall to the east and get 1 stone. It is giving way (1 of 3)."
     assert dig(w, c, "rock wall").message.endswith("(2 of 3).") and w.object_at(10, 64).data.get("stone") is None
+    before = dict(w.ext["digging"]["work"])  # the rock to the northeast: no tunnel squeezes through a corner
+    assert dig(w, c, "northeast").message == ("Dig straight north, south, east or west; you couldn't squeeze through "
+                                              "a corner.")
+    assert w.tile(12, 63) == "R" and w.ext["digging"]["work"] == before and c.inventory["stone"] == 5
 
 
 def test_breaking_a_wall_by_a_seam_gives_its_coal(two_levels):
@@ -236,6 +261,76 @@ def test_dig_down_sinks_a_shaft_with_a_ladder_below():
     assert b.inventory["stone"] == 5 and w.object_at(down[0], down[1] - 1).kind == "ladder"
     assert apply_intention(w, b, Intention("climb", target="down")).message == (
         "You climb down into the deep at Bo's shaft. It is pitch dark.")
+
+
+def sink(w, c):
+    for _ in range(SHAFT_DIGS):
+        res = dig(w, c, "down")
+    return res
+
+
+def test_a_shaft_chamber_is_sealed_only_while_it_opens_onto_nothing_more():
+    w = shaft_world()  # sealed: the chamber is all the open ground there is (the main shaft test climbs into it)
+    bx, by = w.below(*SPOT)
+    a = person(w, "Ada", *SPOT, "stone_pickaxe")
+    sink(w, a)
+    p = underground.portals(w)[-1]
+    assert sorted(map(tuple, p["chamber"])) == sorted((bx + dx, by + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+    assert underground._sealed(w, p, (bx, by))
+    up = (36, 24)  # a small natural pocket of two tiles just past the chamber's edge: not sealed any more
+    clear(w, *up, 1, "g")
+    down = w.below(*up)
+    clear(w, *down, 4, "R")
+    w.set_tile(down[0] + 2, down[1], "c")
+    w.set_tile(down[0] + 3, down[1], "c")
+    b = person(w, "Bo", *up, "stone_pickaxe")
+    sink(w, b)
+    assert apply_intention(w, b, Intention("climb", target="down")).message == (
+        "You climb down into the deep at Bo's shaft. It is pitch dark.")
+    w.set_tile(bx - 2, by, "c")  # Ada digs her way out of hers: no longer sealed
+    assert not underground._sealed(w, p, (bx, by))
+
+
+def test_no_room_below_for_a_ladder_wastes_no_dig():
+    w = shaft_world()
+    bx, by = w.below(*SPOT)
+    c = person(w, "Ada", *SPOT, "stone_pickaxe")
+    for _ in range(SHAFT_DIGS - 1):
+        dig(w, c, "down")
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            w.add_object("rock", bx + dx, by + dy)
+    w.take_tile_changes()
+    res = dig(w, c, "down")
+    assert not res.ok and res.message == "There's no room below for a ladder; dig your shaft somewhere else."
+    assert w.ext["digging"]["shafts"]["12,24"] == {"n": 4, "by": ["Ada"]} and c.inventory["dirt"] == 4
+    assert c.energy == 80 - 2 * 4 and c.stats["dug"] == 4
+    assert w.tile(bx, by) == "R" and w.take_tile_changes() is None and underground.portal_near(w, *SPOT) is None
+    w.remove_object(w.grid[(bx + 1, by + 1)])
+    assert dig(w, c, "down").message.startswith("The ground gives way beneath your pickaxe")
+    assert w.object_at(bx + 1, by + 1).kind == "ladder"
+
+
+def test_a_second_shaft_gets_an_ordinal():
+    w = shaft_world()
+    c = person(w, "Ada", *SPOT, "stone_pickaxe")
+    sink(w, c)
+    for x in (36, 30):
+        clear(w, x, 36, 1, "g")
+        clear(w, *w.below(x, 36), 2, "R")
+        c.x, c.y = x, 36
+        sink(w, c)
+    names = [p["name"] for p in underground.portals(w) if p["kind"] == "shaft"]
+    assert names == ["Ada's shaft", "Ada's second shaft", "Ada's third shaft"]
+    assert {"Ada's shaft", "Ada's second shaft", "the way up to Ada's third shaft"} <= {
+        lm["name"] for lm in underground._places(w)}
+
+
+def test_the_underground_populates_after_food_and_nature():
+    """digging.py imports the underground pack inside a function: imported at its top, it would register the
+    underground pack (its populate too) ahead of food and nature, and a fresh world would be populated differently."""
+    order = [p.name for p in registry.POPULATE]
+    assert order.index("underground") > max(order.index("food game and forage"), order.index("nature"))
 
 
 def test_shaft_limits():

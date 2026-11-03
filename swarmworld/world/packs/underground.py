@@ -22,7 +22,7 @@ swarmworld/data/packs/underground/).
 
 State: c.ext["underground"] = {"ways": [portal ids climbed or seen], "told": last way line}.
 State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
-"up": [x, y], "down": [x, y]}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
+"up": [x, y], "down": [x, y], and for a shaft or pit "chamber": [[x, y], ...], the chamber dug below it}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
 roll their own random.Random, seeded from the deep's seed), so the surface's weather, animals and placement roll as
 before."""
 
@@ -350,7 +350,6 @@ CLIMB_LINE = ('climb (target "down" or "up"): climb down into the deep at a cave
               'or back up at a cave exit or ladder.')
 DEEP_PHRASES = {"deep", "underground", "caves below", "the deep below", "deep below", "the deep"}
 CROWDED_REACH = 2  # how far from a crowded end a creature may arrive
-POCKET = 40  # open tiles: fewer than this, shut in by rock, is a sealed pocket (a shaft's or a pit's new chamber)
 
 
 def _words(text: str) -> set[str]:
@@ -410,20 +409,24 @@ def _arrival(world: World, c: Creature, pos: tuple[int, int]) -> tuple[int, int]
     return best[1] if best else None
 
 
-def _sealed(world: World, pos: tuple[int, int]) -> bool:
-    """The open ground reached from pos (orthogonal steps, in its region) is a pocket of fewer than POCKET tiles shut
-    in by rock: a chamber below a shaft or a pit that nobody has dug out of yet."""
+def _sealed(world: World, p: dict, pos: tuple[int, int]) -> bool:
+    """The chamber dug below a shaft or a pit (the portal's "chamber") is still shut in by rock: the open ground
+    reached from pos (orthogonal steps, in its region) is the chamber's own tiles, nothing more."""
+    chamber = {tuple(t) for t in p.get("chamber") or ()}
+    if pos not in chamber:
+        return False
     seen, todo = {pos}, [pos]
     while todo:
         x, y = todo.pop()
         for dx, dy in STEPS:
             n = (x + dx, y + dy)
-            if n not in seen and world.tile(*n) not in SOLID_TILES and world.same_region(pos, n):
-                seen.add(n)
-                if len(seen) >= POCKET:
-                    return False
-                todo.append(n)
-    return True
+            if n in seen or world.tile(*n) in SOLID_TILES or not world.same_region(pos, n):
+                continue
+            if n not in chamber:
+                return False
+            seen.add(n)
+            todo.append(n)
+    return seen == chamber
 
 
 def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
@@ -449,7 +452,7 @@ def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
             text = f"You climb down into the deep at {p['name']}."
             if perception.light_range(world, c) == DARK_SIGHT:
                 text += " It is pitch dark."
-            if p["kind"] != "cave" and _sealed(world, there):
+            if _sealed(world, p, there):
                 text += " Solid stone all around: dig your way out."
         else:
             text = f"You climb back up to the surface at {p['name']}."
