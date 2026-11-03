@@ -85,3 +85,25 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 
   Not done yet: it changes what the quick start gives a newcomer, so it waits for a quiet moment. Edit start-world.sh
   only as `.new` + `mv`.
+
+### 11:43 watch (tick 3,769)
+- **admin:** healthy: 24 awake, three nodes, tunnel `HIT`, no errors. No public watchers yet.
+- **Minds since tick 1,981:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 683 | 83% (from 94%) | 9.3 s |
+  | Student | 718 | 77% (from 86%) | 16.2 s |
+  | Qwen3.5-4B | 118 | 76% (from 85%) | 32.9 s |
+
+  The drop has two causes:
+  - the rope-stone fad, now 280 actions since 11:13; gpt-oss's top failure is "You don't have any rope stone" x46;
+  - hungry students eating grass: "You can't eat plant fiber" x30.
+- **mod (done 11:44, 11:46), hunger:** student creatures eat grass when hungry; Ira and Opal collapsed. I spoke from
+  the sky to the hungry group, and fixed the world's refusal so it names the nearest food. See the steward log.
+  - Watch whether the eat-grass failures stop.
+  - Round-2 training should include the teacher's answers in these hungry moments.
+- **add (seen):** Elm (Qwen3.5-4B, the Air) invented a rain shelter at tick 2,341 while shivering in the rain.
+- **mod (watching):** the rope-stone fad is growing, not fading. It drains rope and turns into failed gives. If it
+  still dominates at the next check-in, consider letting the world say "the rope stone doesn't do anything yet" when
+  someone makes one (the tweak noted at 11:13).
