@@ -11,7 +11,6 @@ from swarmworld.world.perception import dist
 from swarmworld.world.terrain import generate_world
 
 SPOT = (12, 24)  # on generate_world(7, 48, 48): 12 steps west of the meadow's heart
-PLACEHOLDER = "You can only dig down here, with a pickaxe."  # surface digging comes with Task 11
 
 
 def person(w, name, x, y, *tools, energy=80.0):
@@ -95,7 +94,7 @@ def test_dig_clay_still_gathers_clay(two_levels):
     w = two_levels(24)  # a direction digs: the clay bank east of you isn't named
     w.add_object("clay", 6, 5)
     c = person(w, "Ada", 5, 5, "stone_pickaxe")
-    assert dig(w, c, "east").message == PLACEHOLDER and "clay" not in c.inventory
+    assert dig(w, c, "east").message == "The clay bank is in the way." and "clay" not in c.inventory
 
 
 def test_bare_dig_without_a_tool_still_gathers(two_levels):
@@ -111,7 +110,7 @@ def test_bare_dig_without_a_tool_still_gathers(two_levels):
     w = two_levels(24)  # it takes a word for where to dig
     w.add_object("rock", 6, 5)
     c = person(w, "Ada", 5, 5, "stone_pickaxe")
-    assert dig(w, c, "here").message == PLACEHOLDER and "stone" not in c.inventory
+    assert dig(w, c, "here").message == "You dig a trench here and get 1 dirt." and "stone" not in c.inventory
 
 
 def test_dig_a_thing_on_the_surface_is_gather_at_any_distance(two_levels):
@@ -443,5 +442,5 @@ def test_dig_tip_beside_rock_with_a_pickaxe_only(two_levels):
     assert tip.trigger(w, c) is None
     c.x = BORDER  # beside only the deep's border
     assert tip.trigger(w, c) is None
-    c.x, c.y = 11, 5  # up on the surface (Task 11 adds the surface's cases)
+    c.x, c.y = 11, 5  # up on the surface, far from water and dug land (tests/test_terraform.py has the rest)
     assert tip.trigger(w, c) is None

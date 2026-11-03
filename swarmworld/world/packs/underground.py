@@ -54,7 +54,7 @@ MOUTH_AWAY = 20  # cave mouths lie this far from the meadow's middle (a quarter 
 MOUTH_APART = 12
 MOUTH_CLEAR = 3  # steps kept between a cave mouth and anything a creature built or planted
 ORDINALS = ("second", "third", "fourth", "fifth")
-PORTAL_OBJECTS = {"cave": ("cave_mouth", "cave_exit"), "shaft": ("mine_shaft", "ladder"), "pit": (None, "ladder")}
+PORTAL_OBJECTS = {"cave": ("cave_mouth", "cave_exit"), "shaft": ("mine_shaft", "ladder"), "pit": ("open_pit", "ladder")}
 
 
 def _mine(world: World) -> dict:
@@ -549,7 +549,9 @@ def _way_line(world: World, c: Creature) -> str | None:
 
 
 actions.way_to_region = _way_to_region
-register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "ascend", "go_down", "go_up"))
+register_verb("climb", _climb, aliases=("climb_down", "climb_up", "descend", "ascend", "go_down", "go_up"),
+              alias_targets={"climb_down": "down", "descend": "down", "go_down": "down",
+                             "climb_up": "up", "ascend": "up", "go_up": "up"})
 register_handoff("walk_to", "climb", _handoff_climb)
 register_technique(Technique("climb", CLIMB_LINE, _climb_fits))
 register_perception(_way_line, priority=40)

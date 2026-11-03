@@ -25,7 +25,8 @@ from swarmworld.world.terrain import generate_world
 PORTAL_KINDS = {"cave_mouth": ("cave mouth", {"cave", "cave mouth", "cave entrance", "way down"}),
                 "cave_exit": ("cave exit", {"exit", "way up", "way out"}),
                 "mine_shaft": ("mine shaft", {"shaft", "mine shaft", "way down"}),
-                "ladder": ("ladder", {"ladder", "way up"})}
+                "ladder": ("ladder", {"ladder", "way up"}),
+                "open_pit": ("open pit", {"pit", "open pit", "hole", "way down"})}
 CAVE_NAMES = ("the dripping hall", "the crystal cave", "the black seam", "the echoing gallery")
 
 
@@ -140,7 +141,7 @@ def test_portals_add_and_remove(two_levels):
     assert underground.portal_near(w, 5, 24) is None  # a step from the shaft, but in the deep
     assert underground.portal_near(w, 8, 23) is None and underground.portal_near(w, 8, 23, reach=3) == (p, "up")
     pit = underground.add_portal(w, "pit", "the test pit", (15, 10), (15, 34))
-    assert pit["id"] == "p2" and w.object_at(15, 10) is None and w.object_at(15, 34).kind == "ladder"
+    assert pit["id"] == "p2" and w.object_at(15, 10).kind == "open_pit" and w.object_at(15, 34).kind == "ladder"
     underground.remove_portal(w, "p1")
     assert underground.portals(w) == [pit] and w.object_at(5, 23) is None and w.object_at(5, 47) is None
     assert w.object_at(15, 34).data["portal"] == "p2" and underground.portal_near(w, 5, 23) is None

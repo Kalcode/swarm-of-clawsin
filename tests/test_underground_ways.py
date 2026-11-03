@@ -103,6 +103,26 @@ def test_climbing_the_wrong_way_is_refused():
     assert not res.ok and res.message == "This is the way up; there is nothing deeper."
 
 
+def test_climb_down_and_climb_up_say_which_way():
+    """An alias that names the way is that way: a bare "climb_up" beside a cave mouth used to climb down it."""
+    from swarmworld.world.actions import parse_intention
+    targets = {a: parse_intention({"action": a}).target for a in ("climb_down", "climb_up", "descend", "ascend",
+                                                                  "go_down", "go_up", "climb")}
+    assert targets == {"climb_down": "down", "climb_up": "up", "descend": "down", "ascend": "up", "go_down": "down",
+                       "go_up": "up", "climb": ""}
+    assert parse_intention({"action": "climb_up", "target": "the ladder"}).target == "the ladder"
+    w, p = world_with_mouth()
+    c = person(w, "Ada", UP[0] + 1, UP[1])
+    res = apply_intention(w, c, parse_intention({"action": "climb_up"}))
+    assert not res.ok and res.message == "You're on the surface already; this is the way down."
+    assert w.region_at(c.x, c.y).level == 0
+    res = apply_intention(w, c, parse_intention({"action": "climb_down"}))
+    assert res.message.startswith("You climb down into the deep at the north cave.")
+    finish(w, c)
+    res = apply_intention(w, c, parse_intention({"action": "climb_up"}))
+    assert res.message == "You climb back up to the surface at the north cave."
+
+
 def test_climbing_into_a_crowd_steps_beside_it():
     w, p = world_with_mouth()
     dx, dy = p["down"]
