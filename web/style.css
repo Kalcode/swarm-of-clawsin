@@ -215,6 +215,17 @@ html:not(.sprites-ok) .brand-fallback { display: inline; }
   font-size: 12px; line-height: 15px;
   color: var(--text-2);
 }
+.watching {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; line-height: 15px; color: var(--text-2); white-space: nowrap;
+}
+.watching[hidden] { display: none; }
+.watching .ico { color: var(--text-3); }
+.watching b { font-weight: 650; color: var(--text); }
+html.lz-ui[data-skin="limezu"] .watching { font: 18px/17px var(--px); color: var(--lz-cream-2); }
+html.lz-ui[data-skin="limezu"] .watching .ico { color: var(--lz-cream-2); }
+html.lz-ui[data-skin="limezu"] .watching b { font-weight: 400; color: var(--lz-cream); }
+@media (max-width: 520px) { .watching span:last-child { font-size: 0; } .watching b { font-size: 12px; } }
 .pb-long {
   min-width: 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;

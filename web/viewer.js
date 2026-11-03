@@ -420,9 +420,26 @@
     else if (S.tab === 'creature' && S.tick % 4 === 0) renderRoster();
   }
 
+  /** "1.2k" above 999, else the number. */
+  function fmtWatching(n) {
+    if (n < 1000) return String(n);
+    const k = n / 1000;
+    if (k < 999.5) return (k < 9.95 ? k.toFixed(1) : String(Math.round(k))) + 'k';
+    const m = n / 1e6;
+    return (m < 9.95 ? m.toFixed(1) : String(Math.round(m))) + 'M';
+  }
+
+  /** The header's "N watching" (people on the public viewer), hidden when it is 0 or missing. */
+  function showWatching(n) {
+    const ok = isNum(n) && n >= 1;
+    $('h-watching').hidden = !ok;
+    if (ok) setText($('h-watching-n'), fmtWatching(Math.round(n)));
+  }
+
   function applyMetrics(m) {
     if (!m || typeof m !== 'object') return;
     S.metrics = m;
+    showWatching(m.watching);
     if (S.tab === 'swarm') renderSwarm();
   }
 

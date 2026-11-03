@@ -47,6 +47,7 @@ def test_live_and_static_shapes(pub):
     pub.publish()
     live, static = live_of(pub), json.loads(pub.static_doc().body)
     assert set(live) == set(LIVE_KEYS) and live["schema"] == static["schema"] == 1
+    assert {"watching", "here"} <= set(live) and live["watching"] == 0 and live["here"]["every"] == 30
     assert live["type"] == "live" and static["type"] == "static" and live["static"] == static["version"]
     assert set(static) <= set(STATIC_KEYS) and len(static["tiles"]) == static["height"] and static["regions"]
     assert gzip.decompress(pub.live_doc().gz) == pub.live_doc().body

@@ -5,7 +5,9 @@ builds a document from request data; an unknown creature or path is a short-cach
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 
 from urllib.parse import quote
@@ -13,6 +15,7 @@ from urllib.parse import quote
 from aiohttp import web
 
 from .public import PUBLISHER, Doc
+from .watching import client_address
 from .public_app import APP_ASSET, APP_MISSING, APP_SHORT, PUBLIC_APP
 
 log = logging.getLogger("swarmworld.server")
@@ -131,6 +134,40 @@ async def chronicle_json(request: web.Request) -> web.Response:
     return versioned(request, "/public/chronicle.json", pub.chronicle_version) or doc_response(request, pub.chronicle_doc(), IMMUTABLE)
 
 
+HERE_MAX_BYTES = 256
+HERE_ID = re.compile(r"[0-9a-f]{16,32}")
+
+
+async def _here_body(request: web.Request) -> bytes | None:
+    """The request body, or None when it is longer than HERE_MAX_BYTES (never read past one byte more)."""
+    if (request.content_length or 0) > HERE_MAX_BYTES:
+        return None
+    body = b""
+    while len(body) <= HERE_MAX_BYTES:
+        chunk = await request.content.read(HERE_MAX_BYTES + 1 - len(body))
+        if not chunk:
+            return body
+        body += chunk
+    return None
+
+
+async def here(request: web.Request) -> web.Response:
+    """A page's check-in: {"id": "<16-32 hex>"}. Answers 204 (never cached), 400 for anything else, 405 for any method
+    but POST. Neither the id nor the address is logged."""
+    if request.method != "POST":
+        return web.Response(status=405, headers={"Allow": "POST", "Cache-Control": "no-store"})
+    raw = await _here_body(request)
+    try:
+        wid = json.loads(raw)["id"] if raw is not None else None
+    except (ValueError, TypeError, KeyError):  # not JSON (or not UTF-8), not an object, or no id
+        wid = None
+    if not isinstance(wid, str) or not HERE_ID.fullmatch(wid):
+        return web.Response(status=400, headers={"Cache-Control": "no-store"})
+    address = client_address(request.remote, request.headers.get("CF-Connecting-IP"))
+    request.app[PUBLISHER].watching.note(wid, address)
+    return web.Response(status=204, headers={"Cache-Control": "no-store"})
+
+
 async def not_public(request: web.Request) -> web.Response:
     return missing()
 
@@ -188,6 +225,7 @@ def add_public_routes(app: web.Application) -> None:
         r.add_get("/public/almanac.json", almanac_json)
         r.add_get("/public/history.json", history_json)
         r.add_get("/public/chronicle.json", chronicle_json)
+        r.add_route("*", "/public/here", here)  # every method, so a GET is a 405 and not the catch-all's 404
         if PUBLIC_APP in app:
             r.add_get("/public/app", to_app_folder)
             r.add_get("/public/app/{path:.*}", app_file)

@@ -3,7 +3,8 @@
  * Stands in for the world server in the browser, like demo.js does, but with the real world: it polls the snapshot
  * documents under /public/ (live.json every few seconds, static.json when its version changes) and replays each
  * snapshot's per-tick creature paths and events as the socket messages the viewer already understands. The tab shows
- * the world one interval behind. It only ever fetches /public/ paths and can post nothing.
+ * the world one interval behind. It only ever fetches /public/ paths; the one thing it sends is the "here" check-in
+ * (POST /public/here, a random id made for this page load and kept in memory) that lets the Mac count who is watching.
  */
 (function () {
   'use strict';
@@ -13,11 +14,22 @@
   const HIDDEN_POLL_MS = 30000;
   const RETRY_MS = 1000;
   const STATIC_TRIES = 3;      // retries of a static.json that does not match the live document's version
+  const HERE_PATH = '/public/here';
   const RELOAD_KEY = 'swarm-public-reloaded';
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const jsonOf = (v) => JSON.stringify(v);
+
+  /** A random id for this page load: 16 random bytes as 32 hex chars. Never stored anywhere. */
+  function makeId(getRandomValues) {
+    const grv = getRandomValues || ((a) => window.crypto.getRandomValues(a));
+    const bytes = grv(new Uint8Array(16));
+    return Array.from(bytes, (b) => (b < 16 ? '0' : '') + b.toString(16)).join('');
+  }
+
+  /** The metrics message for a live document: its metrics, and the watching count the header shows. */
+  const metricsOf = (live) => Object.assign({ type: 'metrics' }, live.metrics, { watching: live.watching });
 
   /* ------------------------------------------------------------------ views */
   /** The static world with a live document's changes applied: objects by id, tile rows, buildings, landmarks. */
@@ -145,6 +157,7 @@
     const isHidden = opts.hidden || (() => typeof document !== 'undefined' && !!document.hidden);
     const reload = opts.reload || (() => location.reload());
     const random = opts.random || Math.random;
+    const pageId = (opts.makeId || makeId)();
 
     const sock = {
       readyState: 0, onopen: null, onmessage: null, onclose: null, onerror: null,
@@ -154,6 +167,7 @@
     const docs = { live: null, static: null, fetch: doFetch };
     let boot = null, seenSeq = -1, at = null, view = null, every = 3;
     let pollTimer = null, openTimer = null, failures = 0, unchanged = false, staticTries = 0, staticSkips = 0;
+    let hereTimer = null;
     let queue = [];   // frames still to deliver: {h, msg}
     let busy = false;
 
@@ -166,6 +180,7 @@
       sock.readyState = 3;
       clearT(pollTimer);
       clearT(openTimer);
+      clearT(hereTimer);
       for (const q of queue) clearT(q.h);
       queue = [];
       if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisible);
@@ -181,6 +196,25 @@
     }
     const getLive = () => getJson('/public/live.json', { cache: 'no-cache', headers: { Accept: 'application/json' } });
     const getStatic = (v) => getJson(`/public/static.json?v=${encodeURIComponent(v)}`, { headers: { Accept: 'application/json' } });
+
+    /** Tell the Mac this page is open. Silent on failure: the next interval is the retry. */
+    function checkIn() {
+      try {
+        const p = doFetch(HERE_PATH, { method: 'POST', body: jsonOf({ id: pageId }), keepalive: true, cache: 'no-store' });
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) { /* silent */ }
+    }
+
+    /** After the first live document, then every here.every seconds: send with probability here.sample (1 when absent), not
+   *  while hidden. The first check-in is gated like the rest, so a crowd arriving at once is thinned from its first request.
+     *  The values are read from the latest live document each time. */
+    function hereLoop() {
+      if (sock.readyState === 3) return;
+      const here = (docs.live && docs.live.here) || {};
+      if (!isHidden() && random() < (typeof here.sample === 'number' ? here.sample : 1)) checkIn();
+      const every = Number(here.every) > 0 ? Number(here.every) : 30;
+      hereTimer = setT(() => hereLoop(), every * 1000);
+    }
 
     function schedule(ms) {
       clearT(pollTimer);
@@ -257,10 +291,11 @@
       const still = Object.assign({}, live, { creatures: (live.creatures || []).map(cardOf), from_tick: live.tick });
       const frame = tickFrames(still, { tick: live.tick, eventSeq: 0 }, diffViews(view, view))[0];
       emit(initMessage(st, live));
-      emit(Object.assign({ type: 'metrics' }, live.metrics));
+      emit(metricsOf(live));
       emit(frame);
       if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisible);
       schedule(nextDelay());
+      hereLoop();
     }
 
     async function poll() {
@@ -296,7 +331,7 @@
         seenSeq = live.seq;
         view = next;
         at = { tick: live.tick, eventSeq: Math.max(at.eventSeq, ...(live.events || []).map((e) => e.seq || 0)) };
-        deliver(frames.concat([Object.assign({ type: 'metrics' }, live.metrics)]), (every * 1000) / frames.length);
+        deliver(frames.concat([metricsOf(live)]), (every * 1000) / frames.length);
         schedule(nextDelay());
       } finally {
         busy = false;
@@ -343,5 +378,5 @@
     return Promise.reject(Object.assign(new Error('HTTP 403'), { status: 403 }));
   }
 
-  window.SwarmPublic = { SCHEMA, MAX_FRAMES, HIDDEN_POLL_MS, RETRY_MS, viewOf, initMessage, diffViews, tickFrames, pollDelay, createSocket, api, post };
+  window.SwarmPublic = { SCHEMA, MAX_FRAMES, HIDDEN_POLL_MS, RETRY_MS, viewOf, initMessage, diffViews, tickFrames, pollDelay, createSocket, api, post, makeId };
 })();

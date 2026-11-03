@@ -21,6 +21,8 @@ Scope every rule to your hostname: a zone often holds other services, and a path
 - Why it is required: these documents and the two pages take no query, so every `?x=random` would be a made-up cache key that misses at the edge and reaches the Mac. With the query ignored, they all share one entry. The world answers a request with a query exactly as it answers the bare URL (same body, headers and ETag, never a redirect), so what the edge stores under the shared key is always the real document.
 - Never apply this to `static.json` or `chronicle.json`: their `?v=` is the version and must stay in the key. The world redirects any other `v` (and a missing one) to the current version, so a made-up `v` costs one tiny answer, not a body. Rule 1 alone covers them, and the app files under `/public/app/`.
 
+`/public/here` is a POST (the viewer's check-in for the watching count) and is never cached, so no rule is needed for it.
+
 ## Rule 3, a rate limit (suggested)
 
 - Security > WAF > Rate limiting rules, scoped to the snapshot documents only: `http.host eq "<your hostname>" and starts_with(http.request.uri.path, "/public/") and not starts_with(http.request.uri.path, "/public/app/")`. Never include `/public/app/`: one page load fetches about 110 files (scripts, art sheets, sounds), so a limit there blocks every new visitor on their first load; those files are long-cached at the edge anyway.
