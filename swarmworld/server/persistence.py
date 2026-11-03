@@ -62,6 +62,9 @@ def snapshot(st: "ServerState") -> dict:
         "metrics": {m: dict(cnt) for m, cnt in st.metrics.models.items()},
         "metric_items": {m: sorted(v) for m, v in st.metrics.items.items()},
         "metric_retired": {m: dict(v) for m, v in st.metrics.retired.items()},
+        "metric_verbs": {m: dict(v) for m, v in st.metrics.verbs.items()},
+        "metric_verbs_ok": {m: dict(v) for m, v in st.metrics.verbs_ok.items()},
+        "metric_verbs_since": st.metrics.verbs_since,
     }
 
 
@@ -168,6 +171,11 @@ def restore(st: "ServerState", path: Path) -> None:
         st.metrics.retired[m].update(r)
     for m, items in data.get("metric_items", {}).items():
         st.metrics.items[m].update(items)
+    for m, n in data.get("metric_verbs", {}).items():
+        st.metrics.verbs[m].update(n)
+    for m, n in data.get("metric_verbs_ok", {}).items():
+        st.metrics.verbs_ok[m].update(n)
+    st.metrics.verbs_since = data.get("metric_verbs_since", 0) if "metric_verbs" in data else w.tick  # older saves
     st.harness.assign(w.creatures.values())
     st.chronicle_from = w.tick
     st.chronicle_due = w.tick + 600

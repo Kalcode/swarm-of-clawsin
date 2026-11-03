@@ -527,6 +527,7 @@ class ServerState:
         write_log({"ok": res.ok, "noop": res.noop, "message": res.message[:240]})
         info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick)
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
+        self.metrics.verb(c.model, it.action, res.ok)
         if res.noop:
             self.metrics.bump(c.model, "noops")
         if res.ok and res.instant and it.action == "recall":
