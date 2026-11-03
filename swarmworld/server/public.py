@@ -68,6 +68,7 @@ class Publisher:
         self._upsert: dict[str, dict] = {}
         self._removed: set[str] = set()
         self._tiles: dict[tuple, list] = {}
+        self._origin_x = st.world.origin_x  # the origin the trails and tile deltas are in
         self._last_publish: float | None = None
         self._last_tick: int | None = None
         self._static_n = 0
@@ -83,6 +84,12 @@ class Publisher:
     # ---- per tick -------------------------------------------------------------------------------------------------
 
     def observe(self, msg: dict, new_events: list[Event]) -> None:
+        moved = self.st.world.origin_x - self._origin_x
+        if moved:  # land went in west: what was remembered moves with the world
+            self._origin_x += moved
+            self._trails = {cid: deque(((t, x + moved, y) for t, x, y in trail), maxlen=trail.maxlen)
+                            for cid, trail in self._trails.items()}
+            self._tiles = {(x + moved, y): [x + moved, y, t] for (x, y), (_, _, t) in self._tiles.items()}
         for o in msg.get("objects_upsert") or []:
             self._upsert[o["id"]] = o
             self._removed.discard(o["id"])

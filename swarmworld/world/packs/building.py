@@ -30,8 +30,8 @@ from ..actions import FILLER, SOURCE_HINT, ActionResult, Intention, start_walk
 from ..catalog import DATA
 from ..model import DAY_TICKS, WATER_TILES, wet
 from ..perception import article, dist, direction, sight_range
-from ..registry import (ANIMALS, BLOCKING, HANDLERS, KINDS, STORES, Technique, register_perception, register_system,
-                        register_technique, register_verb)
+from ..registry import (ANIMALS, BLOCKING, HANDLERS, KINDS, STORES, Technique, register_perception, register_shift_hook,
+                        register_system, register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..model import Creature, World
@@ -725,3 +725,16 @@ register_system("building upkeep", UPKEEP_EVERY, _upkeep)
 register_system("building news", 1, _news)
 register_perception(inside_line, priority=46)
 register_perception(site_line, priority=47)
+
+
+def _shift(world: World, n: int) -> None:
+    """New land in the west: every site and building (x0..x1, door, start) moves n east."""
+    for rec in list(_read(world, "sites").values()) + list(_read(world, "built").values()):
+        rec["x0"] += n
+        rec["x1"] += n
+        for k in ("door", "start"):
+            if rec.get(k):
+                rec[k] = [rec[k][0] + n, *rec[k][1:]]
+
+
+register_shift_hook("building", _shift, stores=("ext.building.sites", "ext.building.built"))

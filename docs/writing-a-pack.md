@@ -213,3 +213,23 @@ Rules of thumb:
 - **Tests.** Use `with registry.sandbox():` for test-only registrations, `data_dir` for throwaway data folders, and
   `prepack_save` for `test_<pack>_old_save_loads`.
 - **Report your kinds** with their `look` hints, for S7.
+
+## Positions move
+
+When the frontier lays new land in the west, every x in the world moves east by the width added (`World.shift_x`),
+so a position a pack keeps in its own state has to move too. The core moves creatures, objects, the ground, tile
+changes, landmarks and events. A pack that keeps positions in `ext` (a tile list, an `"x,y"` key, a rectangle's
+`x0`/`x1`, a remembered `[x, y]`) registers a hook next to its other registrations:
+
+```python
+def _shift(world, n):
+    ...  # add n to every stored x; `shift_key("12,5", n)` re-keys an "x,y" string
+
+register_shift_hook("mypack", _shift, stores=("ext.mypack.camps", "creature.ext.mypack.home"))
+```
+
+`stores` names what the hook moves, by path (a dotted path from `ext.<pack>`, `creature.ext.<pack>` or `object.data`;
+a key that isn't `[a-z_]+` is written `*`, a list's items `[]`). Hooks run in registration order and take no dice.
+`test_no_store_of_positions_goes_unshifted` walks the world for anything shaped like a position (`{x, y}`, `x0..y1`,
+a pair of ints, an `"x,y"` key) and fails for one that no declared store covers. A path that really never moves goes
+in that test's `IGNORED`, with the reason.

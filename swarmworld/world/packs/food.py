@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 from .. import actions, perception
 from ..actions import ActionResult, Intention, _busy, find_object, start_walk, station_near, water_kinds
 from ..catalog import DATA
-from ..model import WATER_TILES
+from ..model import WATER_TILES, shift_key
 from ..perception import dist, direction, sight_range, visible_objects
-from ..registry import (ANIMALS, KINDS, STORES, Technique, register_perception, register_populate, register_system,
-                        register_technique, register_verb)
+from ..registry import (ANIMALS, KINDS, STORES, Technique, register_perception, register_populate, register_shift_hook,
+                        register_system, register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..model import Creature, World, WorldObject
@@ -586,3 +586,13 @@ register_perception(_rack_line, priority=60)
 register_perception(_cook_line, priority=65)
 register_perception(_fishing_line, priority=72)
 register_populate("food game and forage", _populate)
+
+
+def _shift(world: World, n: int) -> None:
+    """New land in the west: the piles' "x,y" keys move n east."""
+    piles = _state(world).get("piles")
+    if piles:
+        _state(world)["piles"] = {shift_key(k, n): v for k, v in piles.items()}
+
+
+register_shift_hook("food", _shift, stores=("ext.food.piles",))

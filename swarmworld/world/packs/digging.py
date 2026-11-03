@@ -50,10 +50,10 @@ from .. import actions, perception
 from ..actions import (PLANT_TOOLS, TOOLS_PICK, VECTORS, ActionResult, _busy, _dir_hint, _has_tool, _items_text,
                        _words, find_object)
 from ..caves import BORDER, carve_chamber, chamber_tiles
-from ..model import WATER_TILES
+from ..model import WATER_TILES, shift_key
 from ..perception import DIRS, direction, dist
 from ..registry import (GATHERABLE, HANDLERS, ITEM_SOURCES, Technique, register_handoff, register_perception,
-                        register_system, register_technique, register_verb)
+                        register_shift_hook, register_system, register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..actions import Intention
@@ -654,3 +654,15 @@ register_system("digging water", WATER_EVERY, _water)
 register_perception(_dug_line, priority=44)
 register_technique(Technique("dig", DIG_LINE, _dig_fits))
 register_technique(Technique("fill_in", FILL_LINE, _fill_fits))
+
+
+def _shift(world: World, n: int) -> None:
+    """New land in the west: every "x,y" key of the pack's records moves n east, the values stay."""
+    mine = world.ext.get(PACK) or {}
+    for what in ("work", "shafts", "dug", "filling", "made_water"):
+        if mine.get(what):
+            mine[what] = {shift_key(k, n): v for k, v in mine[what].items()}
+
+
+register_shift_hook("digging", _shift, stores=("ext.digging.work", "ext.digging.shafts", "ext.digging.dug",
+                                                 "ext.digging.filling", "ext.digging.made_water"))

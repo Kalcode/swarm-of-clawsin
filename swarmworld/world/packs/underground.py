@@ -49,8 +49,8 @@ from ..catalog import DATA
 from ..model import LIGHT_ITEMS, SOLID_TILES, WATER_TILES
 from ..perception import DARK_SIGHT, direction, dist
 from ..registry import (ALIAS_TARGETS, ANIMALS, BLOCKING, KINDS, STORES, Technique, register_handoff,
-                        register_landmarks, register_perception, register_populate, register_system, register_technique,
-                        register_verb)
+                        register_landmarks, register_perception, register_populate, register_shift_hook, register_system,
+                        register_technique, register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..actions import ActionResult, Intention
@@ -771,3 +771,21 @@ register_handoff("light", "give", _handoff_light)
 register_system("underground torches", TORCH_EVERY, _torches)
 register_perception(_torch_line, priority=35)
 register_technique(Technique("light", LIGHT_LINE, _light_fits))
+
+
+def _shift(world: World, n: int) -> None:
+    """New land in the west: the portals' tiles, the caves and the terminal move n east."""
+    mine = world.ext.get(PACK) or {}
+    for p in mine.get("portals") or ():
+        for end in ("up", "down"):
+            p[end] = [p[end][0] + n, *p[end][1:]]
+        if p.get("chamber"):
+            p["chamber"] = [[x + n, *rest] for x, *rest in p["chamber"]]
+    for cave in mine.get("caves") or ():
+        cave["x"] += n
+    if mine.get("terminal"):
+        mine["terminal"]["x"] += n
+
+
+register_shift_hook("underground", _shift, stores=("ext.underground.portals", "ext.underground.caves",
+                                                     "ext.underground.terminal"))
