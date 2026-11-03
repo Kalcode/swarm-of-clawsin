@@ -195,21 +195,25 @@ def _interior(world: World, x: int, y: int) -> tuple[int, int, int, int] | None:
     return BORDER, reg.y0 + BORDER, world.width - BORDER, reg.y1 - BORDER  # half-open
 
 
-def carve_chamber(world: World, x: int, y: int, r: int = 2) -> list[tuple[int, int]]:
-    """Open the rock within r (a rounded disc) of (x, y), keeping BORDER tiles of rock at the region's edges.
-    Returns every open tile of the chamber."""
+def chamber_tiles(world: World, x: int, y: int, r: int = 2) -> list[tuple[int, int]]:
+    """The tiles carve_chamber(world, x, y, r) would leave open, changing nothing: the rock, cave floor and cave water
+    within r (a rounded disc) of (x, y), inside BORDER tiles of rock at the region's edges."""
     box = _interior(world, x, y)
     if box is None:
         return []
     x0, y0, x1, y1 = box
-    out = []
-    for yy in range(max(y - r, y0), min(y + r + 1, y1)):
-        for xx in range(max(x - r, x0), min(x + r + 1, x1)):
-            if (xx - x) ** 2 + (yy - y) ** 2 <= r * r + r:
-                if world.tile(xx, yy) == "R":
-                    world.set_tile(xx, yy, "c")
-                if world.tile(xx, yy) in ("c", "u"):
-                    out.append((xx, yy))
+    return [(xx, yy) for yy in range(max(y - r, y0), min(y + r + 1, y1))
+            for xx in range(max(x - r, x0), min(x + r + 1, x1))
+            if (xx - x) ** 2 + (yy - y) ** 2 <= r * r + r and world.tile(xx, yy) in ("R", "c", "u")]
+
+
+def carve_chamber(world: World, x: int, y: int, r: int = 2) -> list[tuple[int, int]]:
+    """Open the rock within r (a rounded disc) of (x, y), keeping BORDER tiles of rock at the region's edges.
+    Returns every open tile of the chamber."""
+    out = chamber_tiles(world, x, y, r)
+    for xx, yy in out:
+        if world.tile(xx, yy) == "R":
+            world.set_tile(xx, yy, "c")
     return out
 
 
@@ -217,7 +221,9 @@ def carve_passage(world: World, start: tuple[int, int],
                   avoid: set[tuple[int, int]] = frozenset()) -> list[tuple[int, int]]:
     """Dig the shortest orthogonal path through the region's interior from `start` to the main cave system: the
     largest connected group of cave floor and water outside `avoid`. Its rock tiles become cave floor; returns them.
-    Nothing changes when start is already in the main system or there is none to reach."""
+    Nothing changes when start is already in the main system or there is none to reach, or lies off the map."""
+    if not 0 <= start[0] < world.width:  # the flat index below needs start's column on the map
+        return []
     box = _interior(world, *start)
     if box is None:
         return []
