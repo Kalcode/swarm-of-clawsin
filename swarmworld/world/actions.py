@@ -1279,6 +1279,26 @@ def _placeable_held(world: World, c: Creature, name: str) -> str | None:
     return None
 
 
+def _walls_in(world: World, c: Creature, x: int, y: int) -> bool:
+    """Whether a blocking thing set down at (x, y) would leave the creature no way to walk 3 steps away (Gale ringed
+    herself with baskets). Same steps as bfs_path, with (x, y) blocked for the corner rule too."""
+    def open_(px: int, py: int) -> bool:
+        return (px, py) != (x, y) and world.walkable(px, py)
+    seen = {(c.x, c.y)}
+    q = deque([(c.x, c.y)])
+    while q and len(seen) < 400:
+        cx, cy = q.popleft()
+        if max(abs(cx - c.x), abs(cy - c.y)) >= 3:
+            return False
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = cx + dx, cy + dy
+            if (nx, ny) in seen or not open_(nx, ny) or (dx and dy and not (open_(cx + dx, cy) and open_(cx, cy + dy))):
+                continue
+            seen.add((nx, ny))
+            q.append((nx, ny))
+    return not q
+
+
 def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     name = it.target or (it.items[0] if it.items else "")
     other = next((n for n in it.items if _placeable_held(world, c, n)), None)
@@ -1311,6 +1331,10 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
                 spots.append((0 if hint and direction(dx, dy) == hint else 1, x, y))
     if not spots:
         return ActionResult(False, "There's no free spot beside you to place that.")
+    if ("creation" if "invention" in world.catalog.items[iid].tags else kind) in BLOCKING:
+        spots = [s for s in spots if not _walls_in(world, c, s[1], s[2])]
+        if not spots:
+            return ActionResult(False, f"Setting the {world.catalog.name(iid)} down here would wall you in. Step somewhere more open first.")
     spots.sort()
     _, x, y = spots[0]
     c.inventory[iid] -= 1

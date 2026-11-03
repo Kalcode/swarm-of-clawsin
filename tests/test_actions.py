@@ -705,3 +705,20 @@ def test_combine_reads_ingredients_written_as_a_list_in_the_target(world):
     res = act(world, c, action="combine", target='["plant fiber", "plant fiber", "plant fiber"]')
     assert "Combine what?" not in res.message
     assert res.ok and c.inventory.get("rope", 0) == 1
+
+
+def test_placing_a_blocking_thing_never_walls_in_the_one_placing_it(world):
+    # Gale set six baskets around herself (an oak and a bush closed the rest) and couldn't take a step for 27 walks
+    c = creature(world)
+    c.inventory["basket"] = 1
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1)):
+        world.add_object("basket", 10 + dx, 10 + dy)
+    res = act(world, c, action="place", target="basket")
+    assert not res.ok and "wall you in" in res.message
+    assert c.inventory.get("basket") == 1 and world.object_at(11, 11) is None
+
+
+def test_placing_a_basket_in_the_open_still_works(world):
+    c = creature(world)
+    c.inventory["basket"] = 1
+    assert act(world, c, action="place", target="basket").ok
