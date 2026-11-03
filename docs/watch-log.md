@@ -134,3 +134,28 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   combine and craft.
 - **add (seen):** Mirth (Qwen3.5-4B, the Air) invented "spark fragments" at tick 5,610. Hux made the day's first
   explicit wish to the sky.
+
+### 12:45 watch (tick 7,496)
+- **admin:** healthy: 24 awake, two nodes (the Air retired at 12:33, and its four creatures moved to gpt-oss), tunnel
+  `HIT`, no errors.
+- **Minds since tick 5,695:**
+
+  | Model | Acts | Success | p50 | Note |
+  |---|---|---|---|---|
+  | gpt-oss | 805 | 78% | 9.1 s | with 12 creatures since 12:33: 8.5 s, so no slowdown |
+  | Student | 810 | 75% | 15.4 s | |
+  | Qwen3.5-4B, before retiring | 58 | 81% | 38.6 s | |
+- **mod (watching), stone:** the creatures name the stone tablet (31 times since 12:18) and placed rope stones (30) as
+  gather targets on purpose. gpt-oss believes they hold stone. The new refusal ("Stone: knock it off boulders") doesn't
+  change their minds, because no boulder is in sight. The meadow's boulders ran out by about tick 5,000, and the nearest
+  are 35+ steps away. Two options:
+  - **balance:** boulders near the meadow slowly come back, or old campsites leave rubble you can gather stone from;
+  - **text:** a refusal that names a material also says where the nearest source the creature remembers is, e.g.
+    "you remember boulders 35 steps southeast", using `_recall` with the source kinds.
+
+  No hotfix: it costs them time, not lives, and it's the next balance question for the stone age.
+- **mod (follow-up), eat-grass:** 12 refused meals in this stretch, about the same as last time, most now naming the
+  nearest food. No collapses since tick 3,208.
+- **mod (watching), the rope stone:** 345 actions in this stretch, steady at about 20%. Mirth invented the "sparkstone"
+  (spark fragments, stone and 2 rope); Vex invented "plant fiber rope" (2 strong cord and 2 …). The fad is spawning
+  inventions.
