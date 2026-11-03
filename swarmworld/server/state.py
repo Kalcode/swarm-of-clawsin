@@ -393,8 +393,10 @@ class ServerState:
         """How far a remembered place is from a creature: steps and direction, or which level it lies on."""
         w = self.world
         if not w.same_region((c.x, c.y), (x, y)):
-            there = w.region_at(x, y)
-            return "below, in the deep" if there and there.level < 0 else "above, on the surface"
+            there, here = w.region_at(x, y), w.region_at(c.x, c.y)
+            if there and here and there.level != here.level:
+                return "below, in the deep" if there.level < here.level else "above, on the surface"
+            return "in another place"
         d = dist(c.x, c.y, x, y)
         return "right here" if d == 0 else f"about {d} steps {direction(x - c.x, y - c.y)} of you"
 

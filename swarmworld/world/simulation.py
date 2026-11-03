@@ -562,7 +562,8 @@ class Simulation:
                     d["home"] = home = [o.x, o.y]
                 if night:
                     d["state"] = "rest"
-                    mates = [m for m in animals if m is not o and m.kind == o.kind and max(abs(m.x - o.x), abs(m.y - o.y)) <= 5]
+                    mates = [m for m in animals if m is not o and m.kind == o.kind and max(abs(m.x - o.x), abs(m.y - o.y)) <= 5
+                             and w.same_region((m.x, m.y), (o.x, o.y))]
                     if mates and w.rng.random() < 0.3:
                         m = min(mates, key=lambda m: max(abs(m.x - o.x), abs(m.y - o.y)))
                         if max(abs(m.x - o.x), abs(m.y - o.y)) > 1:
@@ -634,7 +635,7 @@ class Simulation:
             return
         mate = next((m for m in animals if m is not o and m.kind == o.kind and m.data.get("tamed_by")
                      and m.data.get("hunger", 20) < WELL_FED and m.data.get("bred_day") != day
-                     and max(abs(m.x - o.x), abs(m.y - o.y)) <= 2), None)
+                     and max(abs(m.x - o.x), abs(m.y - o.y)) <= 2 and w.same_region((m.x, m.y), (o.x, o.y))), None)
         if not mate or w.rng.random() > ANIMAL_BREED_CHANCE:
             return
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):

@@ -160,7 +160,7 @@ def _burning_line(world: World, c) -> str | None:
     r = sight_range(world, c)
     best = None
     for o in (world.objects.get(i) for i in ids):
-        if o and o.data.get("burning"):
+        if o and o.data.get("burning") and world.same_region((c.x, c.y), (o.x, o.y)):
             d = dist(c.x, c.y, o.x, o.y)
             if d <= max(r, 8) and (best is None or d < best[0]):
                 best = (d, o)

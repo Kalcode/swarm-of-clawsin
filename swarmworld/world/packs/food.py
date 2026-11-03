@@ -133,7 +133,7 @@ def _water_in_reach(world: World, c: Creature) -> str | None:
 def _water_in_sight(world: World, c: Creature) -> tuple[int, int, int] | None:
     r = sight_range(world, c)
     best = None
-    for y in range(c.y - r, c.y + r + 1):
+    for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
             if world.in_bounds(x, y) and world.tile(x, y) in "wW":
                 d = dist(c.x, c.y, x, y)
@@ -394,7 +394,8 @@ def _dry(sim: Simulation, t: int) -> None:
             text = "; ".join(f"{w.catalog.name(i)} has dried into {n} {w.catalog.name(p)}" for i, n, p in done)
             w.emit("dry", None, rack.x, rack.y, f"On the drying rack, the {text}.")
             for h in w.creatures.values():
-                if not h.collapsed and dist(h.x, h.y, rack.x, rack.y) <= sight_range(w, h):
+                if (not h.collapsed and dist(h.x, h.y, rack.x, rack.y) <= sight_range(w, h)
+                        and w.same_region((h.x, h.y), (rack.x, rack.y))):
                     where = direction(rack.x - h.x, rack.y - h.y)
                     sim.remember(h, f"On the drying rack {where} of you, the {text}.", 1)
 
@@ -422,7 +423,7 @@ def _went_bad(sim: Simulation, x: int, y: int, item: str, n: int, where: str) ->
     w.emit("spoil", None, x, y, f"The {what} {where} spoiled.")
     for h in w.creatures.values():
         d = dist(h.x, h.y, x, y)
-        if not h.collapsed and d <= sight_range(w, h):
+        if not h.collapsed and d <= sight_range(w, h) and w.same_region((h.x, h.y), (x, y)):
             spot = "right here" if d == 0 else f"{direction(x - h.x, y - h.y)} of you"
             sim.remember(h, f"The {what} {where} {spot} went bad.", 1)
 

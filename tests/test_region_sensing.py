@@ -8,6 +8,7 @@ import pytest
 from swarmworld.scripting.terminal import run_terminal
 from swarmworld.world import actions, registry
 from swarmworld.world.actions import Intention, apply_intention, find_landmark, landmark_elsewhere
+from swarmworld.world.events import hearers
 from swarmworld.world.model import START_TICK, Creature
 from swarmworld.world.perception import (_far_features, note_spots, perceive, visible_creatures, visible_objects,
                                          visible_piles)
@@ -51,6 +52,8 @@ def test_no_sight_across_regions(pair):
 def test_no_sound_or_speech_across_regions(pair):
     w, top, low = pair
     sim = Simulation(w)
+    assert [h.id for h in hearers(w, top.x, top.y, 8)] == [top.id]  # 4 steps off, but not the same region
+    assert [h.id for h in hearers(w, low.x, low.y, 8)] == [low.id]
     apply_intention(w, top, Intention("say", text="hello down there"))
     w.sound(12, 22, "a loud crash", radius=8, kind="crash", loud=True, source=top.id)
     w.emit("craft", top.id, top.x, top.y, "Top made a stick", item="stick")
@@ -189,3 +192,57 @@ def test_collapsed_in_the_deep_wakes_in_the_meadow(pair):
     w.tick = low.collapsed_until
     sim.tick()
     assert not low.collapsed and w.region_at(low.x, low.y).name == "surface"
+
+
+def test_water_in_sight_is_in_the_same_region(pair):
+    from swarmworld.world.packs.food import _water_in_sight
+    w, top, low = pair
+    w.tiles[26][13] = "w"  # deep water beside Low, 4 rows below Top
+    assert _water_in_sight(w, top) is None and _water_in_sight(w, low)[:2] == (13, 26)
+    w.tiles[20][12] = "W"
+    assert _water_in_sight(w, low)[:2] == (13, 26) and _water_in_sight(w, top)[:2] == (12, 20)
+
+
+def test_news_of_a_rack_or_spoiled_food_stays_in_its_region(pair):
+    from swarmworld.world.packs.food import DRY_TICKS, _dry, _went_bad
+    w, top, low = pair
+    told = []
+    sim = Simulation(w, memory_sink=lambda c, text, imp: told.append((c.name, text)))
+    rack = w.add_object("drying_rack", 12, 21, items={"meat": 1}, drying={"meat": DRY_TICKS})
+    _dry(sim, w.tick)
+    assert [n for n, t in told if "drying rack" in t] == ["Top"]
+    told.clear()
+    _went_bad(sim, 12, 21, "meat", 1, "on the rack")
+    assert [n for n, t in told] == ["Top"]
+
+
+def test_a_fire_in_another_region_is_not_sensed(pair):
+    from swarmworld.world.packs.weather import _burning_line
+    w, top, low = pair
+    tree = w.add_object("tree", 12, 24, burning=w.tick + 100)
+    w.ext["weather"] = {"burning": [tree.id]}
+    assert _burning_line(w, top) is None and "on fire" in _burning_line(w, low)
+
+
+def test_animals_do_not_pair_across_regions(pair, monkeypatch):
+    from swarmworld.world import simulation
+    w, top, low = pair
+    monkeypatch.setattr(simulation, "ANIMAL_BREED_CHANCE", 2.0)
+    a = w.add_object("sheep", 12, 23, tamed_by="Top", hunger=10)
+    b = w.add_object("sheep", 12, 24, tamed_by="Top", hunger=10)
+    sim = Simulation(w)
+    sim._breed(a, [a, b], {"sheep": 2}, 1)
+    assert sum(o.kind == "sheep" for o in w.objects.values()) == 2
+    c = w.add_object("sheep", 13, 22, tamed_by="Top", hunger=10)
+    sim._breed(a, [a, b, c], {"sheep": 3}, 1)
+    assert sum(o.kind == "sheep" for o in w.objects.values()) == 4
+
+
+def test_places_name_the_level_they_lie_on(pair):
+    from swarmworld.server.state import ServerState
+    w, top, low = pair
+    st = ServerState.__new__(ServerState)
+    st.world = w
+    assert st._where_is(top, 12, 26) == "below, in the deep" and st._where_is(low, 12, 22) == "above, on the surface"
+    assert st._where_is(top, 12, 22) == "right here" and st._where_is(top, 12, 18) == "about 4 steps north of you"
+    assert st._where_is(top, 12, 24 + 100) == "in another place"
