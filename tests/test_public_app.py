@@ -1,5 +1,6 @@
 """The public app: /public/app/ serves an allowlisted copy of web/ in public mode (versioned scripts and styles, the page
-for 60 s), and never the licensed LimeZu art or the sound samples, whatever is on this disk."""
+for 60 s), with the user's LimeZu sheets and sound samples (manifest.json, *.png / *.ogg and nothing else in those folders),
+and never the original packs (inbox/, docs/media/), whatever is on this disk."""
 
 import gzip
 import os
@@ -14,6 +15,11 @@ from .test_public_http import PROXIED, raw_get, raw_head
 
 LIMEZU_BYTES = b"LIMEZU-LICENSED-ART"
 SFX_BYTES = b"SFX-LICENSED-SAMPLE"
+PACK_BYTES = b"ORIGINAL-PACK"
+PUBLIC_ASSETS = ["assets/limezu/manifest.json", "assets/limezu/sheets/s.png", "assets/limezu/world2.png",
+                 "assets/sfx/chop/a.ogg", "assets/sfx/manifest.json"]
+BASE = ["assets/fonts/f.woff2", "assets/kenney-1bit/sheet.png", "index.html", "style.css", "viewer.js"]
+ALL = sorted(BASE + PUBLIC_ASSETS)
 
 
 class Clock:
@@ -60,32 +66,60 @@ def web(tmp_path):
         "assets/limezu/manifest.json": LIMEZU_BYTES + b" manifest",
         "assets/limezu/world2.png": LIMEZU_BYTES + b" world2",
         "assets/sfx/manifest.json": SFX_BYTES + b" manifest",
+        "assets/limezu/sheets/s.png": LIMEZU_BYTES + b" sheet",
+        "assets/limezu/CATALOG.md": LIMEZU_BYTES + b" catalog",
+        "assets/limezu/build_limezu.py": LIMEZU_BYTES + b" build",
         "assets/sfx/chop/a.ogg": SFX_BYTES + b" chop",
+        "assets/sfx/readme.txt": SFX_BYTES + b" readme",
     }
     for rel, body in files.items():
         p = d / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(body if isinstance(body, bytes) else body.encode())
     (tmp_path / "secret.txt").write_text("outside web/")
+    for rel in ("inbox/pack.zip", "docs/media/shot.png"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(PACK_BYTES)
     return d
 
 
 def test_only_the_allowlist_is_served(web):
     app = PublicApp(web)
-    assert app.paths() == ["assets/fonts/f.woff2", "assets/kenney-1bit/sheet.png", "index.html", "style.css", "viewer.js"]
+    assert app.paths() == ALL
 
 
-def test_traversal_and_licensed_paths_are_404(web):
+def test_art_and_sounds_are_served_with_their_types_and_nothing_else_in_their_folders(web):
     app = PublicApp(web)
-    for rel in ("assets/limezu/manifest.json", "assets/limezu/world2.png", "assets/sfx/manifest.json", "assets/sfx/chop/a.ogg",
-                "demo.js", "notes.md", "../pyproject.toml", "assets/../demo.js", "%2e%2e/x", "/etc/passwd", "assets/kenney-1bit/../../demo.js"):
+    assert app.get("assets/limezu/manifest.json") == (LIMEZU_BYTES + b" manifest", "application/json")
+    assert app.get("assets/limezu/world2.png") == (LIMEZU_BYTES + b" world2", "image/png")
+    assert app.get("assets/limezu/sheets/s.png")[1] == "image/png"
+    assert app.get("assets/sfx/manifest.json") == (SFX_BYTES + b" manifest", "application/json")
+    assert app.get("assets/sfx/chop/a.ogg") == (SFX_BYTES + b" chop", "audio/ogg")
+    assert app.serve_full("assets/sfx/chop/a.ogg")[1] is None and app.serve_full("assets/limezu/world2.png")[1] is None  # no gzip
+    for rel in ("assets/limezu/CATALOG.md", "assets/limezu/build_limezu.py", "assets/sfx/readme.txt",
+                "inbox/pack.zip", "docs/media/shot.png", "../inbox/pack.zip", "../docs/media/shot.png"):
+        assert app.get(rel) is None, rel
+
+
+def test_stray_files_of_the_wrong_kind_in_the_art_folders_are_not_served(web):
+    for rel in ("assets/limezu/a.js", "assets/limezu/a.ogg", "assets/limezu/b.PNG", "assets/limezu/other.json",
+                "assets/limezu/sheets/manifest.json.bak", "assets/sfx/a.png", "assets/sfx/x.OGG", "assets/sfx/z/other.json",
+                "assets/limezu/.hidden.png"):
+        (web / rel).parent.mkdir(parents=True, exist_ok=True)
+        (web / rel).write_bytes(b"stray")
+    assert PublicApp(web).paths() == ALL
+
+
+def test_traversal_and_other_paths_are_404(web):
+    app = PublicApp(web)
+    for rel in ("demo.js", "notes.md", "../pyproject.toml", "assets/../demo.js", "%2e%2e/x", "/etc/passwd", "assets/kenney-1bit/../../demo.js"):
         assert app.get(rel) is None, rel
 
 
 def test_odd_names_are_404_too(web):
     app = PublicApp(web)
     for rel in ("../secret.txt", "assets/kenney-1bit/../../../secret.txt", str(web / "index.html"), "./index.html",
-                "assets//kenney-1bit/sheet.png", "assets/LIMEZU/manifest.json", "Assets/limezu/world2.png",
+                "assets//kenney-1bit/sheet.png", "assets/LIMEZU/manifest.json", "Assets/limezu/world2.png", "assets/SFX/manifest.json",
                 "assets\\limezu\\manifest.json", "assets/limezu/manifest.json\x00", "index.html\x00.png", "", ".",
                 "assets", "assets/", "assets/kenney-1bit", "assets/kenney-1bit/", "VIEWER.JS"):
         assert app.get(rel) is None, rel
@@ -132,8 +166,10 @@ def test_only_relative_scripts_and_styles_are_versioned(web):
 
 def test_the_version_follows_served_content_only(web):
     clock = Clock(); app = PublicApp(web, clock=clock); v1 = app.version
-    (web / "demo.js").write_text("// changed"); (web / "assets/limezu/manifest.json").write_text("{}")
+    (web / "demo.js").write_text("// changed"); (web / "assets/limezu/CATALOG.md").write_text("changed")
     clock.t += 11; assert app.version == v1
+    (web / "assets/limezu/manifest.json").write_text("{}"); clock.t += 11; assert app.version != v1  # served art counts
+    v1 = app.version
     (web / "viewer.js").write_text("// changed"); clock.t += 11
     assert app.version != v1 and app.get("viewer.js")[0] == b"// changed"
 
@@ -154,8 +190,7 @@ def test_the_disk_is_checked_at_most_every_check_every(web):
     (web / "viewer.js").write_text("// EDITED")  # the same size: the version follows the bytes, not just the sizes
     clock.t += 10
     assert app.version != v2 and app.get("viewer.js")[0] == b"// EDITED"
-    assert app.paths() == ["assets/fonts/f.woff2", "assets/fonts/g.woff2", "assets/kenney-1bit/sheet.png", "index.html",
-                           "viewer.js"]
+    assert app.paths() == sorted(set(ALL) - {"style.css"} | {"assets/fonts/g.woff2"})
     html = app.get("index.html")[0].decode()
     assert f'src="viewer.js?v={app.version}"' in html  # the page names the new version
 
@@ -187,16 +222,20 @@ def test_a_same_size_same_time_replacement_or_a_chmod_is_seen(web):
     assert app.get("viewer.js")[0] == b"// THE viewer, AS it is today\n"
 
 
-def test_licensed_files_added_later_never_appear_and_a_file_swapped_for_a_link_goes(web):
+def test_art_added_later_appears_stray_files_do_not_and_a_file_swapped_for_a_link_goes(web):
     clock = Clock()
     app = PublicApp(web, clock=clock)
     v1, before = app.version, app.paths()
-    (web / "assets/limezu/late.png").write_bytes(LIMEZU_BYTES + b" late")
     (web / "assets/limezu/late.js").write_bytes(LIMEZU_BYTES + b" late")
-    (web / "assets/sfx/late.ogg").write_bytes(SFX_BYTES + b" late")
+    (web / "assets/sfx/late.txt").write_bytes(SFX_BYTES + b" late")
     clock.t += 10
     assert app.paths() == before and app.version == v1
-    assert app.get("assets/limezu/late.png") is None and app.get("assets/sfx/late.ogg") is None
+    (web / "assets/limezu/late.png").write_bytes(LIMEZU_BYTES + b" late")
+    (web / "assets/sfx/late.ogg").write_bytes(SFX_BYTES + b" late")
+    clock.t += 10
+    assert app.get("assets/limezu/late.png") is not None and app.get("assets/sfx/late.ogg") is not None
+    assert app.version != v1
+    v1 = app.version
     sheet = web / "assets/kenney-1bit/sheet.png"
     sheet.unlink()
     os.symlink("../limezu/world2.png", sheet)
@@ -206,13 +245,27 @@ def test_licensed_files_added_later_never_appear_and_a_file_swapped_for_a_link_g
     assert app.version != v1
 
 
-def test_a_hard_link_to_a_licensed_file_is_never_served(web):
-    os.link(web / "assets/limezu/world2.png", web / "assets/kenney-1bit/copy.png")
-    os.link(web / "assets/sfx/chop/a.ogg", web / "assets/fonts/a.woff2")
-    os.link(web / "assets/limezu/manifest.json", web / "leak.js")
+def test_a_hard_link_to_a_private_file_is_never_served(web, tmp_path):
+    """Whatever is linked to something that stays private: the catalog, the build script, a pack file, a screenshot."""
+    os.link(web / "assets/limezu/CATALOG.md", web / "assets/kenney-1bit/copy.png")
+    os.link(web / "assets/limezu/build_limezu.py", web / "leak.js")
+    os.link(web / "assets/sfx/readme.txt", web / "assets/fonts/a.woff2")
+    os.link(tmp_path / "inbox/pack.zip", web / "assets/limezu/pack.png")
+    os.link(tmp_path / "inbox/pack.zip", web / "assets/sfx/pack.ogg")
+    os.link(tmp_path / "docs/media/shot.png", web / "assets/limezu/shot.png")
+    os.link(tmp_path / "docs/media/shot.png", web / "assets/kenney-1bit/shot.png")
     app = PublicApp(web)
-    assert app.paths() == ["assets/fonts/f.woff2", "assets/kenney-1bit/sheet.png", "index.html", "style.css", "viewer.js"]
-    assert all(app.get(rel) is None for rel in ("assets/kenney-1bit/copy.png", "assets/fonts/a.woff2", "leak.js"))
+    assert app.paths() == ALL
+    for rel in ("assets/kenney-1bit/copy.png", "leak.js", "assets/fonts/a.woff2", "assets/limezu/pack.png",
+                "assets/sfx/pack.ogg", "assets/limezu/shot.png", "assets/kenney-1bit/shot.png"):
+        assert app.get(rel) is None, rel
+
+
+def test_a_sheet_and_a_sound_sharing_a_file_are_neither_served_from_the_wrong_folder(web):
+    os.link(web / "assets/sfx/chop/a.ogg", web / "assets/limezu/sound.png")
+    os.link(web / "assets/limezu/world2.png", web / "assets/sfx/sheet.ogg")
+    app = PublicApp(web)
+    assert app.get("assets/limezu/sound.png") is None and app.get("assets/sfx/sheet.ogg") is None
 
 
 def test_links_never_reach_licensed_or_outside_files(web, tmp_path):
@@ -222,6 +275,9 @@ def test_links_never_reach_licensed_or_outside_files(web, tmp_path):
         "assets/kenney-1bit/art.png": "../limezu/world2.png",
         "assets/kenney-1bit/ART2.png": "../LIMEZU/world2.png",
         "assets/fonts/sfx": "../sfx",
+        "assets/limezu/link.png": "../kenney-1bit/sheet.png",
+        "assets/sfx/link.ogg": "../../../secret.txt",
+        "assets/limezu/linked": "../sfx",
         "assets/fonts/out.txt": str(tmp_path / "secret.txt"),
         "leak.js": "assets/limezu/manifest.json",
         "outside.css": str(tmp_path / "secret.txt"),
@@ -230,7 +286,7 @@ def test_links_never_reach_licensed_or_outside_files(web, tmp_path):
         os.symlink(target, web / rel)
     (web / "assets/kenney-1bit/.DS_Store").write_bytes(b"finder")
     app = PublicApp(web)
-    assert app.paths() == ["assets/fonts/f.woff2", "assets/kenney-1bit/sheet.png", "index.html", "style.css", "viewer.js"]
+    assert app.paths() == ALL
     for rel in (*links, "assets/fonts/sfx/manifest.json", "assets/fonts/sfx/chop/a.ogg", "assets/kenney-1bit/.DS_Store"):
         assert app.get(rel) is None, rel
 
@@ -240,13 +296,22 @@ def test_a_linked_folder_is_never_followed(tmp_path, web):
     (web / "assets/kenney-1bit").rmdir()
     os.symlink("limezu", web / "assets/kenney-1bit")
     app = PublicApp(web)
-    assert not any("kenney" in p or "limezu" in p for p in app.paths())
+    assert not any("kenney" in p for p in app.paths())
     assert app.get("assets/kenney-1bit/world2.png") is None and app.get("assets/kenney-1bit/manifest.json") is None
+
+
+def test_a_linked_art_folder_is_never_followed(web, tmp_path):
+    shutil.rmtree(web / "assets/sfx")
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere/manifest.json").write_text("{}")
+    os.symlink(tmp_path / "elsewhere", web / "assets/sfx")
+    assert not any(p.startswith("assets/sfx") for p in PublicApp(web).paths())
 
 
 def test_the_real_web_folder_serves_exactly_these_files():
     """Pinned: every file added to the public build is a deliberate change here (Task 5 added public.js)."""
-    assert PublicApp(WEB_DIR).paths() == [
+    paths = [p for p in PublicApp(WEB_DIR).paths() if not p.startswith(ART)]  # the art and sounds are on this disk or not
+    assert paths == [
         "almanac.css", "almanac.html", "almanac.js", "ascii.js",
         "assets/fonts/Jersey10-Regular.woff2", "assets/fonts/OFL-Jersey10.txt",
         "assets/kenney-1bit/License.txt", "assets/kenney-1bit/colored_transparent_packed.png",
@@ -255,13 +320,23 @@ def test_the_real_web_folder_serves_exactly_these_files():
     ]
 
 
-def test_the_real_web_folder_serves_no_licensed_file():
+ART = ("assets/limezu/", "assets/sfx/")
+
+
+def test_the_real_web_folder_serves_exactly_the_manifests_pngs_and_oggs_of_the_art_folders():
+    """Whatever of the art and sounds this checkout holds (the main one holds all): each manifest.json, *.png and *.ogg,
+    and nothing else from those folders; never the catalog, the build script or the packs."""
     app = PublicApp(WEB_DIR)
     paths = app.paths()
+    on_disk = {p.relative_to(WEB_DIR).as_posix() for folder in ("limezu", "sfx") for p in (WEB_DIR / "assets" / folder).rglob("*")
+               if p.is_file() and not p.is_symlink() and not p.name.startswith(".")}
+    want = {r for r in on_disk if r in ("assets/limezu/manifest.json", "assets/sfx/manifest.json")
+            or r.startswith("assets/limezu/") and r.endswith(".png") or r.startswith("assets/sfx/") and r.endswith(".ogg")}
+    assert {p for p in paths if p.startswith(ART)} == want
+    assert not any(p.startswith(("assets/audio", "inbox", "docs")) for p in paths)
     assert {"index.html", "almanac.html", "viewer.js", "style.css", "assets/kenney-1bit/colored_transparent_packed.png",
             "assets/fonts/Jersey10-Regular.woff2"} <= set(paths)
     assert "demo.js" not in paths
-    assert not any(p.startswith(("assets/limezu", "assets/sfx", "assets/audio")) for p in paths)
 
 
 async def test_routes_and_cache_headers(aiohttp_client):
@@ -274,11 +349,15 @@ async def test_routes_and_cache_headers(aiohttp_client):
     js = await c.get(f"/public/app/viewer.js?v={v}")
     assert js.headers["Cache-Control"] == "public, max-age=31536000, immutable" and js.headers["Content-Type"].startswith("text/javascript")
     assert (await c.get("/public/app/viewer.js", allow_redirects=False)).headers["Cache-Control"] == "public, max-age=60"
-    lz = await c.get("/public/app/assets/limezu/manifest.json")        # present on this disk or not, never served
-    assert lz.status == 404 and lz.headers["Cache-Control"] == "public, max-age=300"
-    assert (await c.get("/public/app/assets/sfx/manifest.json")).status == 404
+    lz = await c.get("/public/app/assets/limezu/manifest.json")        # present on this disk or not
+    if "assets/limezu/manifest.json" in c.app[PUBLIC_APP].paths():
+        assert lz.status == 200 and lz.headers["Content-Type"] == "application/json"
+        assert lz.headers["Cache-Control"] == "public, max-age=60"  # no ?v=: not pinned
+        lzv = await c.get(f"/public/app/assets/limezu/manifest.json?v={v}")
+        assert lzv.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+    else:
+        assert lz.status == 404 and lz.headers["Cache-Control"] == "public, max-age=300"
     assert (await c.get("/public/app/assets/kenney-1bit/colored_transparent_packed.png")).status == 200
-    assert not any(p.startswith(("assets/limezu", "assets/sfx")) for p in c.app[PUBLIC_APP].paths())
 
 
 async def test_the_page_scripts_images_and_fonts_cache_as_ruled(aiohttp_client):
@@ -336,31 +415,36 @@ async def test_a_body_is_never_marked_immutable_under_another_version(aiohttp_cl
         assert body == b"// the viewer, as it is today\n" and r.headers["Cache-Control"] == "public, max-age=60"
     found = app[PUBLIC_APP].serve("viewer.js")
     assert found == (b"// the viewer, edited\n", "text/javascript", v2)
-    assert app[PUBLIC_APP].serve("demo.js") is None and app[PUBLIC_APP].serve("assets/limezu/world2.png") is None
+    assert app[PUBLIC_APP].serve("demo.js") is None and app[PUBLIC_APP].serve("assets/limezu/CATALOG.md") is None
 
 
-async def test_licensed_files_are_404_under_public_app_locally_and_proxied(aiohttp_client, web):
-    """Direct, encoded and dot-segment requests for the licensed files (present on this disk, in the fixture), from this
-    machine and through every kind of proxy: always a 404, never their bytes."""
+async def test_art_and_sounds_are_served_and_the_rest_is_404_locally_and_proxied(aiohttp_client, web):
+    """The served art and sounds answer 200 with their own bytes, and the catalog, the build script, stray files, the
+    packs and every odd spelling of a path (encoded or dot segments) a 404, from this machine and through every kind
+    of proxy."""
     app = create_app(seed=7, tick_seconds=0.02, public_every=3600)
     app[PUBLIC_APP] = PublicApp(web)
     c = await aiohttp_client(app)
     v = app[PUBLIC_APP].version
+    served = {
+        "assets/limezu/manifest.json": (b"application/json", LIMEZU_BYTES + b" manifest"),
+        "assets/limezu/world2.png": (b"image/png", LIMEZU_BYTES + b" world2"),
+        "assets/limezu/sheets/s.png": (b"image/png", LIMEZU_BYTES + b" sheet"),
+        "assets/sfx/manifest.json": (b"application/json", SFX_BYTES + b" manifest"),
+        "assets/sfx/chop/a.ogg": (b"audio/ogg", SFX_BYTES + b" chop"),
+    }
     targets = (
-        "/public/app/assets/limezu/manifest.json", "/public/app/assets/limezu/world2.png",
-        "/public/app/assets/sfx/manifest.json", "/public/app/assets/sfx/chop/a.ogg",
-        f"/public/app/assets/limezu/manifest.json?v={v}",
-        "/public/app/assets%2Flimezu%2Fmanifest.json", "/public/app/assets/limezu%2Fworld2.png",
-        "/public/app/assets%2fsfx%2fchop%2fa.ogg", "/public/app/assets/%6Cimezu/manifest.json",
-        "/public/app/%61ssets/sfx/manifest.json", "/public/app/assets/LIMEZU/manifest.json",
+        "/public/app/assets/limezu/CATALOG.md", "/public/app/assets/limezu/build_limezu.py", "/public/app/assets/sfx/readme.txt",
+        "/public/app/inbox/pack.zip", "/public/app/docs/media/shot.png", "/public/app/../../inbox/pack.zip",
+        "/public/app/%2e%2e/%2e%2e/inbox/pack.zip", "/public/app/assets/%2e%2e/%2e%2e/docs/media/shot.png",
+        "/public/app/assets/LIMEZU/manifest.json",
         "/public/app/assets/Sfx/manifest.json", "/public/app/assets%5Climezu%5Cmanifest.json",
         "/public/app/assets/limezu/manifest.json%00", "/public/app/assets/limezu/world2.png%00.png",
-        "/public/app/assets/kenney-1bit/../limezu/manifest.json", "/public/app/assets/kenney-1bit/%2e%2e/limezu/world2.png",
+        "/public/app/assets/kenney-1bit/../limezu/CATALOG.md", "/public/app/assets/kenney-1bit/%2e%2e/limezu/CATALOG.md",
         "/public/app/assets/kenney-1bit/..%2Flimezu%2Fworld2.png", "/public/app/assets/fonts/%2E%2E%2Fsfx%2Fchop%2Fa.ogg",
         "/public/app/assets/kenney-1bit/..%2F..%2Fassets%2Fsfx%2Fmanifest.json",
-        "/public/app/./assets/limezu/manifest.json", "/public/app/assets/./limezu/manifest.json",
-        "/public/app//assets/limezu/manifest.json", "/public/app/assets//sfx/manifest.json",
-        "/public/app/../app/assets/limezu/manifest.json", "/public/app/%2e%2e/web/assets/limezu/manifest.json",
+        "/public/app/assets//limezu/manifest.json", "/public/app/assets//sfx/manifest.json",
+        "/public/app/%2e%2e/web/assets/limezu/manifest.json",
         "/public/app/%2e%2e%2f%2e%2e%2fweb%2fassets%2fsfx%2fmanifest.json",
         "/public%2Fapp%2Fassets%2Flimezu%2Fmanifest.json", "/public/app%2Fassets%2Fsfx%2Fmanifest.json",
     )
@@ -368,20 +452,38 @@ async def test_licensed_files_are_404_under_public_app_locally_and_proxied(aioht
         for target in targets:
             status, body = await raw_get(c, target, headers)
             assert status == 404, (target, headers)
-            assert LIMEZU_BYTES not in body and SFX_BYTES not in body, (target, headers)
+            assert PACK_BYTES not in body and b"catalog" not in body and b"build" not in body, (target, headers)
+        for rel, (kind, body) in served.items():
+            status, got = await raw_get(c, f"/public/app/{rel}", headers)
+            assert status == 200 and got == body, (rel, headers)
+            status, got = await raw_get(c, f"/public/app/{rel}?v={v}", headers)
+            assert status == 200 and got == body, (rel, headers)
+    r = await c.get("/public/app/assets/sfx/chop/a.ogg", headers={"Accept-Encoding": "gzip"})
+    assert r.headers["Content-Type"] == "audio/ogg" and "Content-Encoding" not in r.headers
+    assert r.headers["Cache-Control"] == "public, max-age=86400"
+    r = await c.get(f"/public/app/assets/sfx/chop/a.ogg?v={v}")
+    assert r.headers["Cache-Control"] == "public, max-age=31536000, immutable"
     status, body = await raw_get(c, "/public/app/assets/kenney-1bit/sheet.png", b"CF-Connecting-IP: 203.0.113.9\r\n")
     assert status == 200 and body == b"\x89PNG kenney"
 
 
-async def test_licensed_files_on_this_disk_are_never_served(aiohttp_client):
-    """Whatever of the LimeZu art and the samples this checkout holds (the main one holds both): a 404 for each."""
+async def test_every_art_and_sound_file_on_this_disk_is_served_and_nothing_else_there(aiohttp_client):
+    """Whatever of the LimeZu art and the samples this checkout holds (the main one holds both): the manifests, pngs and
+    oggs get 200 with the right type; the catalog, the build script and the packs get 404."""
     c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=3600))
-    present = [p.relative_to(WEB_DIR).as_posix() for folder in ("limezu", "sfx")
-               for p in sorted((WEB_DIR / "assets" / folder).rglob("*")) if p.is_file()]
-    for rel in present:
-        for headers in ({}, {"CF-Connecting-IP": "203.0.113.9"}):
-            r = await c.get(f"/public/app/{rel}", headers=headers)
-            assert r.status == 404, (rel, headers)
+    kinds = {".png": "image/png", ".ogg": "audio/ogg", ".json": "application/json"}
+    for folder in ("limezu", "sfx"):
+        for p in sorted((WEB_DIR / "assets" / folder).rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(WEB_DIR).as_posix()
+            r = await c.get(f"/public/app/{rel}")
+            if p.name == "manifest.json" and p.parent.name == folder or p.suffix == (".png" if folder == "limezu" else ".ogg"):
+                assert r.status == 200 and r.headers["Content-Type"] == kinds[p.suffix], rel
+            else:
+                assert r.status == 404, rel
+    for rel in ("assets/limezu/CATALOG.md", "assets/limezu/build_limezu.py", "inbox/x.zip", "docs/media/x.png"):
+        assert (await c.get(f"/public/app/{rel}")).status == 404, rel
 
 
 async def test_other_versions_and_unknown_queries_are_redirected(aiohttp_client):

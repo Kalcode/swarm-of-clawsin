@@ -1,12 +1,14 @@
 """The public build of web/: the files a watcher's browser may load from /public/app/, the pages rewritten to public
 mode, and a content version for the scripts' and styles' URLs.
 
-Served: the top-level pages, styles and scripts (not demo.js), and the Kenney sheet and the fonts under assets/. Never
-the licensed LimeZu art (assets/limezu/) or the sound samples (assets/sfx/), whatever is on this disk. The set is found
-by walking those folders, and a request only ever names a key of it: a request path never becomes a file path. Links
-are never followed: one could bring in a file from elsewhere, and on a disk that ignores case a link to
-assets/LIMEZU/... lands in the licensed folder under a name that doesn't look like it. A hard link to a licensed file
-(the same device and inode) is left out too."""
+Served: the top-level pages, styles and scripts (not demo.js), the Kenney sheet and the fonts under assets/, and the
+user's own licensed art and sounds, credited in the viewer: under assets/limezu/ exactly manifest.json and the *.png
+sheets, under assets/sfx/ exactly manifest.json and the *.ogg clips. Nothing else in those folders (the catalog, the
+build script, any other extension), and never the original packs (inbox/, docs/media/), whatever is on this disk. The
+set is found by walking those folders, and a request only ever names a key of it: a request path never becomes a file
+path. Links are never followed: one could bring in a file from elsewhere, and on a disk that ignores case a link to
+assets/LIMEZU/... lands in the art folder under a name that doesn't look like it. A hard link to a file that is not
+served (the same device and inode), or one reachable from both art folders, is left out too."""
 
 from __future__ import annotations
 
@@ -24,13 +26,15 @@ APP_SHORT = "public, max-age=60"
 APP_MISSING = "public, max-age=300"
 APP_ASSET = "public, max-age=86400"  # images and fonts: a day (ruling P4)
 
-COMPRESSIBLE = ("text/",)  # png and woff2 are compressed already
+COMPRESSIBLE = ("text/", "application/json")  # png, ogg and woff2 are compressed already
 TOP_LEVEL = (".html", ".css", ".js")
 NOT_SERVED = ("demo.js",)
 ASSET_FOLDERS = ("assets/kenney-1bit", "assets/fonts")
-LICENSED = ("assets/limezu", "assets/sfx")
+ART_FOLDERS = {"assets/limezu": ".png", "assets/sfx": ".ogg"}  # folder -> the one extension served besides manifest.json
+KEPT_BACK = ("inbox", "docs/media")  # the original packs, beside web/: never served, nor any link to a file in them
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript",
-                 ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain"}
+                 ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain", ".json": "application/json",
+                 ".ogg": "audio/ogg"}
 
 _HTML_TAG = re.compile(r"<html(?=[\s>])")
 # relative references only: no scheme (http:, data:, ...), not absolute or protocol-relative, no query or fragment yet
@@ -46,7 +50,6 @@ def _content_type(rel: str) -> str:
 class PublicApp:
     def __init__(self, web_dir: Path, link: str | None = None, check_every: float = 10.0, clock=time.monotonic):
         self._root = Path(web_dir).resolve()
-        self._licensed = tuple(self._root / part for part in LICENSED)
         self._link = link if link and _LINK.match(link) else None
         self._every = check_every
         self._clock = clock
@@ -56,30 +59,47 @@ class PublicApp:
 
     # ------------------------------------------------------------------ what is served
     def _servable(self, path: Path) -> bool:
-        """A real file (not a link, not hidden) inside web/ and outside the licensed folders."""
+        """A real file (not a link, not hidden) inside web/."""
         if path.name.startswith(".") or path.is_symlink() or not path.is_file():
             return False
-        resolved = path.resolve()
-        return resolved.is_relative_to(self._root) and not any(resolved.is_relative_to(d) for d in self._licensed)
+        return path.resolve().is_relative_to(self._root)
 
-    def _licensed_files(self) -> set[tuple[int, int]]:
-        """(device, inode) of every file in the licensed folders: a hard link to one, wherever it is, is that file."""
+    @staticmethod
+    def _art_name(rel: str) -> bool:
+        """Whether rel (under an art folder) is one of the files that folder serves: its manifest or its media."""
+        folder = next((f for f in ART_FOLDERS if rel.startswith(f + "/")), None)
+        return folder is not None and (rel == folder + "/manifest.json" or rel.endswith(ART_FOLDERS[folder]))
+
+    @staticmethod
+    def _ids(folder: Path, keep=lambda rel: True) -> set[tuple[int, int]]:
         ids = set()
-        for folder in self._licensed:
-            for dirpath, _, filenames in os.walk(folder):
-                for name in filenames:
-                    try:
-                        st = os.stat(os.path.join(dirpath, name))
-                    except OSError:
-                        continue
+        for dirpath, _, filenames in os.walk(folder):
+            for name in filenames:
+                full = os.path.join(dirpath, name)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                if keep(full):
                     ids.add((st.st_dev, st.st_ino))
+        return ids
+
+    def _kept_back(self) -> set[tuple[int, int]]:
+        """(device, inode) of every file that stays private: the packs, and whatever in the art folders is not served.
+        A hard link to one, wherever it is, is that file."""
+        ids = set()
+        for part in KEPT_BACK:
+            ids |= self._ids(self._root.parent / part)
+        for folder in ART_FOLDERS:
+            base = self._root / folder
+            ids |= self._ids(base, lambda full: not self._art_name(Path(full).relative_to(self._root).as_posix()))
         return ids
 
     def _scan(self) -> dict[str, tuple[Path, os.stat_result]]:
         if not self._root.is_dir():
             return {}
         found = {p.name: p for p in self._root.iterdir() if p.name.endswith(TOP_LEVEL) and p.name not in NOT_SERVED}
-        for folder in ASSET_FOLDERS:
+        for folder in (*ASSET_FOLDERS, *ART_FOLDERS):
             base = self._root / folder
             if base.is_symlink() or base.parent.is_symlink():  # a linked folder is never followed
                 continue
@@ -87,20 +107,28 @@ class PublicApp:
                 dirnames[:] = [d for d in dirnames if not d.startswith(".")]
                 for name in filenames:
                     path = Path(dirpath) / name
-                    found[path.relative_to(self._root).as_posix()] = path
-        licensed = self._licensed_files()
+                    rel = path.relative_to(self._root).as_posix()
+                    if folder in ART_FOLDERS and not self._art_name(rel):
+                        continue  # exact names, lower case: the catalog, the build script, any other extension stay out
+                    found[rel] = path
+        private = self._kept_back()
         out = {}
         for rel in sorted(found):
             path = found[rel]
-            if not self._servable(path) or any(PurePosixPath(rel.casefold()).is_relative_to(d) for d in LICENSED):
+            if not self._servable(path):
                 continue
             try:
                 st = path.stat()
             except OSError:
                 continue
-            if (st.st_dev, st.st_ino) not in licensed:
-                out[rel] = (path, st)
-        return out
+            out[rel] = (path, st)
+        # an inode that is private, or that is served from both art folders (a sheet linked to a sound), is not served
+        by_folder: dict[tuple[int, int], set[str]] = {}
+        for rel, (_, st) in out.items():
+            folder = next((f for f in ART_FOLDERS if rel.startswith(f + "/")), "")
+            by_folder.setdefault((st.st_dev, st.st_ino), set()).add(folder)
+        return {rel: v for rel, v in out.items()
+                if (v[1].st_dev, v[1].st_ino) not in private and len(by_folder[(v[1].st_dev, v[1].st_ino)] - {""}) < 2}
 
     def _fresh(self) -> None:
         """Look at the disk at most every check_every seconds; re-read everything when a served file appears, goes or

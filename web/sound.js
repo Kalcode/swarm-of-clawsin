@@ -190,6 +190,12 @@
 
   // ---------------------------------------------------------------- samples (optional; assets/sfx/manifest.json)
   const SFX_DIR = 'assets/sfx/';
+  // The public page loads its scripts as name.js?v=<version>; the files under assets/ then carry the same ?v=, so the
+  // edge keeps them for good. The private viewer's script URLs have no version, and neither do its assets.
+  const VQ = (() => {
+    const m = /\?(v=[\w-]+)$/.exec((document.currentScript && document.currentScript.getAttribute('src')) || '');
+    return m ? '?' + m[1] : '';
+  })();
   // loudness trim per sample key (the packs differ in level); anything not listed plays at 1
   const SAMPLE_TRIM = {
     chop: 1.5, knock: 1.5, build: 1.0, craft: 0.9, splash: 0.9, cook: 1.2, discover: 0.5, invent: 0.5, chronicle: 0.5,
@@ -209,7 +215,7 @@
 
   function loadManifest() {
     try {
-      fetch(SFX_DIR + 'manifest.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((m) => {
+      fetch(SFX_DIR + 'manifest.json' + VQ, { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((m) => {
         if (m && m.sounds && typeof m.sounds === 'object') {
           manifest = m.sounds;
           document.dispatchEvent(new CustomEvent('swarmsound-samples', { detail: { credit: m.credit || '' } }));
@@ -228,7 +234,7 @@
     pools.set(key, p);
     p.files.forEach(async (f) => {   // all of the pool at once: a handful of small files
       try {
-        const r = await fetch(SFX_DIR + f);
+        const r = await fetch(SFX_DIR + f + VQ);
         if (!r.ok) return;
         const buf = await ctx.decodeAudioData(await r.arrayBuffer());
         if (pools.get(key) === p) { p.bufs.set(f, buf); decodedBytes += buf.length * buf.numberOfChannels * 4; }

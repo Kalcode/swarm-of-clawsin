@@ -15,6 +15,12 @@
   'use strict';
 
   const BASE = 'assets/limezu/';
+  // The public page loads its scripts as name.js?v=<version>; the files under assets/ then carry the same ?v=, so the
+  // edge keeps them for good. The private viewer's script URLs have no version, and neither do its assets.
+  const VQ = (() => {
+    const m = /\?(v=[\w-]+)$/.exec((document.currentScript && document.currentScript.getAttribute('src')) || '');
+    return m ? '?' + m[1] : '';
+  })();
   const K = window.SwarmTiles;           // Kenney skin, used for unknown kinds and helpers
   const TILE = 16;
 
@@ -33,16 +39,16 @@
 
   async function load() {
     try {
-      const r = await fetch(BASE + 'manifest.json', { cache: 'no-cache' });
+      const r = await fetch(BASE + 'manifest.json' + VQ, { cache: 'no-cache' });
       if (!r.ok) return false;
       M = await r.json();
       const jobs = [];
-      for (const [name, file] of Object.entries(M.sheets)) jobs.push(loadImage(BASE + file).then((i) => { img[name] = i; }));
+      for (const [name, file] of Object.entries(M.sheets)) jobs.push(loadImage(BASE + file + VQ).then((i) => { img[name] = i; }));
       for (const layer of M.characters.layers) {
-        jobs.push(loadImage(BASE + M.characters[layer].src).then((i) => { img['ch_' + layer] = i; }));
+        jobs.push(loadImage(BASE + M.characters[layer].src + VQ).then((i) => { img['ch_' + layer] = i; }));
       }
       for (const kind of animalKinds()) {
-        for (const file of M.animals[kind].sheets) jobs.push(loadImage(BASE + file).then((i) => { img[file] = i; }));
+        for (const file of M.animals[kind].sheets) jobs.push(loadImage(BASE + file + VQ).then((i) => { img[file] = i; }));
       }
       await Promise.all(jobs);
       buildUI();
@@ -665,7 +671,7 @@
     }
     const s = px / 32;
     const sheet = img[ir.sheet];
-    return `background-image:url(${BASE}${M.sheets[ir.sheet]});background-position:${-r[0] * s}px ${-r[1] * s}px;` +
+    return `background-image:url(${BASE}${M.sheets[ir.sheet]}${VQ});background-position:${-r[0] * s}px ${-r[1] * s}px;` +
       `background-size:${sheet.naturalWidth * s}px ${sheet.naturalHeight * s}px`;
   }
 
