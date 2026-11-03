@@ -107,3 +107,30 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mod (watching):** the rope-stone fad is growing, not fading. It drains rope and turns into failed gives. If it
   still dominates at the next check-in, consider letting the world say "the rope stone doesn't do anything yet" when
   someone makes one (the tweak noted at 11:13).
+
+### 12:15 watch (tick 5,695)
+- **admin:** healthy: 24 awake, three nodes, tunnel `HIT`, no errors; no public watchers yet.
+- **Minds since tick 3,769:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 876 | 79% | 9.4 s |
+  | Student | 1,059 | 76% | 15.9 s |
+  | Qwen3.5-4B | 114 | 79% | 37.8 s |
+- **mod (follow-up), eat-grass:** after the 11:46 food hint, refusals to eat fell from 30 to 11 in half an hour, and 8
+  of those 11 now name the nearest food. Better, not gone; keep watching.
+- **mod (done 12:17, 12:18), stone:** the meadow's boulders are worked out, with the nearest 35+ steps away.
+  - gpt-oss creatures beside the old tablet tried "gather stone" from it 53 times.
+  - I answered the stone wish with directions, and the refusal now says "Stone: knock it off boulders".
+- **mod (watching), the rope stone:** 411 actions in 30 minutes, about 20% of all actions, and the top failure for
+  gpt-oss and the student:
+  - "You don't have any rope stone";
+  - "you'd need 2 rope (you have 1)".
+
+  The user enjoys it ("some hilarious stuff emerging"): 260 lines of speech about it, and Dree handing them out like
+  favours. Left alone on purpose.
+- **tweak (parser):** Dree (gpt-oss) put a `combine`'s items in `target` as a JSON-list string
+  (`["rope","rope","flint","flint"]`) and got "Combine what?" in a loop. Parse a JSON list in `target` as the items for
+  combine and craft.
+- **add (seen):** Mirth (Qwen3.5-4B, the Air) invented "spark fragments" at tick 5,610. Hux made the day's first
+  explicit wish to the sky.
