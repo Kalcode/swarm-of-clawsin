@@ -135,21 +135,40 @@ def test_explicit_wishes_beat_reflected_fragments_on_the_board():
     assert len(w.ranked(60, 5)) == 6
 
 
-def test_a_full_board_makes_room_for_a_real_wish_by_dropping_the_oldest_reflection():
-    # reflection fragments (70+ a day) fill the store's 300 places; a prayer must still get in
+
+def test_nothing_is_refused_old_wishes_are_archived_and_come_back():
+    # the user: "Archive old wishes. No reason to block no one's, they gotta be cheap to store."
     from swarmworld.server.wishes import MAX_WISHES
     w = Wishes(Catalog.load())
     for i in range(MAX_WISHES):
         assert w.add("Ann", f"fragment number{i}", "reflected", "if only...", i)
     assert w.add("Mirth", "flint to light my fire", "wished", "I wish for a flint to light my fire!", 1000)
-    things = {v["thing"] for v in w.items.values()}
-    assert len(w.items) == MAX_WISHES and "flint to light my fire" in things and "fragment number0" not in things
+    active = {v["thing"] for v in w.items.values()}
+    archived = {v["thing"] for v in w.archive.values()}
+    assert len(w.items) == MAX_WISHES and "flint to light my fire" in active
+    assert "fragment number0" in archived and "fragment number0" not in active  # the oldest fragment, kept, not drawn
     assert w.ranked()[0]["thing"] == "flint to light my fire"
+    first = w.get(next(v["id"] for v in w.archive.values()))
+    assert first is not None  # an archived wish can still be found (and answered) by its id
+    w.add("Bo", "fragment number0", "said", "fragment number0 would help", 1001)
+    assert "fragment number0" in {v["thing"] for v in w.items.values()}  # raised again: back on the board, history kept
 
 
-def test_a_board_full_of_real_wishes_still_refuses_more():
+def test_a_board_full_of_real_wishes_archives_the_oldest_instead_of_refusing():
     from swarmworld.server.wishes import MAX_WISHES
     w = Wishes(Catalog.load())
     for i in range(MAX_WISHES):
         w.add("Ann", f"wish number{i}", "wished", "I wish...", i)
-    assert not w.add("Bo", "one more thing", "wished", "I wish...", 1000) and len(w.items) == MAX_WISHES
+    assert w.add("Bo", "one more thing", "wished", "I wish...", 1000) and len(w.items) == MAX_WISHES
+    assert "wish number0" in {v["thing"] for v in w.archive.values()}
+
+
+def test_the_archive_survives_a_save():
+    from swarmworld.server.wishes import MAX_WISHES
+    w = Wishes(Catalog.load())
+    word = lambda i: "".join(chr(97 + (i // 26 ** k) % 26) for k in range(3))  # load re-tidies names: no digits
+    for i in range(MAX_WISHES + 5):
+        w.add("Ann", f"fragment {word(i)}", "reflected", "if only...", i)
+    again = Wishes(Catalog.load())
+    again.load(json.loads(json.dumps(w.to_dict())))
+    assert len(again.items) == MAX_WISHES and len(again.archive) == 5

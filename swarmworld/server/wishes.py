@@ -64,6 +64,7 @@ class Wishes:
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
         self.items: dict[str, dict] = {}
+        self.archive: dict[str, dict] = {}  # older wishes, kept (they're small) but not on the board
         self.seq = 0
         self.people: set[str] = set()  # creature names: a wish about someone isn't a wish for a thing
 
@@ -102,14 +103,9 @@ class Wishes:
             return False
         key = re.sub(r"(?<=[a-z]{3})s\b", "", thing)  # roofs ~ roof
         w = self.items.get(key)
+        if w is None and key in self.archive:  # raised again: back on the board with its history
+            w = self.items[key] = self.archive.pop(key)
         if w is None:
-            if len(self.items) >= MAX_WISHES:  # full: the oldest thing only ever reflected on makes room
-                stale = min((k for k, v in self.items.items() if v["status"] == "open" and v["kinds"]["reflected"]
-                             and not (v["kinds"]["wished"] + v["kinds"]["failed"] + v["kinds"]["said"])),
-                            key=lambda k: self.items[k]["last_tick"], default=None)
-                if stale is None:
-                    return False
-                del self.items[stale]
             self.seq += 1
             w = self.items[key] = {"id": f"w{self.seq}", "thing": thing, "kinds": dict.fromkeys(KINDS, 0), "by": {},
                                    "quotes": [], "first_tick": tick, "last_tick": tick, "status": "open",
@@ -118,7 +114,19 @@ class Wishes:
         w["by"][who] = w["by"].get(who, 0) + 1
         w["last_tick"] = tick
         w["quotes"] = (w["quotes"] + [{"tick": tick, "name": who, "kind": kind, "text": quote[:200]}])[-QUOTES:]
+        while len(self.items) > MAX_WISHES:
+            self._archive_one(keep=key)
         return True
+
+    def _archive_one(self, keep: str) -> None:
+        """Move the least of the board to the archive (never refuse a wish): things only ever reflected on, oldest
+        first; then answered or granted ones; then the oldest open wish."""
+        def rank(k: str) -> tuple:
+            v = self.items[k]
+            reflected_only = v["kinds"]["reflected"] > 0 and not (v["kinds"]["wished"] + v["kinds"]["failed"] + v["kinds"]["said"])
+            return (not reflected_only, v["status"] == "open", v["last_tick"])
+        k = min((k for k in self.items if k != keep), key=rank)
+        self.archive[k] = self.items.pop(k)
 
     # ------------------------------------------------------------ reading
     def exists(self, thing: str) -> bool:
@@ -145,11 +153,11 @@ class Wishes:
         return explicit[:limit] + [v for v in views if v["reflected_only"]][:reflected_limit]
 
     def get(self, wid: str) -> dict | None:
-        return next((w for w in self.items.values() if w["id"] == wid), None)
+        return next((w for w in [*self.items.values(), *self.archive.values()] if w["id"] == wid), None)
 
     # ------------------------------------------------------------ saving
     def to_dict(self) -> dict:
-        return {"seq": self.seq, "items": self.items}
+        return {"seq": self.seq, "items": self.items, "archive": self.archive}
 
     def load(self, data: dict | None) -> None:
         """Restore saved wishes, re-tidying their names with today's rules and merging any that now match."""
@@ -173,3 +181,6 @@ class Wishes:
             have["quotes"] = sorted(have["quotes"] + w["quotes"], key=lambda q: q["tick"])[-QUOTES:]
             have["first_tick"] = min(have["first_tick"], w["first_tick"])
             have["last_tick"] = max(have["last_tick"], w["last_tick"])
+        self.archive = {k: v for k, v in (data.get("archive") or {}).items() if k not in self.items}
+        while len(self.items) > MAX_WISHES:  # an older save with more than the board holds
+            self._archive_one(keep="")
