@@ -23,7 +23,7 @@ from weakref import WeakKeyDictionary
 
 from .. import model
 from ..perception import DAY_SIGHT, DIRS
-from ..registry import register_perception, register_populate, register_system
+from ..registry import register_perception, register_populate, register_shift_hook, register_system
 from ..terrain import (FLOW_STEP, NEIGHBORS, SIZE, STILL, derive_biomes, derive_flow, flow_at, land_code, surface_rows,
                        water_near)
 
@@ -360,3 +360,14 @@ register_system("nature drift", DRIFT_EVERY, drift_step)
 register_system("nature renewal", RENEW_EVERY, renew_step)
 register_perception(biome_line, priority=55)  # where you are: above ambience, below anything urgent
 register_perception(river_line, priority=56)
+
+
+def _shift(world: World, n: int) -> None:
+    """New land in the west: each creature's remembered river tile moves n east."""
+    for c in world.creatures.values():
+        river = (c.ext.get("nature") or {}).get("river")
+        if river:
+            c.ext["nature"]["river"] = [river[0] + n, *river[1:]]
+
+
+register_shift_hook("nature", _shift, stores=("creature.ext.nature.river",))
