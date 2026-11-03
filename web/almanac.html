@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Almanac · Swarm World</title>
+  <meta name="description" content="Everything in Swarm World: the tech tree, every kind of thing and verb, what this world's creatures have found, a census, and what's coming.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:,">
+  <!-- the viewer's stylesheet, read-only, for its palette and fonts; almanac.css owns this page's layout -->
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="almanac.css">
+</head>
+<body class="alm">
+  <!--
+    Direction: an extension of the viewer's world, not a new one. Operate mode: a dense reference the user scans
+    while the world runs. Same dark plum inks, bone text, gold for what creatures discovered; the map's own art
+    (LimeZu, Kenney or ASCII, as chosen in the viewer) draws every item and kind. Restrained colour: neutrals carry
+    the page, gold marks discoveries and selection, blue/orange/aqua only in the census charts (validated).
+    Memorable moment: the tech tree, from what you pick up off the ground to the terminal, lit where this world
+    has been.
+  -->
+  <header class="alm-top">
+    <a class="alm-brand" href="./" id="back-link" title="Back to the world">
+      <canvas id="alm-title" aria-hidden="true"></canvas>
+      <span class="alm-brand-text">Swarm World</span>
+    </a>
+    <h1 class="alm-title">Almanac</h1>
+    <p class="alm-clock" id="alm-clock" aria-live="polite">Reading the world…</p>
+    <div class="alm-top-end">
+      <span class="alm-skin" role="radiogroup" aria-label="Art" id="skin-switch"></span>
+      <span class="alm-sync" id="alm-sync" data-state="loading" role="status" aria-live="polite">
+        <span class="alm-sync-dot" aria-hidden="true"></span><span id="alm-sync-label">Loading</span>
+      </span>
+      <button class="alm-btn" type="button" id="refresh-btn" title="Refresh now (R)">Refresh</button>
+    </div>
+  </header>
+
+  <main class="alm-main">
+    <nav class="alm-tabs" role="tablist" aria-label="Almanac views" id="tabs">
+      <button role="tab" type="button" class="alm-tab" id="tab-tree" data-tab="tree" aria-controls="pane-tree" aria-selected="true">Tech tree <span class="alm-tab-n" id="n-tree"></span></button>
+      <button role="tab" type="button" class="alm-tab" id="tab-things" data-tab="things" aria-controls="pane-things" aria-selected="false">Things <span class="alm-tab-n" id="n-things"></span></button>
+      <button role="tab" type="button" class="alm-tab" id="tab-verbs" data-tab="verbs" aria-controls="pane-verbs" aria-selected="false">Verbs <span class="alm-tab-n" id="n-verbs"></span></button>
+      <button role="tab" type="button" class="alm-tab" id="tab-census" data-tab="census" aria-controls="pane-census" aria-selected="false">Census</button>
+      <button role="tab" type="button" class="alm-tab" id="tab-packs" data-tab="packs" aria-controls="pane-packs" aria-selected="false">Packs <span class="alm-tab-n" id="n-packs"></span></button>
+      <button role="tab" type="button" class="alm-tab" id="tab-roadmap" data-tab="roadmap" aria-controls="pane-roadmap" aria-selected="false">Roadmap <span class="alm-tab-n" id="n-roadmap"></span></button>
+    </nav>
+
+    <section class="alm-pane tree-pane" id="pane-tree" role="tabpanel" aria-labelledby="tab-tree">
+      <div class="tt-bar">
+        <label class="alm-search">
+          <span class="sr-only">Find a thing</span>
+          <input id="tt-search" type="search" placeholder="Find a thing…  ( / )" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="alm-chips" id="tt-status" role="group" aria-label="Show by status"></div>
+        <div class="alm-chips" id="tt-packs" role="group" aria-label="Show by pack"></div>
+        <div class="tt-bar-end">
+          <span class="alm-seg" role="radiogroup" aria-label="Layout" id="tt-view">
+            <button type="button" role="radio" data-view="graph" aria-checked="true">Graph</button>
+            <button type="button" role="radio" data-view="list" aria-checked="false">List</button>
+          </span>
+        </div>
+      </div>
+      <div class="tt-body">
+        <div class="tt-viewport" id="tt-viewport" tabindex="0" aria-label="Tech tree. Drag to pan, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit.">
+          <div class="tt-world" id="tt-world"></div>
+          <div class="tt-zoom" role="group" aria-label="Zoom">
+            <button class="alm-btn icon" type="button" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+            <button class="alm-btn icon" type="button" data-zoom="out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+            <button class="alm-btn" type="button" data-zoom="fit" title="Fit the whole tree (0)">Fit</button>
+          </div>
+          <p class="tt-key" aria-hidden="true">
+            <span><svg width="22" height="6"><path d="M1 3H21" class="e-input"/></svg>made from</span>
+            <span><svg width="22" height="6"><path d="M1 3H21" class="e-tool"/></svg>held as a tool</span>
+            <span><svg width="22" height="6"><path d="M1 3H21" class="e-station"/></svg>made at a station</span>
+          </p>
+        </div>
+        <div class="tt-list" id="tt-list" hidden></div>
+        <aside class="tt-card" id="tt-card" aria-live="polite" hidden></aside>
+      </div>
+    </section>
+
+    <section class="alm-pane doc-pane" id="pane-things" role="tabpanel" aria-labelledby="tab-things" hidden></section>
+    <section class="alm-pane doc-pane" id="pane-verbs" role="tabpanel" aria-labelledby="tab-verbs" hidden></section>
+    <section class="alm-pane doc-pane" id="pane-census" role="tabpanel" aria-labelledby="tab-census" hidden></section>
+    <section class="alm-pane doc-pane" id="pane-packs" role="tabpanel" aria-labelledby="tab-packs" hidden></section>
+    <section class="alm-pane doc-pane" id="pane-roadmap" role="tabpanel" aria-labelledby="tab-roadmap" hidden></section>
+
+    <div class="alm-veil" id="alm-veil" role="status" aria-live="polite">
+      <p class="alm-veil-title" id="veil-title">Reading the world…</p>
+      <p class="alm-veil-sub" id="veil-sub">Asking the server what's in the game.</p>
+    </div>
+  </main>
+
+  <div class="alm-tip" id="alm-tip" role="tooltip" hidden></div>
+
+  <script src="tiles.js"></script>
+  <script src="ascii.js"></script>
+  <script src="limezu.js"></script>
+  <script src="almanac.js"></script>
+</body>
+</html>
