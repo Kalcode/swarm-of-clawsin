@@ -633,7 +633,7 @@ def test_prepack_save_loads(prepack_save):
     st = ServerState(seed=1)
     restore(st, prepack_save)
     w = st.world
-    assert (w.width, w.height, len(w.creatures)) == (64, 64, 6)
+    assert (w.region_bounds("surface"), len(w.creatures)) == ((0, 0, 64, 64), 6)
     assert {"campfire", "basket", "sign", "crop"} <= {o.kind for o in w.objects.values()}
     for c in w.creatures.values():
         c.asleep = False

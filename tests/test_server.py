@@ -111,7 +111,9 @@ async def test_node_disconnect_puts_creatures_to_sleep(client):
 async def test_view_stream(client):
     ws = await client.ws_connect("/ws/view")
     init = await _recv_type(ws, "init")
-    assert init["width"] == 128 and len(init["tiles"]) == 128 and init["objects"]  # a fresh world
+    surface = next(r for r in init["regions"] if r["name"] == "surface")
+    assert init["width"] == 128 and (surface["y0"], surface["y1"]) == (0, 128) and init["objects"]  # a fresh world
+    assert len(init["tiles"]) == init["height"]  # the whole map: the surface, the rock band and the deep
     tick = await _recv_type(ws, "tick")
     assert "creatures" in tick and "clock" in tick
     metrics = await _recv_type(ws, "metrics")

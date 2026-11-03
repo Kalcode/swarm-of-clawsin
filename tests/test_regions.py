@@ -5,6 +5,7 @@ from swarmworld.server.state import ServerState
 from swarmworld.world import model
 from swarmworld.world.catalog import Catalog
 from swarmworld.world.model import Region, World
+from swarmworld.world.terrain import generate_world
 
 
 def _flat(n=10):
@@ -129,6 +130,7 @@ def test_regions_seed_and_skylight_survive_a_save(tmp_path):
 
 def test_a_save_from_before_regions_restores_one_surface(tmp_path):
     st = ServerState(seed=7)
+    st.world = st.sim.world = generate_world(7, deep=False)  # as worlds were before regions: a surface alone
     data = snapshot(st)
     for key in ("seed", "regions", "skylight"):
         del data["world"][key]
@@ -137,5 +139,6 @@ def test_a_save_from_before_regions_restores_one_surface(tmp_path):
     st2 = ServerState(seed=99)
     restore(st2, path)
     w = st2.world
-    assert w.regions == [Region("surface", 0, 0, data["world"]["height"], True, True)] and w.seed is None
+    assert w.regions[0] == Region("surface", 0, 0, data["world"]["height"], True, True) and w.seed is None
+    assert [r.name for r in w.regions] == ["surface", "deep"]  # and the underground pack grows its deep on load
     assert w.skylight == set()

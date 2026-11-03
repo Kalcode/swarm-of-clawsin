@@ -403,10 +403,12 @@ def register_populate(name: str, fn: Callable[["World", object, bool], None]) ->
     POPULATE.append(Populate(name, fn))
 
 
-def run_populate(world: "World", rng, fresh: bool) -> None:
+def run_populate(world: "World", rng, fresh: bool, skip: Iterable[str] = ()) -> None:
+    """Every pack's populate hook, in registration order, but those named in skip."""
     importlib.import_module("swarmworld.world.packs")  # every pack has registered, whatever was imported first
     for p in POPULATE:
-        call_safely(f"populate '{p.name}'", p.fn, world, rng, fresh)
+        if p.name not in skip:
+            call_safely(f"populate '{p.name}'", p.fn, world, rng, fresh)
 
 
 # ------------------------------------------------------------------ loading packs, and tests

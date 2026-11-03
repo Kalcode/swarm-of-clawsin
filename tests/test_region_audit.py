@@ -1,9 +1,10 @@
 """The region audit: the land, nature, food, weather and building keep to the surface; cave water is water (Task 4).
 
-with_deep(w) gives a generated 48x48 world a deep of 40 rows below it (rows 80-119, after the rock band), as every
-world will have; it is shorter than the surface so that a mix-up of the two heights or areas can't pass. Tests that
-need ground a careless whole-map scan would use paint some of the deep as grass, forest floor or dirt (dug or filled
-ground looks like that), so a scan that strays below finds somewhere to put things."""
+A generated world has its own deep (the underground pack grows it); with_deep(w) leaves that as it is, and gives a
+world made with deep=False a deep of 40 rows below it (rows 80-119, after the rock band), shorter than the surface so
+that a mix-up of the two heights or areas can't pass. Tests that need ground a careless whole-map scan would use paint
+some of the deep as grass, forest floor or dirt (dug or filled ground looks like that), so a scan that strays below
+finds somewhere to put things."""
 
 import random
 from collections import Counter
@@ -25,7 +26,8 @@ SURFACE_KINDS = set(nature.PLANTS) | set(nature.INSECTS) | set(food.habitat_kind
 
 
 def with_deep(w, h=DEEP_ROWS):
-    """Add a deep of h rows (rock round the edge, cave floor inside) below w unless it has one; its bounds."""
+    """Add a deep of h rows (rock round the edge, cave floor inside) below w unless it has one (a generated world
+    has); its bounds."""
     if w.region("deep") is None:
         rows = [["R" if x in (0, w.width - 1) or y in (0, h - 1) else "c" for x in range(w.width)] for y in range(h)]
         w.add_region("deep", -1, rows, False, False)
@@ -76,7 +78,7 @@ def test_packs_populate_only_the_surface():
 
 
 def test_population_counts_ignore_the_deep():
-    w = generate_world(7, SIZE, SIZE)
+    w = generate_world(7, SIZE, SIZE, deep=False)
     kinds = sorted(food.habitat_kinds())
     counts = {k: food.population(w, k) for k in kinds}
     caps = {k: nature.insect_cap(w, k) for k in nature.INSECTS}
@@ -265,8 +267,8 @@ def test_old_world_land_is_read_from_the_surface_only():
 
 
 def test_surface_is_the_same_with_a_deep_below():
-    worlds = generate_world(7, SIZE, SIZE), generate_world(7, SIZE, SIZE)
-    with_deep(worlds[1])
+    worlds = generate_world(7, SIZE, SIZE, deep=False), generate_world(7, SIZE, SIZE)  # without the deep, and with it
+    assert worlds[0].region("deep") is None and worlds[1].region("deep") is not None
     persona = {"traits": ["curious", "patient"], "drive": "curious", "initiative": "proactive"}
     tams = [person(w, "Tam", *w.center, persona=dict(persona)) for w in worlds]
     views = [perceive(w, c) for w, c in zip(worlds, tams)]

@@ -1,9 +1,10 @@
 """Seeded world generation: biomes, a lake with its beach and marsh, rivers that flow, hills, forests and resources.
 
-A fresh world is SIZE x SIZE. Its land is shaped by an elevation field: rocky hills rise on one side, ringed by pine
-forest; the lake lies low on the other, with a sandy beach on one shore and a marsh where a stream comes in; oak forest
-grows where it's moist, and open meadow (with the creatures' starting meadow at the center) fills the rest. Two streams
-run from the hills down to the lake and one river leaves it for the edge of the map.
+A fresh world's surface is SIZE x SIZE (the underground pack grows the deep below it, past a band of rock). Its land
+is shaped by an elevation field: rocky hills rise on one side, ringed by pine forest; the lake lies low on the other,
+with a sandy beach on one shore and a marsh where a stream comes in; oak forest grows where it's moist, and open
+meadow (with the creatures' starting meadow at the center) fills the rest. Two streams run from the hills down to the
+lake and one river leaves it for the edge of the map.
 
 The generator leaves each tile's biome and each river tile's flow in world.land; the nature pack
 (swarmworld/world/packs/nature.py) keeps them in world.ext["nature"], saved with the world: "biomes" is rows of BIOMES
@@ -26,7 +27,8 @@ from .perception import DIRS
 from .registry import run_populate
 
 POOL = 0.76  # marsh ground with detail noise above this is a still pool
-SIZE = 128  # a fresh world's width and height (older saves keep theirs)
+SIZE = 128  # a fresh world's width and surface height (older saves keep theirs)
+DEEP_POPULATE = "underground"  # the populate hook that grows the deep below (swarmworld/world/packs/underground.py)
 BIOMES = {"m": "meadow", "o": "oak forest", "p": "pine forest", "k": "marsh", "h": "rocky hills", "b": "beach"}
 STILL = "."
 FLOW_STEP = {"east": (1, 0), "southeast": (1, 1), "south": (0, 1), "southwest": (-1, 1),
@@ -283,7 +285,9 @@ def spawn_animals(world: World, rng: random.Random, limit: int | None = None) ->
 
 
 # ------------------------------------------------------------------ the generator
-def generate_world(seed: int = 7, width: int = SIZE, height: int = SIZE) -> World:
+def generate_world(seed: int = 7, width: int = SIZE, height: int = SIZE, deep: bool = True) -> World:
+    """A world of width x height land. With deep (the default) the underground pack grows the deep below it, past a
+    band of rock; deep=False leaves the surface alone, as worlds were before the deep (to compare the two)."""
     rng = random.Random(seed)
     s = max(0.5, min(width, height) / SIZE)  # 1 on a fresh map: distances below are in tiles of a 128 map
     cells = (max(4, round(32 * s)), max(4, round(16 * s)), max(2, round(8 * s)))
@@ -580,6 +584,6 @@ def generate_world(seed: int = 7, width: int = SIZE, height: int = SIZE) -> Worl
         placed += 1
 
     place_wishing_stone(world)
-    run_populate(world, rng, fresh=True)  # the packs' own things (registry.register_populate)
+    run_populate(world, rng, fresh=True, skip=() if deep else (DEEP_POPULATE,))  # the packs' own things
     world.changed_objects.clear()
     return world
