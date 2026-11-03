@@ -60,8 +60,24 @@
   const pickVariant = (spec, id) => spec.variants[hash(id) % spec.variants.length];
 
   /* --------------------------------------------------------------- terrain */
-  const isWater = (c) => c === 'w' || c === 'W';
+  const isWater = (c) => c === 'w' || c === 'W';       // the surface's water, with beaches (cave water has none)
   const isGrassy = (c) => c === 'g' || c === 'f';
+  // cave water is the pack's water, darkened (a build's own "tint" for it wins)
+  const TINT = { u: 'rgba(2,18,26,0.58)' };
+
+  /** A tile the build has no flat for (the deep's rock and floor, dug land): its ground in the Kenney palette, with
+   *  a speckle of the same art's stone or earth. The user's packs may add flats for these codes in the build. */
+  function fallbackTile(g, code, x, y) {
+    const t = K.TERRAIN[code];
+    const px = x * TILE, py = y * TILE;
+    g.fillStyle = t.base[Math.floor(K.hash2(x, y, 3) * t.base.length)];
+    g.fillRect(px, py, TILE, TILE);
+    const n = Math.round((t.density || 0) * 7);
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = i % 3 === 2 ? 'rgba(0,0,0,0.35)' : t.tint;
+      g.fillRect(px + 1 + Math.floor(K.hash2(x, y, 10 + i) * 13), py + 1 + Math.floor(K.hash2(x, y, 20 + i) * 13), 2, 1 + (i & 1));
+    }
+  }
 
   /** Draws one tile of a 3x3 + inner-corner autotile set, quarter by quarter
    *  (8x8 each), so thin strips and single-tile peninsulas get edges on every
@@ -121,8 +137,10 @@
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const c = at(x, y);
-        const flats = T.flats[c] || T.flats.g;
-        blit(flats[hash(x + ',' + y) % flats.length], x, y);
+        const flats = T.flats[c] || (c === 'u' && T.flats.w);
+        if (flats) blit(flats[hash(x + ',' + y) % flats.length], x, y);
+        else if (K.TERRAIN[c]) fallbackTile(g, c, x, y);
+        else blit(T.flats.g[hash(x + ',' + y) % T.flats.g.length], x, y);
         if (!isWater(c)) {
           // land touching water becomes a little beach with a foam edge
           if (isBeach(x, y)) drawAutotile(g, sheet, shore.set, shore.inner, near(x, y, isWater), x, y, true);
@@ -137,7 +155,7 @@
     const mg = mask.getContext('2d');
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const tint = T.tint[at(x, y)];
+        const tint = T.tint[at(x, y)] || TINT[at(x, y)];
         if (tint) { mg.fillStyle = tint; mg.fillRect(x, y, 1, 1); }
       }
     }
@@ -171,6 +189,7 @@
         drawAutotile(g, sheet, hole.set, hole.inner, o, x, y, false);
       }
     }
+    K.drawWallEdges(g, at, width, height);      // rock walls stand up from the cave floor
     // small decorations baked into the ground
     const obj = img.objects;
     const decor = (variants, x, y, salt) => {

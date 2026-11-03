@@ -14,7 +14,9 @@
 
   // background per biome (m meadow, o oak forest, p pine forest, k marsh, h rocky hills, b beach), and water
   const BG = { m: '#0d140e', o: '#0a120c', p: '#09110f', k: '#0f130b', h: '#121115', b: '#15120c', _: '#0d130e' };
-  const WATER_BG = { w: '#0b1724', W: '#07111e', pool: '#0c1716' };
+  const WATER_BG = { w: '#0b1724', W: '#07111e', pool: '#0c1716', u: '#071517' };
+  // the deep (rock, cave floor) and the dug land (trench, pit, open pit) have backgrounds of their own, whatever the biome
+  const GROUND_BG = { R: '#16131a', c: '#0b0a0d', t: '#120d0a', h: '#0c0806', O: '#030203' };
   // [char, color, share] choices per tile and biome; the share is how often the first char is used
   const LAND = {
     g: { _: ['.', '#4f8a4a', '"', '#5a9050', 0.74], k: ['"', '#6c7838', '.', '#5f6c3a', 0.5], o: ['.', '#3f7440', '"', '#4a7e44', 0.8],
@@ -24,6 +26,11 @@
     d: { _: [',', '#8a6a48', '.', '#6a5038', 0.6], k: [',', '#7a6a40', '"', '#7a8a40', 0.6] },
     s: { _: ['·', '#c8b080', '.', '#a89060', 0.75] },
     r: { _: ['^', '#8a8490', '.', '#5c5762', 0.5] },
+    R: { _: ['#', '#6a6272', '#', '#585060', 0.6] },
+    c: { _: ['.', '#4c4654', '.', '#3c3744', 0.6] },
+    t: { _: ['=', '#8a6a48', '=', '#76583c', 0.6] },
+    h: { _: ['o', '#7a5a40', 'o', '#664a34', 0.6] },
+    O: { _: ['◎', '#5e4c40', '◎', '#5e4c40', 1] },
   };
   const ARROWS = '→↘↓↙←↖↑↗';            // flow codes 0..7: east, southeast, south ... northeast (perception.DIRS)
   const FLOW = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
@@ -53,7 +60,8 @@
       for (let x = 0; x < width; x++) {
         const c = row[x] || 'g';
         const b = biomeAt(x, y);
-        g.fillStyle = c === 'W' ? WATER_BG.W : c === 'w' ? (b === 'k' && flowAt(x, y) < 0 ? WATER_BG.pool : WATER_BG.w) : (BG[b] || BG._);
+        g.fillStyle = c === 'W' ? WATER_BG.W : c === 'w' ? (b === 'k' && flowAt(x, y) < 0 ? WATER_BG.pool : WATER_BG.w)
+          : c === 'u' ? WATER_BG.u : GROUND_BG[c] || BG[b] || BG._;
         g.fillRect(x, y, 1, 1);
       }
     }
@@ -61,7 +69,8 @@
   }
 
   /** Terrain glyphs for the visible tiles, each frame. Tiles with an object show only the object's glyph.
-   *  Water shimmers; rivers carry a crest of bright "≈" downstream, with an arrow now and then. */
+   *  Water shimmers; rivers carry a crest of bright "≈" downstream, with an arrow now and then; cave pools are a
+   *  slow dark teal "~". Rows past the land (the deep) have no biome and no flow. */
   function drawGround(ctx, tiles, objAt, x0, y0, x1, y1, ox, oy, ts, now) {
     const opts = { scale: 0.72, outline: false, weight: 500 };
     const wopts = { scale: 0.72, outline: false, weight: 500, alpha: 1 };
@@ -86,6 +95,11 @@
             const pool = code === 'w' && biomeAt(x, y) === 'k';
             K.drawGlyph(ctx, code === 'W' ? { char: '≈', color: '#2f62a8' } : { char: '~', color: pool ? '#5a9a86' : '#3c8cc0' }, dx, dy, ts, wopts);
           }
+          continue;
+        }
+        if (code === 'u') {
+          wopts.alpha = 0.55 + 0.35 * Math.sin(now / 1700 + K.hash2(x, y, 44) * 6.28);
+          K.drawGlyph(ctx, { char: '~', color: '#2f8a86' }, dx, dy, ts, wopts);
           continue;
         }
         if (objAt.has(x + ',' + y)) continue;

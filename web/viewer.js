@@ -503,6 +503,7 @@
     S.zoom.anchor = null;
     S.layer = to.name;
     hoverCre = null;
+    setHTML($('hover-info'), '');           // the tile under the pointer is another one now (said on its next move)
     if (S.voice.target && !inRegion(to, S.voice.target.y)) { S.voice.target = null; if (S.voice.open) renderVoiceScope(); }
     renderLayerSwitch();
     if (who) toast(`${who.name || who.id} went ${to.level < from.level ? 'down into' : 'up to'} the ${to.name}`);
@@ -1668,7 +1669,7 @@
     const L = S.landmarks || [];
     setHTML($('soc-places'), L.length ? L.map((p, i) => {
       const what = p.kind === 'camp' && +p.size ? `camp · ${plural(+p.size, 'structure', 'structures')}` : (PLACE_KIND[p.kind] || p.kind || 'place');
-      return `<li><button type="button" data-place="${i}"><span class="p-name">${esc(p.name)}</span><span class="p-kind">${esc(what)}</span><span class="p-at num">${esc(p.x)}, ${esc(p.y)}</span></button></li>`;
+      return `<li><button type="button" data-place="${i}"><span class="p-name">${esc(p.name)}</span><span class="p-kind">${esc(what)}</span><span class="p-at num">${esc(SwarmLayers.placeText(S.regions, p.x, p.y))}</span></button></li>`;
     }).join('') : '<li class="empty-sub">No named places yet.</li>');
   }
 
@@ -2111,7 +2112,8 @@
 
   /** What a creature walks on, for the footstep sounds: a built floor or bridge is wood, else the terrain decides. */
   const WOOD_OBJ = /floor|plank|bridge|boardwalk|dock|deck|wood/i, STONE_OBJ = /paving|brick|cobble|stone_floor|road/i;
-  const SURFACE = { g: 'grass', f: 'grass', d: 'dirt', s: 'sand', w: 'water', W: 'water', r: 'gravel' };
+  const SURFACE = { g: 'grass', f: 'grass', d: 'dirt', s: 'sand', w: 'water', W: 'water', r: 'gravel',
+                    c: 'stone', R: 'stone', u: 'water', t: 'dirt', h: 'dirt', O: 'dirt' };
   function surfaceAt(x, y) {
     for (const o of S.objAt.get(x + ',' + y) || []) {
       if (WOOD_OBJ.test(o.kind)) return 'wood';
@@ -2212,12 +2214,12 @@
         if (!row) continue;
         for (let x = x0; x <= x1; x++) {
           const code = row[x];
-          if (code === 'w' || code === 'W') SK.drawWater(ctx, code, x, y, ox + x * ts, oy + y * ts, ts, now);
+          if (T.isWater(code)) SK.drawWater(ctx, code, x, y, ox + x * ts, oy + y * ts, ts, now);
         }
       }
     }
 
-    const V = { S, skin: SK, ox, oy, ts, x0, y0, x1, y1, vw, vh, dpr, now, dt, zoom: Z.view };
+    const V = { S, skin: SK, ox, oy, ts, x0, y0, x1, y1, vw, vh, dpr, now, dt, zoom: Z.view, sky: R.sky };   // no weather below
     if (FX) FX.under(ctx, V);
 
     // Objects and creatures are drawn back to front so tall sprites (trees,
@@ -2387,8 +2389,75 @@
     });
   }
 
+  // The deep has no daylight: a fixed darkness, holed by what lights it (SwarmLayers.lightsFor): fires, the kinds that
+  // glow (crystals, cave mushrooms, a crystal lamp), lit torches carried, and the tiles under an open pit, as bright as
+  // the time of day above. Decoration only: creatures read their light and sight in words.
+  const DEEP_DARK = 0.92;
+  function drawDeepDark(R, list, ox, oy, ts, now) {
+    const day = clamp(isNum(S.clock && S.clock.light) ? S.clock.light : 1, 0, 1);
+    const carried = list.map((e) => ({ x: e.rx, y: e.ry, light: e.d.light }));
+    const lights = SwarmLayers.lightsFor(R, S.objects.values(), carried, T.kindInfo, S.tiles, S.regions, day);
+    const flick = (o) => 1 + Math.sin(now / 95 + o.x * 7) * 0.025 + Math.sin(now / 41 + o.y * 3) * 0.015;
+    const onScreen = (cx, cy, r) => cx > -r && cy > -r && cx < vw + r && cy < vh + r;
+    const burns = (L) => L.type === 'fire' || L.type === 'carried';
+    const hole = (cx, cy, r, stops) => {
+      const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      for (const [at, a] of stops) g.addColorStop(at, `rgba(0,0,0,${a.toFixed(3)})`);
+      nctx.fillStyle = g;
+      nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    };
+    nctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    nctx.globalCompositeOperation = 'source-over';
+    nctx.clearRect(0, 0, vw, vh);
+    nctx.fillStyle = `rgba(3,2,8,${DEEP_DARK})`;
+    nctx.fillRect(0, 0, vw, vh);
+    nctx.globalCompositeOperation = 'destination-out';
+    for (const L of lights) {
+      const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts, r = L.r * ts * (burns(L) ? flick(L) : 1);
+      if (!onScreen(cx, cy, r)) continue;
+      if (L.type === 'sky') hole(cx, cy, r, [[0, L.a], [0.55, L.a * 0.85], [1, 0]]);
+      else if (L.type === 'glow') {
+        const k = 0.85 + 0.15 * Math.sin(now / 900 + L.x * 3 + L.y);
+        hole(cx, cy, r, [[0, 0.9 * k], [0.5, 0.5 * k], [1, 0]]);
+      } else hole(cx, cy, r, [[0, 1], [0.5, 0.8], [1, 0]]);
+    }
+    // without a light, an awake creature sees a step around it (the deep's sight), and so does the viewer
+    for (const e of list) {
+      if (e.d.asleep || e.d.light > 0) continue;
+      const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts, r = 1.5 * ts;
+      if (onScreen(cx, cy, r)) hole(cx, cy, r, [[0, 0.5], [1, 0]]);
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(night, 0, 0);
+    ctx.restore();
+
+    // the color of each light: warm fire and torchlight, a glow in its kind's own color, pale daylight from above
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const L of lights) {
+      const cx = ox + (L.x + 0.5) * ts, cy = oy + (L.y + 0.5) * ts, r = L.r * 0.9 * ts * (burns(L) ? flick(L) : 1);
+      if (!onScreen(cx, cy, r)) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      if (burns(L)) {
+        g.addColorStop(0, 'rgba(255,150,60,0.24)');
+        g.addColorStop(0.45, 'rgba(255,105,40,0.1)');
+        g.addColorStop(1, 'rgba(255,90,30,0)');
+      } else {
+        const color = L.type === 'sky' ? '#fff4dc' : T.kindGlyph(L.kind).color;
+        const a = L.type === 'sky' ? 0.12 * L.a : 0.22 * (0.8 + 0.2 * Math.sin(now / 700 + L.x * 5 + L.y * 2));
+        g.addColorStop(0, T.rgba(color, a.toFixed(3)));
+        g.addColorStop(1, T.rgba(color, 0));
+      }
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    ctx.restore();
+  }
+
   function drawNight(list, ox, oy, ts, now) {
     const R = shownRegion(), shown = (o) => inRegion(R, o.y);   // lights of another region don't show in this one
+    if (!R.sky) return drawDeepDark(R, list, ox, oy, ts, now);
     const lit = S.lit.filter(shown), glowing = S.glowing.filter(shown), wishStones = S.wishStones.filter(shown);
     const light = clamp(isNum(S.clock && S.clock.light) ? S.clock.light : 1, 0, 1);
     const dark = (1 - light) * 0.84;
@@ -2448,8 +2517,19 @@
         nctx.fillStyle = g;
         nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
-      // each awake creature carries a little circle of night sight
+      // each awake creature carries a little circle of night sight; one with a lit torch, the torch's light
       for (const e of list) {
+        if (e.d.light > 0) {
+          const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts, r = e.d.light * ts * flick({ x: e.rx, y: e.ry });
+          if (!onScreen(cx, cy, r)) continue;
+          const g = nctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+          g.addColorStop(0, 'rgba(0,0,0,1)');
+          g.addColorStop(0.5, 'rgba(0,0,0,0.75)');
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          nctx.fillStyle = g;
+          nctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+          continue;
+        }
         if (e.d.asleep) continue;
         const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts;
         const r = 1.9 * ts;
@@ -2477,6 +2557,16 @@
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
       g.addColorStop(0, `rgba(255,150,60,${warm.toFixed(3)})`);
       g.addColorStop(0.45, `rgba(255,105,40,${(warm * 0.4).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    for (const e of list) {                 // a lit torch, carried
+      if (!(e.d.light > 0) || dark <= 0.02) continue;
+      const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts, r = e.d.light * 0.9 * ts;
+      if (!onScreen(cx, cy, r)) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(255,150,60,${warm.toFixed(3)})`);
       g.addColorStop(1, 'rgba(255,90,30,0)');
       ctx.fillStyle = g;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
@@ -2774,7 +2864,7 @@
     const tx = Math.floor((S.hoverPx.x - ox) / ts), ty = Math.floor((S.hoverPx.y - oy) / ts);
     if (tx < 0 || tx >= S.width || !inRegion(shownRegion(), ty)) { setHTML(info, ''); return; }
     const code = (S.tiles[ty] || '')[tx] || 'g';
-    const parts = [`<span class="hv-k">${tx},${ty}</span>`, `<span class="hv-v">${esc(T.terrainName(code))}</span>`];
+    const parts = [`<span class="hv-k">${esc(SwarmLayers.placeText(S.regions, tx, ty, ','))}</span>`, `<span class="hv-v">${esc(T.terrainName(code))}</span>`];
     for (const o of S.objAt.get(tx + ',' + ty) || []) {
       const own = o.label && ![o.kind, T.objectName(o.kind)].includes(String(o.label).toLowerCase());
       let s = own ? `${T.objectName(o.kind)} “${o.label}”` : T.objectName(o.kind);
@@ -3007,7 +3097,7 @@
   function renderVoiceScope() {
     const V = S.voice;
     $('voice-scope').innerHTML = V.target
-      ? `Only creatures within ${V.radius} tiles of <b>${V.target.x}, ${V.target.y}</b> will hear it. <button type="button" data-everyone>Speak to everyone</button>`
+      ? `Only creatures within ${V.radius} tiles of <b>${esc(SwarmLayers.placeText(S.regions, V.target.x, V.target.y))}</b> will hear it. <button type="button" data-everyone>Speak to everyone</button>`
       : 'Every awake creature will hear it. <kbd>Alt</kbd>-click the map to speak near one spot.';
   }
 

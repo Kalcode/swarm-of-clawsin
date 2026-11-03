@@ -208,3 +208,224 @@ def test_the_viewer_wires_the_switch():
     assert html.index('src="layers.js"') < html.index('src="viewer.js"') and 'id="layer-switch"' in html
     assert "SwarmLayers.followLayer" in src and "m.tiles" in src
     assert "SwarmLayers.landFor(m.nature" in src and "function landRows" not in src   # one rule for the land rows
+
+
+# ------------------------------------------------------------------------------------------ the deep (Task 14)
+@needs_node
+def test_underground_lights_come_from_fires_glows_carried_lights_and_open_pits(tmp_path, default_map):
+    out = run_layers(tmp_path, default_map, """
+      const R = L.regionsFrom(init), surface = L.byName(R, 'surface'), deep = L.byName(R, 'deep');
+      const tiles = init.tiles.slice();
+      const put = (x, y, c) => { tiles[y] = tiles[y].slice(0, x) + c + tiles[y].slice(x + 1); };
+      put(10, 20, 'O');                     // an open pit on the surface: daylight falls into the deep right below it
+      put(0, 0, 'O');                       // one in the map's corner: only what lies inside the deep is lit
+      const objects = [
+        { id: 'f1', kind: 'campfire', x: 30, y: 200, lit: true },
+        { id: 'f2', kind: 'campfire', x: 31, y: 200, lit: false },       // gone out: no light
+        { id: 'k1', kind: 'crystal_cluster', x: 40, y: 210 },
+        { id: 'r1', kind: 'rock', x: 41, y: 210 },
+        { id: 'f3', kind: 'campfire', x: 5, y: 5, lit: true },           // on the surface
+        { id: 'b1', kind: 'firefly', x: 6, y: 5 },
+      ];
+      const data = { crystal_cluster: { glow: 2 }, firefly: { glow: 2 }, rock: { name: 'rock' } };
+      const kindInfo = (k) => data[k] || null;
+      const creatures = [{ x: 50, y: 220, light: 4 }, { x: 51, y: 221 }, { x: 7, y: 7, light: 4 }];
+      const pick = (ls) => ls.map((l) => [l.type, l.x, l.y, l.r, l.a]);
+      out.deep = pick(L.lightsFor(deep, objects, creatures, kindInfo, tiles, R, 1));
+      out.night = L.lightsFor(deep, objects, creatures, kindInfo, tiles, R, 0.25).filter((l) => l.type === 'sky').map((l) => l.a);
+      out.surface = pick(L.lightsFor(surface, objects, creatures, kindInfo, tiles, R, 1));
+      out.dark = L.lightsFor(deep, [], [], kindInfo, init.tiles, R, 1);
+    """)
+    deep = {tuple(x) for x in out["deep"]}
+    sky = {t for t in deep if t[0] == "sky"}
+    assert deep - sky == {("fire", 30, 200, 4.6, 1), ("glow", 40, 210, 2.5, 1), ("carried", 50, 220, 4, 1)}
+    # under the pit at (10, 20): the tile right below it (10, 180) and its neighbours; under the corner pit only the
+    # tiles inside the deep
+    below = {(x, y) for x in (9, 10, 11) for y in (179, 180, 181)} | {(0, 160), (1, 160), (0, 161), (1, 161)}
+    assert {(x, y) for _, x, y, _, _ in sky} == below and len(sky) == len(below)
+    assert {(r, a) for _, _, _, r, a in sky} == {(1.2, 1)}      # as bright as the day above
+    assert out["night"] == [0.25] * len(below)                  # at night, as dim as the night
+    assert {t[0] for t in out["surface"]} == {"fire", "glow", "carried"}   # no skylight on the surface
+    assert all(y < 128 for _, _, y, _, _ in out["surface"])     # none from the deep, and none from the surface below
+    assert out["dark"] == []                                    # nothing lit: the deep is dark
+
+
+@needs_node
+def test_coordinates_below_are_counted_from_the_top_of_the_deep(tmp_path, default_map):
+    out = run_layers(tmp_path, default_map, """
+      const R = L.regionsFrom(init);
+      out.text = [[40, 20], [40, 221], [3, 160], [40, 140]].map(([x, y]) => L.placeText(R, x, y));
+      out.compact = L.placeText(R, 40, 221, ',');
+    """)
+    assert out["text"] == ["40, 20", "40, 61 below", "3, 0 below", "40, 140"]   # the band's rows stay as they are
+    assert out["compact"] == "40,61 below"
+
+
+# A browser just good enough for the skins' terrain: canvases whose 2D context records fills and the glyphs drawn.
+SKIN_HARNESS = r"""
+const fs = require('fs');
+const path = require('path');
+const WEB = process.argv[2];
+let calls = [];
+function ctx2d(el) {
+  const state = {};
+  return new Proxy(state, {
+    get(t, k) {
+      if (k in t) return t[k];
+      if (k === 'measureText') return (s) => ({ width: String(s).length * 8 });
+      return (...a) => {
+        calls.push({ fn: k, a, fill: t.fillStyle, el });
+        if (k === 'fillText' && el) el._chars.push(String(a[0]));
+        if (k === 'drawImage' && a[0] && a[0]._chars) for (const c of a[0]._chars) calls.push({ fn: 'char', a: [c] });
+        return { addColorStop() {} };
+      };
+    },
+    set(t, k, v) { t[k] = v; return true; },
+  });
+}
+const mkCanvas = () => { const el = { _chars: [], width: 0, height: 0, style: {}, toDataURL: () => '' }; el.getContext = () => ctx2d(el); return el; };
+global.document = { createElement: mkCanvas, documentElement: { style: { setProperty() {} }, classList: { add() {}, toggle() {} } } };
+global.window = global;
+global.getComputedStyle = () => ({ getPropertyValue: () => '' });
+global.performance = { now: () => 0 };
+const load = (f) => (0, eval)(fs.readFileSync(path.join(WEB, f), 'utf8'));
+const reset = () => { calls = []; };
+const chars = () => calls.filter((c) => c.fn === 'char').map((c) => c.a[0]);
+const out = {};
+"""
+
+CODES = "gdswWrfRcuthO"
+
+
+def run_skin(tmp_path, body: str, name: str, done: bool = True) -> dict:
+    """Runs a body in SKIN_HARNESS and returns its `out` (a body that runs async writes it itself: done=False)."""
+    harness = tmp_path / name
+    harness.write_text(SKIN_HARNESS + body + ("\nprocess.stdout.write(JSON.stringify(out));" if done else ""))
+    r = subprocess.run([NODE, str(harness), str(WEB)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+@needs_node
+def test_every_tile_code_renders_in_the_kenney_and_ascii_skins(tmp_path):
+    out = run_skin(tmp_path, """
+      load('tiles.js'); load('ascii.js');
+      const K = window.SwarmTiles, A = window.SwarmASCII, CODES = '%s';
+      out.names = Object.fromEntries([...CODES].map((c) => [c, K.terrainName(c)]));
+      out.own = [...CODES].filter((c) => Object.prototype.hasOwnProperty.call(K.TERRAIN, c));
+      out.water = [...CODES].filter((c) => K.isWater(c));
+      // Kenney: each tile of the pre-rendered row is filled with its own ground's colors
+      reset(); K.renderTerrain([CODES], CODES.length, 1, null);
+      const base = (x, s) => (calls.find((c) => c.fn === 'fillRect' && c.a[0] === x * s && c.a[1] === 0 && c.a[2] === s) || {}).fill;
+      out.kenney = Object.fromEntries([...CODES].map((c, x) => [c, [base(x, 16), K.TERRAIN[c] ? K.TERRAIN[c].base : null]]));
+      out.lum = K.rgb(K.TERRAIN.O.base[0]).reduce((a, b) => a + b, 0) / 765;
+      // ASCII: a background per tile, then its characters, drawn live
+      reset(); A.renderTerrain([CODES], CODES.length, 1, null);
+      out.asciiBg = [...CODES].map((c, x) => base(x, 1));
+      out.ascii = {};
+      for (const c of CODES) { reset(); A.drawGround(ctx2d(), [c + c, c + c], new Map(), 0, 0, 1, 1, 0, 0, 32, 1000); out.ascii[c] = [...new Set(chars())]; }
+      // the surface's land held (biomes and flow for 2 rows): rows past it draw without biome or flow
+      reset(); A.renderTerrain(['gw', 'gw'], 2, 2, { biomes: ['kk', 'kk'], flow: ['.0', '.0'] });
+      reset(); A.drawGround(ctx2d(), ['gw', 'gw', 'cu', 'cu'], new Map(), 0, 2, 1, 3, 0, 0, 32, 1000);
+      out.pastLand = [...new Set(chars())].sort();
+    """ % CODES, "skins_tiles.js")
+    names = out["names"]
+    assert names["R"] == "rock wall" and names["c"] == "cave floor" and names["u"] == "cave water"
+    assert names["t"] == "trench" and names["h"] == "pit" and names["O"] == "open pit"
+    assert "unknown ground" not in names.values() and len(set(names.values())) == len(CODES)
+    assert out["own"] == list(CODES)                          # no code falls back to grass
+    assert out["water"] == ["w", "W", "u"]                    # cave water is water: glints and shorelines
+    for code, (drawn, palette) in out["kenney"].items():
+        assert drawn in palette, (code, drawn, palette)
+    assert out["lum"] < 0.05                                  # an open pit is near black
+    assert len(set(out["asciiBg"][CODES.index("R"):])) == 6   # each deep and dug code its own background
+    assert out["ascii"]["R"] == ["#"] and out["ascii"]["c"] == ["."] and out["ascii"]["u"] == ["~"]
+    assert out["ascii"]["t"] == ["="] and out["ascii"]["h"] == ["o"] and out["ascii"]["O"] == ["◎"]
+    assert all("?" not in chars for chars in out["ascii"].values())
+    assert out["pastLand"] == [".", "~"]                      # no river arrows or crest, no marsh grass, past the land
+
+
+# A LimeZu build without art for the deep (flats for the surface's ground only), and one whose packs had some.
+LZ_TERRAIN = {"sheet": "terrain", "tint": {"W": "rgba(8,30,70,0.38)"},
+              "flats": {c: [[16 * i, 0, 16, 16]] for i, c in enumerate("gfdsrwW")},
+              "autotiles": {"shore": {"set": [0, 16], "inner": [48, 16]}, "grassHole": {"set": [0, 64], "inner": [48, 64]}},
+              "decor": {"sheet": "objects", "variants": [{"rect": [0, 0, 4, 4]}]},
+              "pebbles": {"sheet": "objects", "variants": [{"rect": [4, 0, 4, 4]}]}}
+LZ_PLAIN = {"sheets": {"terrain": "terrain.png", "objects": "objects.png"}, "characters": {"layers": []}, "animals": {},
+            "objects": {}, "terrain": LZ_TERRAIN}
+LZ_OWN = {**LZ_PLAIN, "terrain": {**LZ_TERRAIN, "flats": {**LZ_TERRAIN["flats"], "R": [[160, 0, 16, 16]], "c": [[176, 0, 16, 16]]}}}
+
+
+@needs_node
+def test_the_limezu_skin_draws_the_deep_from_its_flats_or_the_kenney_palette(tmp_path):
+    out = run_skin(tmp_path, """
+      load('tiles.js');
+      const K = window.SwarmTiles, manifests = %s;
+      let manifest = manifests.plain;
+      global.fetch = async () => ({ ok: true, json: async () => JSON.parse(JSON.stringify(manifest)) });
+      global.Image = class { set src(v) { this.width = 512; this.height = 512; setTimeout(() => this.onload && this.onload(), 0); } };
+      load('limezu.js');
+      const L = window.SwarmLimeZu, row = 'gRcuthO';
+      const look = () => {
+        reset(); L.renderTerrain([row], row.length, 1, null);
+        return [...row].map((c, x) => {
+          const flat = calls.find((k) => k.fn === 'drawImage' && k.a.length === 9 && k.a[3] === 16 && k.a[5] === x * 16);
+          const fill = calls.find((k) => k.fn === 'fillRect' && k.a[0] === x * 16 && k.a[1] === 0 && k.a[2] === 16 && k.a[3] === 16);
+          const edges = calls.filter((k) => k.fn === 'drawImage' && k.a.length === 9 && k.a[3] === 8 && k.a[5] >= x * 16 && k.a[5] < x * 16 + 16);
+          return { flat: flat ? [flat.a[1], flat.a[2]] : null, fill: fill ? fill.fill : null, edges: edges.length };
+        });
+      };
+      (async () => {
+        out.loaded = await L.load();
+        out.plain = look();
+        out.masks = calls.filter((k) => k.fn === 'fillRect' && k.a[2] === 1 && k.a[3] === 1).map((k) => [k.a[0], k.fill]);
+        out.palette = Object.fromEntries([...'RcthO'].map((c) => [c, K.TERRAIN[c].base]));
+        manifest = manifests.own;
+        await L.load();
+        out.own = look();
+        process.stdout.write(JSON.stringify(out));
+      })();
+    """ % json.dumps({"plain": LZ_PLAIN, "own": LZ_OWN}), "skins_limezu.js", done=False)
+    assert out["loaded"] is True
+    plain, own, palette = out["plain"], out["own"], out["palette"]
+    assert plain[0]["flat"] == [0, 0]                         # grass: its flat
+    for i, code in enumerate("Rc", start=1):                  # no flat for the deep: the Kenney palette, speckled
+        assert plain[i]["flat"] is None and plain[i]["fill"] in palette[code], (code, plain[i])
+    assert plain[3]["flat"] == [80, 0]                        # cave water: the pack's water...
+    assert any(x == 3 and fill != "rgba(8,30,70,0.38)" for x, fill in out["masks"])   # ...darkened
+    assert plain[2]["edges"] == 0                             # and no beach on the cave floor beside it
+    for i, code in enumerate("thO", start=4):
+        assert plain[i]["flat"] is None and plain[i]["fill"] in palette[code], (code, plain[i])
+    assert own[1]["flat"] == [160, 0] and own[2]["flat"] == [176, 0]   # a build with flats of its own uses them
+    assert own[4]["flat"] is None and own[4]["fill"] in palette["t"]
+
+
+@needs_node
+def test_no_weather_falls_in_the_deep(tmp_path):
+    out = run_skin(tmp_path, """
+      load('tiles.js'); load('effects.js');
+      const FX = window.SwarmFX;
+      const S = { clock: {}, tiles: ['cc', 'cc'], land: null, lit: [], objAt: new Map(), cres: new Map() };
+      const V = (sky) => ({ S, skin: { name: 'kenney' }, ox: 0, oy: 0, ts: 32, x0: 0, y0: 0, x1: 1, y1: 1, vw: 400, vh: 300,
+                            dpr: 1, now: 0, dt: 1, zoom: 2, sky });
+      const frame = (sky) => {
+        reset(); const ctx = ctx2d(); FX.under(ctx, V(sky)); FX.over(ctx, V(sky)); FX.sky(ctx, V(sky));
+        return { lines: calls.filter((c) => c.fn === 'lineTo').length,
+                 screen: calls.filter((c) => (c.fn === 'fillRect' && c.a[2] >= 400) || c.fn === 'drawImage').length };
+      };
+      for (const w of ['rain', 'storm', 'fog', 'heat']) {
+        S.clock.weather = w;
+        for (let i = 0; i < 10; i++) frame(true);            // the weather sets in
+        out[w] = { surface: frame(true), deep: frame(false) };
+      }
+    """, "effects_deep.js")
+    for w in ("rain", "storm", "fog", "heat"):
+        assert out[w]["surface"]["lines"] + out[w]["surface"]["screen"] > 0, w    # above, it shows
+        assert out[w]["deep"] == {"lines": 0, "screen": 0}, w                    # below, none of it
+
+
+def test_the_viewer_lights_the_deep_from_the_layers():
+    src = (WEB / "viewer.js").read_text()
+    assert "SwarmLayers.lightsFor(" in src and "DEEP_DARK = 0.92" in src
+    assert "SwarmLayers.placeText(" in src                     # hover, Places and the voice count rows from the deep's top
+    assert "sky: R.sky" in src                                 # effects.js is told when the region has no sky
