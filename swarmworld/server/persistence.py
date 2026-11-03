@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from ..mind.memory import Entry, Memory
 from ..mind.recall import RecallIndex
 from ..world.catalog import Catalog
-from ..world.model import Creature, World, WorldObject
+from ..world.model import Creature, Region, World, WorldObject
 from .wishes import Wishes
 
 if TYPE_CHECKING:
@@ -37,6 +37,7 @@ def snapshot(st: "ServerState") -> dict:
         "version": VERSION,
         "world": {
             "width": w.width, "height": w.height, "tiles": ["".join(r) for r in w.tiles], "tick": w.tick,
+            "seed": w.seed, "regions": [r.to_dict() for r in w.regions], "skylight": sorted([x, y] for x, y in w.skylight),
             "weather": getattr(w, "weather", "clear"), "weather_until": getattr(w, "weather_until", 0),
             "next_id": w._next_id, "discoveries": w.discoveries,
             "objects": [{"id": o.id, "kind": o.kind, "x": o.x, "y": o.y, "data": o.data} for o in w.objects.values()],
@@ -79,6 +80,9 @@ def restore(st: "ServerState", path: Path) -> None:
     data = json.loads(path.read_text())
     wd = data["world"]
     w = World(wd["width"], wd["height"], [list(r) for r in wd["tiles"]], Catalog.load())
+    w.seed = wd.get("seed")
+    w.regions = [Region(**r) for r in wd["regions"]] if wd.get("regions") else [Region("surface", 0, 0, w.height, True, True)]
+    w.skylight = {(x, y) for x, y in wd.get("skylight", [])}
     from ..world.actions import invention_effects, is_toolish
     for inv in data.get("inventions", []):
         words = inv["name"] + " " + inv.get("desc", "")
