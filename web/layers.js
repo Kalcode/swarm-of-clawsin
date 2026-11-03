@@ -94,5 +94,17 @@
     return { tiles: out, dirty: regions.filter((r) => hit.has(r.name)).map((r) => r.name) };
   }
 
-  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles };
+  /** The init message's land rows (biomes, river flow) to draw the surface with, or null. They cover the surface's
+   *  rows only (the deep has none), so they are checked against the surface's height, not the whole map's. A list
+   *  with the wrong number of rows, or rows of the wrong width, is left out. */
+  function landFor(nature, width, regions) {
+    const surface = byName(regions, 'surface');
+    if (!surface || !nature || typeof nature !== 'object') return null;
+    const h = surface.height;
+    const ok = (rows) => Array.isArray(rows) && rows.length === h && rows.every((r) => typeof r === 'string' && r.length === width);
+    const land = { biomes: ok(nature.biomes) ? nature.biomes : null, flow: ok(nature.flow) ? nature.flow : null };
+    return land.biomes || land.flow ? land : null;
+  }
+
+  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor };
 })();

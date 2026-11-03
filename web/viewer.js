@@ -259,10 +259,8 @@
     S.tiles = Array.isArray(m.tiles) ? m.tiles : [];
     S.regions = SwarmLayers.regionsFrom(m);
     if (!SwarmLayers.byName(S.regions, S.layer)) S.layer = (SwarmLayers.byName(S.regions, 'surface') || S.regions[0]).name;
-    const top = SwarmLayers.byName(S.regions, 'surface');
-    S.land = top ? landRows(m.nature, S.width, top.height) : null;   // the surface's biomes and rivers
+    S.land = SwarmLayers.landFor(m.nature, S.width, S.regions);   // the surface's biomes and rivers
     T.setKinds(m.kinds);
-    S.dirty.clear();
     S.terrains = {};
     renderTerrains();
     if (FX) FX.reset();
@@ -306,13 +304,17 @@
   }
 
   /** Pre-renders the terrain of the named regions (all when none are named), each from its own rows; only the
-   *  surface has land rows (biomes, rivers). The ASCII skin keeps the land of its last render for the glyphs it
-   *  draws live, so the surface goes last, and again whenever another region is redrawn while it keeps land. */
+   *  surface has land rows (biomes, rivers). The ASCII skin keeps the land of its last render for the glyphs it draws
+   *  live (groundLand), so the surface goes last. */
+  let groundLand = null;
   function renderTerrains(names) {
-    const redo = S.regions.filter((r) => !names || names.has(r.name) || (r.name === 'surface' && SK.drawGround && S.land));
+    const redo = S.regions.filter((r) => !names || names.has(r.name));
     redo.sort((a, b) => (a.name === 'surface') - (b.name === 'surface'));
     for (const r of redo) {
-      S.terrains[r.name] = SK.renderTerrain(S.tiles.slice(r.y0, r.y1), S.width, r.height, r.name === 'surface' ? S.land : null);
+      const land = r.name === 'surface' ? S.land : null;
+      S.terrains[r.name] = SK.renderTerrain(S.tiles.slice(r.y0, r.y1), S.width, r.height, land);
+      groundLand = land;
+      S.dirty.delete(r.name);
     }
   }
 
@@ -321,14 +323,6 @@
     return SwarmLayers.byName(S.regions, S.layer) || S.regions[0] || SwarmLayers.regionsFrom(S)[0];
   }
   const inRegion = (R, y) => y >= R.y0 && y < R.y1;
-
-  /** The init message's biomes and river flow (rows aligned with the tiles), or null when it has none. */
-  function landRows(nature, w, h) {
-    if (!nature || typeof nature !== 'object') return null;
-    const ok = (rows) => Array.isArray(rows) && rows.length === h && rows.every((r) => typeof r === 'string' && r.length === w);
-    const land = { biomes: ok(nature.biomes) ? nature.biomes : null, flow: ok(nature.flow) ? nature.flow : null };
-    return land.biomes || land.flow ? land : null;
-  }
 
   function applyTick(m) {
     if (!S.loaded) return;
@@ -367,7 +361,7 @@
     if (namesChanged) indexNames();
     if (climbed) setLayer(SwarmLayers.followLayer(S.regions, S.layer, climbed.y), climbed);
 
-    // tiles dug, filled or flooded since the last tick: their regions' terrain is drawn again on the next frame
+    // tiles dug, filled or flooded since the last tick: their regions' terrain is drawn again when on show
     if (Array.isArray(m.tiles)) {
       const t = SwarmLayers.applyTiles(S.tiles, m.tiles, S.regions);
       S.tiles = t.tiles;
@@ -2137,7 +2131,6 @@
     ctx.fillStyle = '#0c090f';
     ctx.fillRect(0, 0, vw, vh);
     if (!S.loaded) return;
-    if (S.dirty.size) { const names = S.dirty; S.dirty = new Set(); renderTerrains(names); }   // at most once a frame
 
     // zoom easing (keeps the point under the cursor fixed)
     const Z = S.zoom;
@@ -2156,6 +2149,9 @@
     const fol = S.following && S.selected ? S.cres.get(S.selected) : null;
     if (fol) setLayer(SwarmLayers.followLayer(S.regions, S.layer, fol.ty));
     const R = shownRegion();
+    // a region whose tiles changed is drawn again once it is on show (at most once a frame); the surface also when
+    // another region's render took its land from a skin that draws its ground live
+    if (S.dirty.has(R.name) || (SK.drawGround && R.name === 'surface' && groundLand !== S.land)) renderTerrains(new Set([R.name]));
 
     // creature positions for this frame; only those in the region on show are drawn
     const list = [];
@@ -2197,11 +2193,15 @@
     const top = oy + R.y0 * ts;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(ox - 6, top - 6, S.width * ts + 12, R.height * ts + 12);
-    // nothing of another region shows past the band of rock between them (tall sprites may reach above the top row)
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, top - 3 * ts, vw, (R.height + 4) * ts);
-    ctx.clip();
+    // nothing of another region shows past the band of rock between them (tall sprites may reach above the top row);
+    // a world of one region draws as it always did
+    const clipped = S.regions.length > 1;
+    if (clipped) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, top - 3 * ts, vw, (R.height + 4) * ts);
+      ctx.clip();
+    }
     if (S.terrains[R.name]) ctx.drawImage(S.terrains[R.name], ox, top, S.width * ts, R.height * ts);
     // the ASCII skin draws its terrain characters live, so they stay crisp at every zoom
     if (SK.drawGround) SK.drawGround(ctx, S.tiles, S.objAt, x0, y0, x1, y1, ox, oy, ts, now);
@@ -2264,7 +2264,7 @@
       ROOFS.draw(ctx, SK, V, who ? Math.round(who.rx) : -1, who ? Math.round(who.ry) : -1);
     }
     if (FX) FX.over(ctx, V);
-    ctx.restore();
+    if (clipped) ctx.restore();
     drawNight(list, ox, oy, ts, now);
     if (FX) FX.sky(ctx, V);
     for (const [hx, hy, o] of tamed) drawHeart(hx + ts / 2, hy + ts - (ANIMAL_TOP[o.kind] || 1) * ts - 2, ts);

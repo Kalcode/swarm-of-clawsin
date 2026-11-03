@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from swarmworld.world.terrain import generate_world
+
 WEB = Path(__file__).resolve().parent.parent / "web"
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
@@ -165,7 +167,44 @@ def test_tile_changes_mark_their_region_dirty(tmp_path, default_map):
     assert out["none"] == {"dirty": [], "same": True}
 
 
+@pytest.fixture(scope="module")
+def land_inits() -> dict:
+    """Init messages of real generated worlds: with the deep (288 rows, land rows for the 128 of the surface) and
+    without it (128 rows, 128 land rows)."""
+    def pick(init):
+        return {k: init[k] for k in ("width", "height", "regions", "nature")}
+    return {"deep": pick(generate_world(7).to_init()), "flat": pick(generate_world(7, deep=False).to_init())}
+
+
+@needs_node
+def test_the_land_rows_are_the_surfaces(tmp_path, land_inits):
+    deep, flat = land_inits["deep"], land_inits["flat"]
+    assert deep["height"] == 288 and len(deep["nature"]["biomes"]) == 128           # the surface's rows only
+    assert flat["height"] == 128 and len(flat["nature"]["biomes"]) == 128
+    out = run_layers(tmp_path, land_inits, """
+      const land = (i) => L.landFor(i.nature, i.width, L.regionsFrom(i));
+      const used = (got, i) => got && [got.biomes === i.nature.biomes, got.flow === i.nature.flow];
+      out.deep = used(land(init.deep), init.deep);
+      out.flat = used(land(init.flat), init.flat);
+      const n = init.deep.nature;
+      out.short = land({ ...init.deep, nature: { biomes: n.biomes.slice(1), flow: n.flow.slice(1) } });
+      const half = land({ ...init.deep, nature: { biomes: n.biomes, flow: n.flow.slice(1) } });
+      out.half = half && [half.biomes === n.biomes, half.flow];
+      out.narrow = land({ ...init.deep, nature: { biomes: n.biomes.map((r) => r.slice(1)) } });
+      out.none = [land({ ...init.deep, nature: undefined }), land({ ...init.deep, nature: 'rows' })];
+      out.noSurface = L.landFor(n, init.deep.width, L.regionsFrom(init.deep).filter((r) => r.name !== 'surface'));
+    """)
+    assert out["deep"] == [True, True]          # a world with a deep keeps its biomes and rivers
+    assert out["flat"] == [True, True]          # a world without one, as before
+    assert out["short"] is None                 # a row short of the surface: no land
+    assert out["half"] == [True, None]          # the good rows are kept, the bad ones dropped
+    assert out["narrow"] is None
+    assert out["none"] == [None, None]
+    assert out["noSurface"] is None
+
+
 def test_the_viewer_wires_the_switch():
     src, html = (WEB / "viewer.js").read_text(), (WEB / "index.html").read_text()
     assert html.index('src="layers.js"') < html.index('src="viewer.js"') and 'id="layer-switch"' in html
     assert "SwarmLayers.followLayer" in src and "m.tiles" in src
+    assert "SwarmLayers.landFor(m.nature" in src and "function landRows" not in src   # one rule for the land rows

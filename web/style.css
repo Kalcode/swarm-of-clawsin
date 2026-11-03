@@ -1139,8 +1139,10 @@ button.wwho:hover { text-decoration-color: currentColor; }
   .hstats { display: none; }
 }
 @media (max-width: 440px) {
-  /* the brand keeps its campfire so every button still fits */
+  /* the brand keeps its campfire so every button still fits; without the sprites, a monogram instead of the name */
   .brand { width: 24px; overflow: hidden; }
+  html:not(.sprites-ok) .brand-fallback { font-size: 0; letter-spacing: 0; }
+  html:not(.sprites-ok) .brand-fallback::before { content: "SW"; font-size: 12px; letter-spacing: 0.04em; }
 }
 
 @media (prefers-reduced-motion: reduce) {
