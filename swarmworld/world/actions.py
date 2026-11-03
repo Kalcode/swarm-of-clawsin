@@ -1461,8 +1461,11 @@ def _program(world: World, c: Creature, it: Intention) -> ActionResult:
     term = find_object(world, c, it.target or "terminal", max_dist=1, kinds={"terminal"})
     if not term:
         far = find_object(world, c, it.target or "terminal", kinds={"terminal"})
-        if far and code:
+        if far:
             return _walk_then(world, c, far, it)
+        spot = _recall(world, c, it.target or "terminal", {"terminal"})  # one remembered, out of sight
+        if spot:
+            return _walk_to_spot(world, c, *spot, then=it)
         return ActionResult(False, "There's no terminal within reach to program.")
     if not code:
         return ActionResult(False, 'The terminal blinks, waiting. Its screen says it wants a Lua program, written in text. '
