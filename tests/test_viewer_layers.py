@@ -424,8 +424,60 @@ def test_no_weather_falls_in_the_deep(tmp_path):
         assert out[w]["deep"] == {"lines": 0, "screen": 0}, w                    # below, none of it
 
 
+@needs_node
+def test_rain_falls_through_an_open_pit_only(tmp_path):
+    """Below, a creature on a tile open to the sky is told it rains: the viewer draws the rain there, clipped to those
+    tiles, and nowhere else in the deep; fog and heat stay above."""
+    out = run_skin(tmp_path, """
+      load('tiles.js'); load('effects.js');
+      const FX = window.SwarmFX;
+      const S = { clock: {}, tiles: ['cc', 'cc'], land: null, lit: [], objAt: new Map(), cres: new Map() };
+      const V = (skylit) => ({ S, skin: { name: 'kenney' }, ox: 0, oy: 0, ts: 32, x0: 0, y0: 0, x1: 1, y1: 1, vw: 400,
+                               vh: 300, dpr: 1, now: 0, dt: 1, zoom: 2, sky: false, skylit });
+      const frame = (skylit) => {
+        reset(); const ctx = ctx2d(); FX.under(ctx, V(skylit)); FX.over(ctx, V(skylit)); FX.sky(ctx, V(skylit));
+        return { lines: calls.filter((c) => c.fn === 'lineTo').length, clip: calls.filter((c) => c.fn === 'clip').length,
+                 rects: calls.filter((c) => c.fn === 'rect').map((c) => c.a),
+                 screen: calls.filter((c) => (c.fn === 'fillRect' && c.a[2] >= 400) || c.fn === 'drawImage').length };
+      };
+      for (const w of ['rain', 'fog', 'heat']) {
+        S.clock.weather = w;
+        for (let i = 0; i < 10; i++) frame(null);
+        out[w] = { pit: frame([{ x: 1, y: 3 }]), none: frame([]), old: frame(undefined) };
+      }
+    """, "effects_pit.js")
+    assert out["rain"]["pit"]["lines"] > 0 and out["rain"]["pit"]["clip"] == 1
+    assert out["rain"]["pit"]["rects"] == [[32, 96, 32, 32]]          # just the tile under the open pit
+    for w in ("rain", "fog", "heat"):
+        assert out[w]["none"] == out[w]["old"] == {"lines": 0, "clip": 0, "rects": [], "screen": 0}, w
+        assert out[w]["pit"]["screen"] == 0, w
+    assert out["fog"]["pit"]["lines"] == out["heat"]["pit"]["lines"] == 0
+
+
+@needs_node
+def test_skylit_tiles_and_the_holes_round_unlit_creatures(tmp_path, default_map):
+    out = run_layers(tmp_path, default_map, """
+      const R = L.regionsFrom(init), deep = L.byName(R, 'deep'), surface = L.byName(R, 'surface');
+      const tiles = init.tiles.slice();
+      tiles[20] = tiles[20].slice(0, 10) + 'O' + tiles[20].slice(11);
+      out.lit = L.skylitTiles(deep, tiles, R).map((t) => [t.x, t.y]);
+      out.sky = L.lightsFor(deep, [], [], () => null, tiles, R, 1).filter((l) => l.type === 'sky').map((l) => [l.x, l.y]);
+      out.none = L.skylitTiles(deep, init.tiles, R).length;
+      out.top = L.skylitTiles(surface, tiles, R).length;
+      out.holes = [{}, { asleep: true }, { sleeping: true }, { light: 4 }, { light: 4, asleep: true }, null].map(L.darkHole);
+    """)
+    assert sorted(map(tuple, out["lit"])) == sorted((x, y) for x in (9, 10, 11) for y in (179, 180, 181))
+    assert out["sky"] == out["lit"] and out["none"] == 0 and out["top"] == 0
+    awake, asleep, sleeping, lit, lit_asleep, none = out["holes"]
+    assert awake == {"r": 1.5, "a": 0.5}                              # the step an unlit creature sees
+    assert asleep == sleeping and 0 < asleep["r"] < awake["r"] and 0 < asleep["a"] < awake["a"]   # faint, but there
+    assert lit is None and lit_asleep is None and none is None        # a light of its own lights it instead
+
+
 def test_the_viewer_lights_the_deep_from_the_layers():
     src = (WEB / "viewer.js").read_text()
     assert "SwarmLayers.lightsFor(" in src and "DEEP_DARK = 0.92" in src
     assert "SwarmLayers.placeText(" in src                     # hover, Places and the voice count rows from the deep's top
     assert "sky: R.sky" in src                                 # effects.js is told when the region has no sky
+    assert "SwarmLayers.skylitTiles(" in src                    # ...and which of its tiles lie open to the sky
+    assert "SwarmLayers.darkHole(" in src                       # unlit creatures below, awake or asleep, stay visible

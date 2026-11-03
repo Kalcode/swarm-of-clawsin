@@ -334,6 +334,24 @@ def test_cave_mushrooms_glow_and_regrow(two_levels):
     assert patch.kind == "cave_mushrooms" and gather(w, c, "cave mushrooms").ok
 
 
+def test_cave_mushroom_patches_read_right_one_or_many(two_levels):
+    """A patch, and patches: never "cave mushroomses"; "cave mushrooms" still names one."""
+    w = two_levels(24)
+    deep = w.region("deep")
+    c = person(w, "Tam", 5, deep.y0 + 5)
+    assert registry.KINDS["cave_mushrooms"]["name"] == "cave mushroom patch"
+    assert registry.KINDS["cave_mushrooms_picked"]["name"] == "picked-over cave mushroom patch"
+    assert "cave mushrooms" in registry.KINDS["cave_mushrooms"]["aliases"]
+    w.add_object("cave_mushrooms", 6, deep.y0 + 5)
+    assert "You see: a cave mushroom patch right beside you to the east." in perceive(w, c)
+    w.add_object("cave_mushrooms", 6, deep.y0 + 4)
+    w.add_object("cave_mushrooms_picked", 4, deep.y0 + 5)
+    view = perceive(w, c)
+    assert "2 cave mushroom patches, the nearest right beside you" in view and "mushroomses" not in view
+    assert "a picked-over cave mushroom patch right beside you to the west" in view
+    assert gather(w, c, "cave mushrooms").ok
+
+
 def test_deep_things_placed_once(prepack_save, tmp_path):
     st = ServerState(seed=1)
     restore(st, prepack_save)

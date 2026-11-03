@@ -80,6 +80,10 @@ def test_landmarks_stay_in_their_region(pair):
     note_spots(w, top, w.tick)
     assert top.landmarks_seen == {"the old oak"}
     assert find_landmark(w, top, "the dripping hall") is None
+    assert landmark_elsewhere(w, top, "the dripping hall") is None  # never been near it: no place it knows
+    res = apply_intention(w, top, Intention("walk_to", target="the dripping hall"))
+    assert not res.ok and res.message == "You don't see any 'the dripping hall' around you."
+    top.landmarks_seen.add("the dripping hall")
     assert landmark_elsewhere(w, top, "the dripping hall")["name"] == "the dripping hall"
     assert landmark_elsewhere(w, top, "the old oak") is None
     assert find_landmark(w, low, "the dripping hall")["name"] == "the dripping hall"
@@ -90,8 +94,33 @@ def test_landmarks_stay_in_their_region(pair):
 def test_walk_to_a_place_below_says_how_to_get_there(pair, monkeypatch):
     w, top, low = pair
     w.landmarks = [{"name": "the dripping hall", "x": 12, "y": 28, "kind": "hall", "size": 1}]
+    top.landmarks_seen.add("the dripping hall")
     monkeypatch.setattr(actions, "way_to_region", lambda w, c, r: f"WAY TO {r.name}")
     assert apply_intention(w, top, Intention("walk_to", target="the dripping hall")).message == "WAY TO deep"
+
+
+def test_a_place_below_matches_only_by_its_whole_name_once_known(pair, monkeypatch):
+    """Another region's places match a creature that has known them, by the whole name ("the dripping hall", "dripping
+    hall", "go to the dripping hall below"), never by a word of it."""
+    w, top, low = pair
+    w.landmarks = [{"name": "the dripping hall", "x": 12, "y": 28, "kind": "hall", "size": 1}]
+    top.landmarks_seen.add("the dripping hall")
+    for target in ("the dripping hall", "dripping hall", "the dripping hall below"):
+        assert (landmark_elsewhere(w, top, target) or {}).get("name") == "the dripping hall", target
+    for target in ("hall", "the hall", "dripping", "dripping halls", "hallway"):
+        assert landmark_elsewhere(w, top, target) is None, target
+
+
+def test_a_place_here_too_far_to_walk_is_not_one_below(two_levels):
+    """A place on the surface by that name, beyond a long walk, keeps walk_to's old answer: not the deep's namesake."""
+    w = two_levels(64, gap=0)
+    top = person(w, "Top", 2, 2)
+    w.landmarks = [{"name": "the old hall", "x": 60, "y": 60, "kind": "hall", "size": 1},
+                   {"name": "the old hall", "x": 2, "y": 70, "kind": "hall", "size": 1}]
+    top.landmarks_seen.add("the old hall")
+    assert landmark_elsewhere(w, top, "the old hall") is None
+    res = apply_intention(w, top, Intention("walk_to", target="the old hall"))
+    assert not res.ok and res.message == "You don't see any 'the old hall' around you."
 
 
 def test_remembered_spots_stay_in_their_region(pair):
@@ -253,5 +282,6 @@ def test_core_default_says_you_cannot_walk_there(pair, monkeypatch):
     w, top, low = pair
     monkeypatch.setattr(actions, "way_to_region", lambda world, c, region: "You can't walk there from here.")
     w.landmarks = [{"name": "the dripping hall", "x": 12, "y": 28, "kind": "hall", "size": 1}]
+    top.landmarks_seen.add("the dripping hall")
     res = apply_intention(w, top, Intention("walk_to", target="the dripping hall"))
     assert not res.ok and res.message == "You can't walk there from here."

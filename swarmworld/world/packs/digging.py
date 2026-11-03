@@ -206,11 +206,13 @@ def why_not_dig(world: World, c: Creature, x: int, y: int, deep: bool) -> str | 
 
 def ladder_spot(world: World, x: int, y: int, kind: str) -> tuple[int, int] | None:
     """Where the ladder of a way down from (x, y) would stand, changing nothing: the spot below if nothing lies there,
-    else the nearest free tile of the chamber that would open (radius CHAMBER[kind]); None when there is no room."""
+    else the nearest free tile of the chamber that would open (radius CHAMBER[kind]), never in cave water; None when
+    there is no room."""
     at = world.below(x, y)
     if at is None:
         return None
-    free = [p for p in chamber_tiles(world, *at, CHAMBER[kind]) if p not in world.grid]
+    free = [p for p in chamber_tiles(world, *at, CHAMBER[kind])
+            if p not in world.grid and world.tile(*p) not in WATER_TILES]
     return min(free, key=lambda p: (dist(*p, *at), abs(p[0] - at[0]) + abs(p[1] - at[1]), p[1], p[0]), default=None)
 
 

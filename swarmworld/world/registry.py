@@ -368,7 +368,8 @@ LANDMARK_SOURCES: list[Callable[["World"], list[dict]]] = []
 
 def register_landmarks(fn: Callable[["World"], list[dict]]) -> None:
     """Named places a pack knows: fn(world) returns [{"name", "x", "y", "kind"}, ...], merged into world.landmarks each
-    time the simulation works them out (every 60 ticks). Creatures hear of a place only in its own region. A failing
+    time the simulation works them out (every 60 ticks). Creatures hear of a place only in its own region, and know it
+    once within LANDMARK_RANGE of it; with "by_sight": True, only once they have seen it (within their sight). A failing
     source is skipped."""
     source = _caller()
     _check_free("landmarks", id(fn), source, shown=getattr(fn, "__qualname__", repr(fn)))

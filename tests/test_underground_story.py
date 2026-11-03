@@ -155,7 +155,7 @@ def test_the_whole_story(prepack_save, tmp_path):
     view = perceive(w, ada)
     assert "your lit torch lights the stone around you" in view and "You stand on cave floor, by a cave exit." in view
     assert "Grey daylight glimmers right here: the way up to the south cave." in view
-    assert "cave mushrooms" in view
+    assert "cave mushroom patch" in view
 
     # ---- anti-goals: no sight or sound through the ground, no weather below
     assert visible_creatures(w, ada) == [] and visible_creatures(w, bo) == []

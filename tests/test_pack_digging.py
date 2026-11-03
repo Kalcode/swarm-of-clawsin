@@ -444,3 +444,26 @@ def test_dig_tip_beside_rock_with_a_pickaxe_only(two_levels):
     assert tip.trigger(w, c) is None
     c.x, c.y = 11, 5  # up on the surface, far from water and dug land (tests/test_terraform.py has the rest)
     assert tip.trigger(w, c) is None
+
+
+def test_no_ladder_or_arrival_in_cave_water(two_levels):
+    """The ladder of a way down stands on dry floor of its chamber, never in cave water; one climbing down beside a
+    crowded end steps onto dry floor too."""
+    from swarmworld.world.packs.digging import ladder_spot
+    w = two_levels(24)
+    at = w.below(12, 12)
+    for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
+        w.set_tile(at[0] + dx, at[1] + dy, "u")
+    spot = ladder_spot(w, 12, 12, "shaft")
+    assert spot == (at[0] - 1, at[1] - 1) and w.tile(*spot) == "c"
+    for dx in (-1, 1):
+        for dy in (-1, 1):
+            w.set_tile(at[0] + dx, at[1] + dy, "u")
+    assert ladder_spot(w, 12, 12, "shaft") is None  # all water below: no room for a ladder
+    w.set_tile(*at, "c")
+    blocker = Creature("c9", "Bo", *at, asleep=False)
+    w.creatures[blocker.id] = blocker
+    c = Creature("c1", "Ada", 3, 3, asleep=False)
+    w.creatures[c.id] = c
+    there = underground._arrival(w, c, at)
+    assert there and w.tile(*there) == "c" and dist(*there, *at) == 2

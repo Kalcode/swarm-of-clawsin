@@ -14,7 +14,8 @@
  * fog, lightning, heat). In the ASCII skin particles are drawn as faint characters.
  *
  * The view tells whether the region on show is under the sky (V.sky false: the deep): there, no weather, no
- * rivers and no falling leaves are drawn (the weather keeps easing, so the surface looks right on the way back);
+ * rivers and no falling leaves are drawn (the weather keeps easing, so the surface looks right on the way back),
+ * but for rain on the tiles open to the sky through an open pit (V.skylit, [{x, y}]), as creatures there are told;
  * fires, smoke, sparks, dust and sparkles are drawn in every region.
  */
 (function () {
@@ -315,7 +316,10 @@
       }
     }
     ctx.restore();
-    if (V.sky === false) return;          // the deep: no sky, no weather
+    if (V.sky === false) {                // the deep: no sky, no weather, but rain on the tiles open to the sky above
+      if (V.skylit && V.skylit.length) drawRainThrough(ctx, V);
+      return;
+    }
 
     // a darker, cooler sky in rain and storms; warm in heat
     const gloom = W.rain * 0.2 + W.drizzle * 0.1 + W.storm * 0.3;
@@ -360,6 +364,17 @@
       ctx.lineTo(px - len * slant * l, py + len * l);
     }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Rain falling through open pits into the deep: the rain, clipped to the tiles open to the sky (V.skylit). */
+  function drawRainThrough(ctx, V) {
+    const { ox, oy, ts } = V;
+    ctx.save();
+    ctx.beginPath();
+    for (const t of V.skylit) ctx.rect(ox + t.x * ts, oy + t.y * ts, ts, ts);
+    ctx.clip();
+    drawRain(ctx, V);
     ctx.restore();
   }
 

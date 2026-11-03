@@ -125,29 +125,44 @@
     for (const c of creatures || []) {
       if (c && c.light > 0 && inside(c.y)) out.push({ x: c.x, y: c.y, r: c.light, a: 1, type: 'carried' });
     }
-    // daylight through an open pit: the region one level up, scanned for "O"; the deep's rows lie under its rows
-    const up = (regions || []).find((r) => r.level === region.level + 1);
-    if (up) {
-      const a = Math.max(0, Math.min(1, clockLight));
-      const lit = new Set();
-      for (let k = 0; k < up.height; k++) {
-        const row = tiles[up.y0 + k];
-        if (typeof row !== 'string') continue;
-        for (let x = row.indexOf('O'); x >= 0; x = row.indexOf('O', x + 1)) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const j = k + dy;              // the row offset below; its tile above must lie in the region above
-            if (j < 0 || j >= region.height || j >= up.height) continue;
-            for (let dx = -1; dx <= 1; dx++) {
-              const tx = x + dx;
-              if (tx < 0 || tx >= row.length || lit.has(tx + ',' + j)) continue;
-              lit.add(tx + ',' + j);
-              out.push({ x: tx, y: region.y0 + j, r: 1.2, a, type: 'sky' });
-            }
+    const a = Math.max(0, Math.min(1, clockLight));
+    for (const t of skylitTiles(region, tiles, regions)) out.push({ x: t.x, y: t.y, r: 1.2, a, type: 'sky' });
+    return out;
+  }
+
+  /** The tiles of a region open to the sky through an open pit, [{x, y}]: those whose tile one level up, or a
+   *  neighbour of it, is "O" (the server's skylight: day or night and rain reach them). The region one level up is
+   *  scanned for "O"; the deep's rows lie under its rows. None on the surface (nothing above it). */
+  function skylitTiles(region, tiles, regions) {
+    const out = [];
+    const up = region && (regions || []).find((r) => r.level === region.level + 1);
+    if (!up) return out;
+    const lit = new Set();
+    for (let k = 0; k < up.height; k++) {
+      const row = tiles[up.y0 + k];
+      if (typeof row !== 'string') continue;
+      for (let x = row.indexOf('O'); x >= 0; x = row.indexOf('O', x + 1)) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const j = k + dy;              // the row offset below; its tile above must lie in the region above
+          if (j < 0 || j >= region.height || j >= up.height) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const tx = x + dx;
+            if (tx < 0 || tx >= row.length || lit.has(tx + ',' + j)) continue;
+            lit.add(tx + ',' + j);
+            out.push({ x: tx, y: region.y0 + j });
           }
         }
       }
     }
     return out;
+  }
+
+  /** The hole in the dark below round a creature that carries no light, in tiles ({r, a}: radius and strength):
+   *  awake, the step it sees (r 1.5); asleep, its mind away, or sleeping, a faint one, so it can still be found. One
+   *  that carries a light is lit by lightsFor instead: null. */
+  function darkHole(c) {
+    if (!c || c.light > 0) return null;
+    return c.asleep || c.sleeping ? { r: 0.8, a: 0.28 } : { r: 1.5, a: 0.5 };
   }
 
   /** A tile's coordinates as people read them: x, then the row counted from the top of its own region, "below" for
@@ -160,5 +175,5 @@
   }
 
   window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor,
-                         lightsFor, placeText };
+                         lightsFor, skylitTiles, darkHole, placeText };
 })();

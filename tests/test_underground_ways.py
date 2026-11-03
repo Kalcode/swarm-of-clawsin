@@ -1,6 +1,6 @@
 """The underground pack II (Task 8): climbing down and up, the way back always told."""
 
-from swarmworld.world import actions, registry
+from swarmworld.world import actions, perception, registry
 from swarmworld.world.actions import Intention, apply_intention, step_activity
 from swarmworld.world.model import LIGHT_ITEMS, Creature
 from swarmworld.world.packs import underground
@@ -233,3 +233,161 @@ def test_shaft_line_within_three():
     underground.add_portal(w, "shaft", "the east shaft", up, down)
     c = person(w, "Ada", up[0] + 2, up[1])
     assert underground._way_line(w, c) == "A mine shaft drops into the dark 2 steps west; a ladder leads down."
+
+
+# ------------------------------------------------------------------ final fix wave: which way, and ways told
+UP2 = (UP[0] + 10, UP[1])  # a second cave mouth, 10 steps east of the first
+
+
+def clear_around(w, x, y, tile, r=4):
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            w.set_tile(x + dx, y + dy, tile)
+            if (x + dx, y + dy) in w.grid:
+                w.remove_object(w.grid[(x + dx, y + dy)])
+
+
+def world_with_two_mouths():
+    w, p = world_with_mouth()
+    clear_around(w, *UP2, "g")
+    clear_around(w, *w.below(*UP2), "c")
+    for end in (UP, p["down"]):  # nothing that glows near either end: the dark is dark
+        clear_around(w, *end, w.tile(*end))
+    return w, p, underground.add_portal(w, "cave", "the east cave", UP2, w.below(*UP2))
+
+
+def at_night(w):
+    from swarmworld.world.model import DAY_TICKS
+    w.tick = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)
+    assert w.clock()["phase"] == "night"
+
+
+def test_leaving_the_deep_climbs_up():
+    """At a cave exit, words for leaving the deep mean up ("out of", "leave", "from" the deep, underground, the caves
+    below); "up" and an up-verb win over a deep word; words both ways lead away from where you are; punctuation is no
+    word."""
+    from swarmworld.world.actions import parse_intention
+    w, p = world_with_mouth()
+    cases = [("climb", "out of the deep"), ("climb", "leave the deep"), ("go_up", "out of the deep"),
+             ("ascend", "from underground"), ("climb_up", "out of the caves below"),
+             ("walk_to", "up to the surface from underground"), ("walk_to", "the surface, out of the deep"),
+             ("ascend", "the deep"), ("climb", "the deep, up!"), ("climb", "the surface, from the deep below")]
+    for verb, target in cases:
+        c = person(w, "Kit", *p["down"])
+        c.energy = 80
+        res = apply_intention(w, c, parse_intention({"action": verb, "target": target}))
+        assert res.message == "You climb back up to the surface at the north cave.", (verb, target, res.message)
+        del w.creatures[c.id]
+    for verb, target in [("climb", "down from the surface"), ("climb", "the deep, out of the daylight"),
+                         ("descend", "the surface")]:  # on the surface, both ways: away from it, down
+        c = person(w, "Kit", UP[0] + 1, UP[1])
+        res = apply_intention(w, c, parse_intention({"action": verb, "target": target}))
+        assert res.message.startswith("You climb down into the deep at the north cave."), (verb, target, res.message)
+        del w.creatures[c.id]
+    d = person(w, "Bo", *p["down"])  # still a refusal when it says down and only down
+    assert climb(w, d, "down into the deep").message == "This is the way up; there is nothing deeper."
+    assert parse_intention({"action": "ascend", "target": "the deep"}).said == "ascend"
+    assert parse_intention({"action": "climb", "target": "x"}).said == ""
+
+
+def test_a_way_told_is_a_way_known_on_the_surface():
+    """At night a cave mouth 3 steps off is out of sight (2), but the way line names it: climb down and walk_to the
+    cave mouth then find it."""
+    w, p = world_with_mouth()
+    at_night(w)
+    c = person(w, "Nim", UP[0] + 3, UP[1])
+    c.energy = 80
+    assert perception.sight_range(w, c) == perception.NIGHT_SIGHT
+    assert underground._way_line(w, c).startswith("A dark cave mouth opens 3 steps west")
+    assert p["id"] in c.ext["underground"]["ways"] and c.spots["cave_mouth"][:2] == UP
+    assert "the north cave" in c.landmarks_seen
+    res = climb(w, c, "down")
+    assert res.ok and c.activity["type"] == "walk", res.message
+    finish(w, c)
+    assert w.region_at(c.x, c.y).level == -1
+    d = person(w, "Oda", UP[0], UP[1] + 3)
+    underground._way_line(w, d)
+    res = apply_intention(w, d, Intention("walk_to", target="cave mouth"))
+    assert res.ok and d.activity["type"] == "walk", res.message
+    finish(w, d)
+    assert max(abs(d.x - UP[0]), abs(d.y - UP[1])) <= 1
+
+
+def test_below_the_nearer_way_told_is_the_one_climbed():
+    """Climbed down at one cave, unlit (sight 1), 3 steps from another's exit: the daylight line names that exit, and
+    climb up walks there, not back to the first."""
+    w, p, q = world_with_two_mouths()
+    c = person(w, "Kit", UP[0] + 1, UP[1])
+    c.energy = 80
+    climb(w, c, "down")
+    finish(w, c)
+    c.x, c.y = q["down"][0] - 3, q["down"][1]
+    assert perception.light_range(w, c) == perception.DARK_SIGHT
+    assert underground._way_line(w, c) == "Grey daylight glimmers 3 steps east: the way up to the east cave."
+    res = climb(w, c, "up")
+    assert res.ok and c.activity["label"] == "heading to the way up to the east cave", res.message
+    finish(w, c)
+    finish(w, c)
+    assert (c.x, c.y) == UP2
+
+
+def test_daylight_glimmers_only_by_day():
+    w, p = world_with_mouth()
+    c = person(w, "Ada", p["down"][0] + 2, p["down"][1])
+    assert underground._way_line(w, c) == "Grey daylight glimmers 2 steps west: the way up to the north cave."
+    at_night(w)
+    assert underground._way_line(w, c) == ("Night air drifts in 2 steps west: the way up to the north cave opens to "
+                                           "the night sky.")
+
+
+def test_far_on_the_meadow_the_deep_names_nothing():
+    """The review's case: on seed 7, a creature far from the surface's terminals and the cave mouths, walking to words
+    the deep's places share ("terminal", "pool", "cave", "crystal", "hall"), keeps the old answer; one that has been
+    near the ancient terminal is told the way down when it names it."""
+    from swarmworld.world.perception import LANDMARK_RANGE, dist
+    from swarmworld.world.simulation import Simulation
+    w = generate_world(7)
+    Simulation(w).tick()
+    surface = [lm for lm in w.landmarks if lm["y"] < w.region("surface").y1]
+    terminals = [(lm["x"], lm["y"]) for lm in surface if lm["kind"] == "terminal"]
+    mouths = [(lm["x"], lm["y"]) for lm in surface if lm["kind"] == "way down"]
+    spots = [(x, y) for y in range(4, 124, 6) for x in range(4, 124, 6) if w.walkable(x, y) and (x, y) not in w.grid
+             and all(dist(x, y, *t) > actions.LANDMARK_WALK for t in terminals)
+             and all(dist(x, y, *m) > LANDMARK_RANGE for m in mouths)][:3]
+    assert len(spots) == 3
+    for x, y in spots:
+        c = person(w, "Quill", x, y)
+        for target in ("terminal", "the terminal", "pool", "the pool", "cave", "a cave", "crystal", "hall", "the hall"):
+            res = apply_intention(w, c, Intention("walk_to", target=target))
+            assert res.message == f"You don't see any '{target}' around you.", (x, y, target, res.message)
+        c.landmarks_seen.add("the ancient terminal")
+        res = apply_intention(w, c, Intention("walk_to", target="the ancient terminal"))
+        assert res.message.startswith("The deep is below; climb down at a cave mouth or a mine shaft."), res.message
+        assert apply_intention(w, c, Intention("walk_to", target="terminal")).message.startswith("You don't see any")
+        del w.creatures[c.id]
+
+
+def test_a_way_is_a_known_place_once_seen():
+    """R24: a way's landmark joins the places a creature knows when it sees the way (within its sight), not merely
+    within LANDMARK_RANGE; till then walk_to doesn't find it by name either. Other places are known as before."""
+    from swarmworld.world.actions import find_landmark
+    from swarmworld.world.perception import LANDMARK_RANGE, note_spots, perceive, sight_range
+    from swarmworld.world.simulation import Simulation
+    w, p = world_with_mouth()
+    Simulation(w)._landmarks()
+    meadow = next(lm for lm in w.landmarks if lm["name"] == "the meadow")
+    c = person(w, "Ada", UP[0] + 10, UP[1])
+    assert sight_range(w, c) < 10 <= LANDMARK_RANGE and max(abs(meadow["x"] - c.x), abs(meadow["y"] - c.y)) <= 14
+    note_spots(w, c, w.tick)
+    view = perceive(w, c)
+    assert "the north cave" not in c.landmarks_seen and "the north cave" not in view
+    places = next(line for line in view.splitlines() if line.startswith("Places you know: "))
+    assert "the meadow" in c.landmarks_seen and "the meadow" in places
+    assert find_landmark(w, c, "the north cave") is None and find_landmark(w, c, "cave") is None
+    c.x = UP[0] + 5  # in sight
+    assert "the north cave 5 steps west" in perceive(w, c) and find_landmark(w, c, "the north cave")
+    note_spots(w, c, w.tick)
+    assert "the north cave" in c.landmarks_seen
+    c.x = UP[0] + 10
+    assert "the north cave 10 steps west" in perceive(w, c)
+    assert find_landmark(w, c, "the north cave")["name"] == "the north cave"
