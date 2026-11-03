@@ -7,7 +7,7 @@ expect them; world.ext["weather"] holds the derived bits ("sight": a cap on how 
 from __future__ import annotations
 
 from .. import perception
-from ..model import World
+from ..model import World, wet
 from ..perception import direction, dist
 from ..registry import register_perception, register_system
 
@@ -34,7 +34,6 @@ THUNDER_CHANCE = 0.2  # per 10 ticks of storm
 STRIKE_CHANCE = 0.12  # of a thunderclap, a tree is struck
 BURN_TICKS = 30
 WINDY = ("wind", "storm")
-UNDER_ROOF = ("rain", "drizzle", "storm")  # not told under a roof: the building's line says so
 
 
 def current(world: World) -> str:
@@ -148,10 +147,9 @@ def _burn(w: World, t: int) -> None:
 
 
 def _weather_line(world: World, c) -> str | None:
-    kind = current(world)
-    if kind in UNDER_ROOF and perception.roof_over(world, c.x, c.y):  # the building's own line says it's wet outside
+    if wet(world, drizzle=True) and perception.roof_over(world, c.x, c.y):  # the building's line says it's wet out
         return None
-    return LINES.get(kind)
+    return LINES.get(current(world))
 
 
 def _burning_line(world: World, c) -> str | None:

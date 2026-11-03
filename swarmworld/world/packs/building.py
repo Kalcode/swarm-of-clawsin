@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from .. import perception
 from ..actions import FILLER, SOURCE_HINT, ActionResult, Intention, start_walk
 from ..catalog import DATA
-from ..model import DAY_TICKS
+from ..model import DAY_TICKS, wet
 from ..perception import article, dist, direction, sight_range
 from ..registry import (ANIMALS, BLOCKING, HANDLERS, KINDS, STORES, Technique, register_perception, register_system,
                         register_technique, register_verb)
@@ -48,7 +48,6 @@ WORK_ENERGY = 2
 STALE_TICKS = 3 * DAY_TICKS  # a site nobody has touched for this long falls apart
 UPKEEP_EVERY = 50
 STRAND_REACH = 8  # a creature left on deep water finds land within this many steps (half the longest bridge, and more)
-WET = ("rain", "storm", "drizzle")
 MATERIALS = {i for d in DESIGNS.values() for i in d["needs"]} - {"stick", "stone", "plant_fiber", "rope"}  # say "build"
 SITE_WORDS = {"", "site", "building site", "construction site", "construction", "building", "frame", "foundation",
               "it", "work"}
@@ -607,7 +606,7 @@ def _cozy(world: World) -> str:
     weather = getattr(world, "weather", "clear")
     if weather == "storm":
         return "The storm rages outside, but you're dry in here."
-    if weather in WET:
+    if wet(world, drizzle=True):
         return "Rain drums on the roof, but you're dry in here."
     if world.clock()["phase"] == "night":
         return "The night is cold outside, but it's sheltered in here."
@@ -625,7 +624,7 @@ def inside_line(world: World, c: Creature) -> str | None:
     what = _contents(world, b)
     line = (f"You're inside the {DESIGNS[b['design']]['name']} {_names(b['by'])} built"
             f"{', with ' + what if what else ''}. {_cozy(world)}")
-    matters = getattr(world, "weather", "clear") in WET or world.clock()["phase"] == "night"
+    matters = wet(world, drizzle=True) or world.clock()["phase"] == "night"
     mine = _mine(c)
     if mine.get("inside") == line and not matters:
         return None

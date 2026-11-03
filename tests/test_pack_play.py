@@ -150,8 +150,12 @@ def test_stories_need_a_fire_and_dark():
 def test_play_old_save_loads(prepack_save):
     st = ServerState(seed=1)
     restore(st, prepack_save)
-    for c in st.world.creatures.values():
+    creatures = list(st.world.creatures.values())
+    assert creatures and all("joy" not in (c.ext.get("play") or {}) for c in creatures)  # nothing saved ...
+    assert all(play.joy(c) == play.JOY_START for c in creatures)  # ... so everyone starts at the default
+    for c in creatures:
         c.asleep = False
     for _ in range(200):
         st.tick_message(st.sim.tick())
-    assert all(0 <= play.joy(c) <= 70 for c in st.world.creatures.values())
+    fallen = play.JOY_START - 200 // play.JOY_EVERY  # a point every JOY_EVERY ticks, and nothing to cheer anyone
+    assert all(play.joy(c) == fallen for c in creatures if not c.collapsed), [play.joy(c) for c in creatures]

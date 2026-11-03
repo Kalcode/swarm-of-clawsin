@@ -9,7 +9,7 @@ from typing import Callable
 from . import perception
 from .actions import ANIMAL_LURE, WELL_FED, ActionResult, step_activity
 from .events import hearers
-from .model import ANIMALS, Creature, World
+from .model import ANIMALS, Creature, World, wet
 from .perception import DAY_SIGHT, SOUND_LINES, direction, dist, note_spots, sound_line, visible_creatures
 from .registry import KINDS, SYSTEMS, call_safely
 
@@ -388,7 +388,7 @@ class Simulation:
 
     def _regrow(self, t: int) -> None:
         w = self.world
-        raining = getattr(w, "weather", "clear") in ("rain", "drizzle", "storm")
+        raining = wet(w, drizzle=True)
         for o in list(w.objects.values()):
             if raining:  # rain makes everything grow faster
                 for key in ("grow_at", "regrow_at"):
@@ -467,7 +467,7 @@ class Simulation:
         from .perception import near_lit_fire
         w = self.world
         night = w.clock()["phase"] == "night"
-        rain = getattr(w, "weather", "clear") in ("rain", "storm")
+        rain = wet(w)
         if not (night or rain):
             return None
         if near_lit_fire(w, c.x, c.y, 3) or station_near(w, c, "bed") or perception.roof_over(w, c.x, c.y):

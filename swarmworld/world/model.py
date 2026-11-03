@@ -18,6 +18,15 @@ TICK_SECONDS = 0.5
 DAY_TICKS = 1200
 START_TICK = int(DAY_TICKS * 0.12)
 
+SOAKING = ("rain", "storm")  # weather that soaks whoever is out in it (a fire or a roof keeps it off)
+WET = SOAKING + ("drizzle",)  # weather that wets the land: plants grow faster, insects shelter, a roof drums
+
+
+def wet(world, drizzle: bool = False) -> bool:
+    """Rain or a storm is falling (with drizzle=True, a drizzle counts too)."""
+    return getattr(world, "weather", "clear") in (WET if drizzle else SOAKING)
+
+
 # Tiles: g grass, d dirt, s sand, w shallow water (wadeable), W deep water, r rocky ground, f forest floor
 TILE_NAMES = {
     "g": "grass", "d": "dirt", "s": "sand", "w": "shallow water",
@@ -218,7 +227,7 @@ class World:
         else:
             phase, light = "night", 0.25
         weather = getattr(self, "weather", "clear")
-        if weather in ("rain", "storm"):
+        if wet(self):
             light *= 0.75
         elif weather in ("fog", "drizzle"):
             light *= 0.85

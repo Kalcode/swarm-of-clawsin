@@ -2,6 +2,7 @@
 from swarmworld.server.persistence import restore
 from swarmworld.server.state import ServerState
 from swarmworld.world import actions, registry
+from swarmworld.world.packs import sound
 from swarmworld.world.actions import Intention, apply_intention, step_activity
 from swarmworld.world.model import DAY_TICKS, START_TICK, Creature, World
 from swarmworld.world.catalog import Catalog
@@ -36,7 +37,8 @@ def sounds(w, kind=None):
 
 
 def test_sound_pack_is_installed():
-    assert "sound" in {s.name for s in registry.SYSTEMS} or any("sound" in s.name for s in registry.SYSTEMS)
+    [system] = [s for s in registry.SYSTEMS if s.name == "sound"]
+    assert system.fn is sound.sound_system and system.every == 1  # every tick: a sound is heard the tick after
 
 
 def test_chopping_is_heard_nearby_not_far():
@@ -90,8 +92,7 @@ def test_crickets_only_at_night():
     for _ in range(150):
         sim.tick()
         w.creatures["c1"].asleep = False
-    assert sounds(w, "crickets")
-    assert len(sounds(w, "crickets")) <= 6  # sparse
+    assert 1 <= len(sounds(w, "crickets")) <= 150 // sound.CRICKET_COOLDOWN + 1  # sparse: once per cooldown
 
 
 def test_sound_cooldowns():
@@ -122,10 +123,11 @@ def test_fire_river_crowd_and_animals_are_sparse():
     creature(w, "River", 12, 19)
     for _ in range(400):
         sim.tick()
-    fire_n = len(sounds(w, "fire"))
-    assert 1 <= fire_n <= 400 // 20
-    assert 1 <= len(sounds(w, "river")) <= 400 // 30
-    assert 1 <= len(sounds(w, "crowd")) <= 400 // 30
+    for kind, cooldown in (("fire", sound.FIRE_COOLDOWN), ("river", sound.RIVER_COOLDOWN),
+                           ("crowd", sound.CROWD_COOLDOWN)):  # about once per cooldown while someone is near
+        n = len(sounds(w, kind))
+        assert 400 // cooldown - 1 <= n <= 400 // cooldown + 1, (kind, n)
+    assert all(e.data["source"] == fire.id for e in sounds(w, "fire"))
 
 
 def test_unlit_fire_is_silent():
@@ -158,7 +160,7 @@ def test_animals_call_now_and_then():
     for _ in range(600):
         sim.tick()
     calls = sounds(w, f"animal:{kind}")
-    assert 1 <= len(calls) <= 600 // 100
+    assert 1 <= len(calls) <= 600 // sound.ANIMAL_COOLDOWN + 1
 
 
 def test_gathering_sounds_like_what_it_is_gathered_from():

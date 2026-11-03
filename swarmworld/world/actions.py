@@ -54,6 +54,11 @@ TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
 DRINKS: dict[str, str | None] = {}  # packs: a carried drink -> what's left once it's drunk (food: pot of water -> clay pot)
 
 
+def water_kinds() -> set[str]:
+    """Kinds you can drink from or fill a pot at, like a well: a kind with "water" in its data."""
+    return {k for k, spec in KINDS.items() if spec.get("water")}
+
+
 def catch_fish(world: World, c: Creature) -> str | None:
     """What bites on one cast of a fishing line beside water: an item id, or None. A plain fish half the time; a pack
     may replace this function (the food pack: species by water type and time of day)."""
@@ -987,8 +992,7 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _drink(world: World, c: Creature, it: Intention) -> ActionResult:
-    water_kinds = {k for k, spec in KINDS.items() if spec.get("water")}  # a well, say
-    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds):
+    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds()):
         held = next((i for i in DRINKS if c.inventory.get(i, 0) > 0), None)
         if held is None:
             return ActionResult(False, "There's no water within reach. Walk to the water first.")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject
+from .model import ANIMALS, OBJECT_NAMES, TILE_NAMES, Creature, World, WorldObject, wet
 from .registry import KINDS, STORES, YIELDS, extra_perception
 
 DAY_SIGHT = 6
@@ -389,13 +389,13 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
         lines.append("Your hands itch to try combining some of what you carry.")
     lines.append(f"You feel {_feeling(c)}.")
     phase = world.clock()["phase"]
-    if (phase == "night" or getattr(world, "weather", "clear") in ("rain", "storm")) and not near_lit_fire(world, c.x, c.y, 3):
+    if (phase == "night" or wet(world)) and not near_lit_fire(world, c.x, c.y, 3):
         roof = roof_over(world, c.x, c.y)
         sheltered = roof is not None or any(
             (o.kind in ("bed",) or (o.kind == "creation" and "shelter" in o.data.get("effects", ())))
             and roof_over(world, o.x, o.y) in (None, roof) for o, d, _ in visible_objects(world, c, 2))
         if not sheltered:
-            lines.append("You are soaked and shivering; a fire or shelter would help." if getattr(world, "weather", "clear") in ("rain", "storm")
+            lines.append("You are soaked and shivering; a fire or shelter would help." if wet(world)
                          else "The night air is cold; you'd be better off by a fire or under shelter.")
     foods = [(i, n) for i, n in c.inventory.items() if n > 0 and world.catalog.items[i].food > 0]
     foods = [(i, n) for i, n in foods if "seed" not in world.catalog.items[i].tags] or foods  # seeds only in a pinch

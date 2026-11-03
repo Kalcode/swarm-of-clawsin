@@ -136,3 +136,12 @@ def test_weather_old_save_loads(prepack_save):
     for _ in range(200):
         st.tick_message(st.sim.tick())
     assert st.world.weather in wx.KINDS
+
+
+def test_wet_says_whether_rain_is_falling():
+    from swarmworld.world.model import wet
+    st, w, c = _world()
+    for kind in wx.KINDS:
+        wx.set_weather(w, kind, w.tick + 100)
+        assert wet(w) == (kind in ("rain", "storm")), kind  # soaking: what a fire or a roof keeps off
+        assert wet(w, drizzle=True) == (kind in ("rain", "storm", "drizzle")), kind
