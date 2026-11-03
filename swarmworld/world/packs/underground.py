@@ -27,12 +27,14 @@ import zlib
 from collections import Counter
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from .. import perception
-from ..caves import BORDER, carve_deep, carve_passage
+from ..caves import BORDER, carve_deep, carve_passage, tile_codes
 from ..catalog import DATA
 from ..model import SOLID_TILES, WATER_TILES
 from ..perception import direction, dist
-from ..registry import KINDS, register_landmarks, register_populate
+from ..registry import ANIMALS, BLOCKING, KINDS, register_landmarks, register_populate
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..model import Region, World
@@ -130,11 +132,22 @@ def _mouth_sites(world: World, rng: random.Random) -> list[tuple[int, int]]:
     m = BORDER + 1
     clear = _kept_clear(world)
     rows, cols = range(y0 + m, min(y1, y0 + deep.height - m)), range(max(x0, m), min(x1, world.width - m))
-    land = [(x, y) for y in rows for x in cols
-            if world.tile(x, y) not in WATER_TILES + SOLID_TILES and (x, y) not in world.grid and (x, y) not in clear]
+    land, rocky, rest = [], [], []
+    if rows and cols:
+        block = tile_codes(world, rows.start, rows.stop)[:, cols.start:cols.stop]
+        dry = ~np.isin(block, [ord(c) for c in WATER_TILES + SOLID_TILES])
+        for x, y in [*world.grid, *clear]:  # taken or kept clear
+            if x in cols and y in rows:
+                dry[y - rows.start, x - cols.start] = False
+        iy, ix = np.nonzero(dry)
+        xs, ys = ix + cols.start, iy + rows.start
+        land = list(zip(xs.tolist(), ys.tolist()))
+        far = np.maximum(np.abs(xs - cx), np.abs(ys - cy)) >= away
+        stone = block[iy, ix] == ord("r")
     want = rng.randint(3, 5)
-    rocky = [p for p in land if world.tile(*p) == "r" and dist(*p, cx, cy) >= away]
-    rest = [p for p in land if world.tile(*p) != "r" and dist(*p, cx, cy) >= away]
+    if land:
+        rocky = [p for p, f in zip(land, far & stone) if f]
+        rest = [p for p, f in zip(land, far & ~stone) if f]
     rng.shuffle(rocky)
     rng.shuffle(rest)
     sites: list[tuple[int, int]] = []
@@ -148,6 +161,10 @@ def _mouth_sites(world: World, rng: random.Random) -> list[tuple[int, int]]:
     return sites
 
 
+def _deep_tiles(world: World, deep: Region) -> np.ndarray:
+    return tile_codes(world, deep.y0, deep.y1)
+
+
 def _caves(world: World, deep: Region, caverns: list[tuple[int, int, int]], pool: tuple[int, int]) -> list[dict]:
     """The named caves: the largest caverns by CONFIG's cave_names, then the pool. Each landmark stands on the dry cave
     floor nearest the middle (the pool's middle is often water), never on the way up from a cave mouth or on another
@@ -155,11 +172,18 @@ def _caves(world: World, deep: Region, caverns: list[tuple[int, int, int]], pool
     middles = [(n, x, deep.y0 + y) for n, (x, y, _) in zip(CONFIG["cave_names"], caverns)]
     middles.append((CONFIG["pool_name"], pool[0], deep.y0 + pool[1]))
     taken = {tuple(p["down"]) for p in portals(world)}
-    floor = [(x, y) for y in range(deep.y0, deep.y1) for x in range(world.width) if world.tile(x, y) == "c"]
+    ys, xs = np.nonzero(_deep_tiles(world, deep) == ord("c"))  # in reading order, so the first nearest is the one wanted
+    ys = ys + deep.y0
+    free = np.ones(len(xs), dtype=bool)
+    for tx, ty in taken:
+        free &= (xs != tx) | (ys != ty)
     named = []
     for name, mx, my in middles:
-        x, y = min((p for p in floor if p not in taken), key=lambda p: (dist(*p, mx, my), p[1], p[0]), default=(mx, my))
-        taken.add((x, y))
+        x, y = mx, my
+        if free.any():
+            k = np.where(free, np.maximum(np.abs(xs - mx), np.abs(ys - my)), np.iinfo(np.int64).max).argmin()
+            x, y = int(xs[k]), int(ys[k])
+            free[k] = False
         named.append({"name": name, "x": x, "y": y})
     return named
 
@@ -199,11 +223,30 @@ PORTAL_CLEAR = 2
 STEPS = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
 
-def _blocks_nothing(world: World, x: int, y: int) -> bool:
+def _walker(world: World):
+    """world.walkable(x, y) for a stretch of land that is not being changed, quicker: tiles are looked up directly."""
+    tiles, grid, objects, w, h = world.tiles, world.grid, world.objects, world.width, world.height
+    over_water = {k for k, spec in KINDS.items() if spec.get("over_water")}
+
+    def walkable(x: int, y: int) -> bool:
+        if not (0 <= x < w and 0 <= y < h):
+            return False
+        t = tiles[y][x]
+        if t in SOLID_TILES:
+            return False
+        oid = grid.get((x, y))
+        obj = objects.get(oid) if oid else None
+        if t == "W" and not (obj and obj.kind in over_water):
+            return False
+        return not (obj and (obj.kind in BLOCKING or obj.kind in ANIMALS))
+    return walkable
+
+
+def _blocks_nothing(walkable, x: int, y: int) -> bool:
     """True when a blocking object on (x, y) cuts no walk: its open neighbours still join around it, within the ring of
-    eight tiles that surrounds it."""
+    eight tiles that surrounds it. `walkable` is _walker(world)."""
     ring = [(x + dx, y + dy) for dx, dy in ((-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0))]
-    free = [p for p in ring if world.walkable(*p)]
+    free = [p for p in ring if walkable(*p)]
     open_sides = [p for p in free if abs(p[0] - x) + abs(p[1] - y) == 1]
     if len(open_sides) < 2:
         return True
@@ -233,14 +276,26 @@ def _stock_deep(world: World) -> None:
     blocked = {tuple(p["down"]) for p in portals(world)} | {(c["x"], c["y"]) for c in mine.get("caves", ())}
     exits = [tuple(p["down"]) for p in portals(world)]
     area = world.width * (deep.y1 - deep.y0)
-    floor = [(x, y) for y in range(deep.y0, deep.y1) for x in range(world.width) if world.tile(x, y) == "c"
-             and (x, y) not in blocked and all(dist(x, y, *e) >= PORTAL_CLEAR for e in exits)]
+    tiles = _deep_tiles(world, deep)
+    ok = tiles == ord("c")
+    for bx, by in blocked:
+        if deep.y0 <= by < deep.y1 and 0 <= bx < world.width:
+            ok[by - deep.y0, bx] = False
+    for ex, ey in exits:  # within PORTAL_CLEAR (1 step: the 3x3 around)
+        ok[max(0, ey - deep.y0 - PORTAL_CLEAR + 1):ey - deep.y0 + PORTAL_CLEAR, max(0, ex - PORTAL_CLEAR + 1):ex + PORTAL_CLEAR] = False
+    solid = np.isin(tiles, [ord(c) for c in SOLID_TILES])
+    touches = np.zeros_like(solid)  # floor with rock on a side (off the deep's edge counts as none)
+    touches[1:] |= solid[:-1]
+    touches[:-1] |= solid[1:]
+    touches[:, 1:] |= solid[:, :-1]
+    touches[:, :-1] |= solid[:, 1:]
+    walkable = _walker(world)
     caves = {c["name"]: (c["x"], c["y"]) for c in mine.get("caves", ())}
     for kind, per in CONFIG["counts"].items():
         want = max(2, round(per * area / (128 * 128)))
         blocking = KINDS[kind].get("blocking")
-        spots = [p for p in floor if kind not in ON_ROCK
-                 or any(world.tile(p[0] + dx, p[1] + dy) in SOLID_TILES for dx, dy in STEPS)]
+        ys, xs = np.nonzero(ok & touches if kind in ON_ROCK else ok)
+        spots = list(zip(xs.tolist(), (ys + deep.y0).tolist()))
         rng.shuffle(spots)
         if kind in CLUSTERS and CLUSTERS[kind] in caves:  # a third near their cave first, the rest anywhere
             home = caves[CLUSTERS[kind]]
@@ -252,7 +307,7 @@ def _stock_deep(world: World) -> None:
         for p in spots:
             if placed == want:
                 break
-            if p in world.grid or (blocking and not _blocks_nothing(world, *p)):
+            if p in world.grid or (blocking and not _blocks_nothing(walkable, *p)):
                 continue
             world.add_object(kind, *p, **ORE_DATA.get(kind, {}))
             placed += 1
