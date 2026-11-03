@@ -205,14 +205,15 @@
       } catch (e) { /* silent */ }
     }
 
-    /** After the first live document, then every here.every seconds: send with probability here.sample, not while hidden.
+    /** After the first live document, then every here.every seconds: send with probability here.sample (1 when absent), not
+   *  while hidden. The first check-in is gated like the rest, so a crowd arriving at once is thinned from its first request.
      *  The values are read from the latest live document each time. */
-    function hereLoop(first) {
+    function hereLoop() {
       if (sock.readyState === 3) return;
       const here = (docs.live && docs.live.here) || {};
-      if (first || (!isHidden() && random() < (typeof here.sample === 'number' ? here.sample : 1))) checkIn();
+      if (!isHidden() && random() < (typeof here.sample === 'number' ? here.sample : 1)) checkIn();
       const every = Number(here.every) > 0 ? Number(here.every) : 30;
-      hereTimer = setT(() => hereLoop(false), every * 1000);
+      hereTimer = setT(() => hereLoop(), every * 1000);
     }
 
     function schedule(ms) {
@@ -294,7 +295,7 @@
       emit(frame);
       if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisible);
       schedule(nextDelay());
-      hereLoop(true);
+      hereLoop();
     }
 
     async function poll() {

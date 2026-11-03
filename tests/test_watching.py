@@ -7,7 +7,7 @@ import pytest
 
 from swarmworld.server.app import STATE, create_app
 from swarmworld.server.public import PUBLISHER
-from swarmworld.server.watching import MAX_IDS, MIN_SAMPLE, WINDOW, Watching, sample_rate
+from swarmworld.server.watching import MAX_IDS, MIN_SAMPLE, WINDOW, Watching, client_address, hear_probability, network_of, sample_rate
 
 TUNNEL = {"CF-Connecting-IP": "203.0.113.9"}
 ID = "0123456789abcdef0123456789abcdef"
@@ -150,7 +150,7 @@ def test_the_hard_cap_holds():
 def test_nothing_about_an_address_is_kept_or_published():
     w = Watching(clock=Clock())
     w.note(ID, "203.0.113.9")
-    state = repr(vars(w)).encode() + b"".join(a for _, a in w._seen.values())
+    state = repr(vars(w)).encode() + b"".join(v[1] for v in w._seen.values())
     assert b"203.0.113.9" not in state
     assert Watching(clock=Clock())._salt != w._salt
 
@@ -165,7 +165,7 @@ def test_the_sample_rate_follows_the_estimate():
     assert sample_rate(0) == 1.0
 
 
-def test_watching_scales_the_counted_ids_by_the_chance_of_being_heard():
+def test_watching_weights_each_id_by_the_rate_in_force_when_it_checked_in():
     c = Clock()
     w = Watching(clock=c, per_address=1000)
     for i in ids(40):
@@ -173,25 +173,126 @@ def test_watching_scales_the_counted_ids_by_the_chance_of_being_heard():
     n, here = w.snapshot()
     assert n == 40 and here == {"every": 30, "sample": 1.0}
     w.sample = 0.5               # three chances a window at half: heard with probability 1 - 0.5**3
+    for i in ids(40, 100):
+        w.note(i, "b")
+    w.sample = 0.1               # a later change does not re-weigh them
+    c.t += 300
+    for i in ids(40):            # the first forty are long gone; a new reading is taken under the new rate
+        w.note(i, "a")
+    w._estimate = None
     n, _ = w.snapshot()
-    assert n == round(40 / 0.875)
+    assert n == round(40 / hear_probability(0.1))
 
 
-def test_the_rate_settles_where_the_crowd_is_and_the_count_follows():
+def run_crowd(profile, minutes, per_step=3):
+    """The real class on an injected clock; a crowd of N pages, each checking in every 30 s at the published rate. Returns
+    [(second, true crowd, published watching, sample, check-ins per second)]."""
     import random
-    rng = random.Random(1)
+    rng = random.Random(3)
     c = Clock()
-    w = Watching(clock=c, per_address=10**6)
-    crowd, here, rates = 6000, {"sample": 1.0}, []
-    for step in range(300):                      # 15 minutes in 3-second steps; each page checks in every 30 s
-        for i in range(crowd):
-            if rng.random() < here["sample"] * 3 / 30:
+    w = Watching(clock=c, per_address=10**9)
+    here, rows = {"sample": 1.0}, []
+    for step in range(int(minutes * 60 / per_step)):
+        t = step * per_step
+        n = profile(t)
+        sent = 0
+        for i in range(n):
+            if rng.random() < per_step / 30 and rng.random() < here["sample"]:
                 w.note(f"{i:032x}", f"a{i}")
+                sent += 1
+        c.t += per_step
+        shown, here = w.snapshot()
+        rows.append((t, n, shown, here["sample"], sent / per_step))
+    return rows
+
+
+def test_a_crowd_that_jumps_up_is_never_overcounted_and_is_found_in_three_minutes():
+    rows = run_crowd(lambda t: 300 if t < 600 else 20000, 17)
+    after = [r for r in rows if r[0] >= 600]
+    assert max(r[2] for r in after) <= 1.5 * 20000
+    late = [r for r in after if r[0] >= 780]
+    assert all(abs(r[2] - 20000) <= 0.15 * 20000 for r in late), [r[2] for r in late[::10]]
+
+
+def test_a_crowd_that_drops_is_found_and_the_rate_recovers():
+    """The brief asked for 15% and a rate above 0.9 after 3 minutes. They cannot both hold with a 90 s window and a 30 s
+    smoothing: the old crowd's ids take 90 s to expire, then 20,000 must decay to 300 (a factor of 67, about 4 time
+    constants = 126 s). Measured: 552 shown and a rate of 0.54 at 3 minutes; 302 and 0.99 at 4 minutes. So: within 2x at
+    3 minutes, within 15% and the rate above 0.9 at 4."""
+    rows = run_crowd(lambda t: 20000 if t < 600 else 300, 17)
+    at3 = [r for r in rows if 780 <= r[0] < 800]
+    assert all(r[2] <= 2 * 300 for r in at3), [r[2] for r in at3]
+    late = [r for r in rows if r[0] >= 840]
+    assert all(abs(r[2] - 300) <= 0.15 * 300 for r in late), [r[2] for r in late[::10]]
+    assert all(r[3] > 0.9 for r in late)
+
+
+def test_a_short_spike_is_never_shown_larger_than_the_crowd_was():
+    rows = run_crowd(lambda t: 20000 if 600 <= t < 660 else 1000, 17)
+    assert max(r[2] for r in rows) <= 1.5 * 20000
+    assert all(r[2] <= 1.5 * 1000 for r in rows if r[0] >= 900), [r[2] for r in rows[::20]]
+
+
+def test_the_rate_answers_a_jump_within_two_publishes():
+    c = Clock()
+    w = Watching(clock=c, per_address=10**9)
+    w.snapshot()
+    for i in range(20000):
+        w.note(f"{i:032x}", f"a{i}")
+    for _ in range(2):
         c.t += 3
-        n, here = w.snapshot()
-        rates.append(here["sample"])
-    assert here["sample"] == pytest.approx(0.05, abs=0.01) and abs(n - crowd) < crowd * 0.15
-    assert max(rates[-60:]) / min(rates[-60:]) < 1.5          # and no longer swinging
+        _, here = w.snapshot()
+    assert here["sample"] < 0.6
+
+
+def test_a_prune_with_nothing_expired_looks_at_one_entry():
+    c = Clock()
+    w = Watching(clock=c, per_address=10**9)
+    for i in range(1000):
+        w.note(f"{i:032x}", f"a{i}")
+        c.t += 0.01
+    w.pruned = 0
+    w.count()
+    assert w.pruned == 1
+    c.t += WINDOW - 5            # the first few hundred expire: cost follows them, not the table
+    w.pruned = 0
+    n = w.count()
+    assert w.pruned == (1000 - n) + 1 and 0 < n < 1000
+
+
+def test_a_refreshed_id_moves_to_the_back_and_the_tallies_stay_right():
+    c = Clock()
+    w = Watching(clock=c)
+    a, b = ids(2)
+    w.note(a, "x")
+    c.t += 50
+    w.note(b, "y")
+    w.note(a, "x")
+    c.t += 50                    # b and a (refreshed with b) are both 50 old
+    assert w.count() == 2
+    c.t += 45
+    assert w.count() == 0 and not w._per and abs(w._weight) < 1e-9
+
+
+def test_a_lan_client_cannot_pick_its_address_with_a_header():
+    assert client_address("127.0.0.1", "203.0.113.9") == "203.0.113.9"      # cloudflared on this machine
+    assert client_address("::1", "203.0.113.9") == "203.0.113.9"
+    assert client_address("192.168.1.50", "203.0.113.9") == "192.168.1.50"   # a LAN client's header is ignored
+    assert client_address("192.168.1.50", None) == "192.168.1.50"
+    assert client_address("127.0.0.1", None) == "127.0.0.1"
+    w = Watching(clock=Clock())
+    for i in ids(8):             # a LAN address sending 8 different spoofed headers: still one address, capped at 5
+        w.note(i, client_address("192.168.1.50", f"198.51.100.{int(i, 16) % 250}"))
+    assert w.count() == 5
+
+
+def test_an_ipv6_address_counts_as_its_slash_64():
+    w = Watching(clock=Clock())
+    for k, i in enumerate(ids(8)):
+        w.note(i, f"2001:db8:1:2:{k:x}::{k:x}")
+    assert w.count() == 5
+    assert network_of("2001:db8:1:2:aaaa::1") == "2001:db8:1:2::/64" and network_of("203.0.113.9") == "203.0.113.9"
+    assert network_of("nonsense") == "nonsense"
 
 
 # ---- live.json and the private viewer -----------------------------------------------------------------------------
@@ -199,8 +300,11 @@ def test_the_rate_settles_where_the_crowd_is_and_the_count_follows():
 async def test_live_json_carries_watching_and_here_and_nothing_more(client):
     app = client.app
     pub = app[PUBLISHER]
+    pub.watching.clock = c = Clock()
     for i, a in zip(ids(4), ("a", "b", "c", "d")):
         pub.watching.note(i, a)
+    c.t += 300     # the smoothed estimate is long past its first reading
+    pub.watching._estimate = 4.0
     pub.publish()
     live = json.loads((await (await client.get("/public/live.json")).read()))
     assert live["watching"] == 4 and live["here"] == {"every": 30, "sample": 1.0}

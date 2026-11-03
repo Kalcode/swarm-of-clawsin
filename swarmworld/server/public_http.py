@@ -15,6 +15,7 @@ from urllib.parse import quote
 from aiohttp import web
 
 from .public import PUBLISHER, Doc
+from .watching import client_address
 from .public_app import APP_ASSET, APP_MISSING, APP_SHORT, PUBLIC_APP
 
 log = logging.getLogger("swarmworld.server")
@@ -162,7 +163,7 @@ async def here(request: web.Request) -> web.Response:
         wid = None
     if not isinstance(wid, str) or not HERE_ID.fullmatch(wid):
         return web.Response(status=400, headers={"Cache-Control": "no-store"})
-    address = request.headers.get("CF-Connecting-IP") or request.remote or ""
+    address = client_address(request.remote, request.headers.get("CF-Connecting-IP"))
     request.app[PUBLISHER].watching.note(wid, address)
     return web.Response(status=204, headers={"Cache-Control": "no-store"})
 

@@ -423,7 +423,10 @@
   /** "1.2k" above 999, else the number. */
   function fmtWatching(n) {
     if (n < 1000) return String(n);
-    return (n < 9950 ? (Math.round(n / 100) / 10).toFixed(1) : String(Math.round(n / 1000))) + 'k';
+    const k = n / 1000;
+    if (k < 999.5) return (k < 9.95 ? k.toFixed(1) : String(Math.round(k))) + 'k';
+    const m = n / 1e6;
+    return (m < 9.95 ? m.toFixed(1) : String(Math.round(m))) + 'M';
   }
 
   /** The header's "N watching" (people on the public viewer), hidden when it is 0 or missing. */

@@ -208,12 +208,28 @@ SCENARIOS = {
       await t.advance(30000);
       out.v = { first, at30, at60, hidden, after: t.posts.length, ids: new Set(t.posts.map((p) => p.id)).size,
                 id: t.posts[0].id, metrics: t.msgs.find((m) => m.type === 'metrics') };""",
+    "here_first": """
+      const live = Object.assign({}, D.LIVE1, { here: { every: 30, sample: 0.25 } });
+      const R = { v: 0.9 };
+      const t = rig([live], [STATIC], { random: () => R.v });
+      await t.open();
+      const gated = t.posts.length;                 // the first check-in is thinned like the rest
+      const h = rig([D.LIVE1], [STATIC], { random: () => 0.99 });   // no here.sample: it defaults to 1
+      await h.open();
+      const dflt = h.posts.length;
+      const hid = rig([D.LIVE1], [STATIC]);
+      hid.hiddenNow = true;
+      await hid.open();
+      const hidden = hid.posts.length;              // and a tab that loads hidden stays quiet
+      hid.hiddenNow = false;
+      await hid.advance(30000);
+      out.v = { gated, dflt, hidden, later: hid.posts.length };""",
     "here_probability": """
       const live = Object.assign({}, D.LIVE1, { here: { every: 10, sample: 0.001 } });
       const t = rig([live], [STATIC], { random: () => 0.5 });
       await t.open();
       await t.advance(100000);
-      out.v = t.posts.length;                       // the first only: 0.5 is never below 0.001""",
+      out.v = t.posts.length;                       // 0.5 is never below 0.001""",
     "here_fails": """
       const t = rig([D.LIVE1], [STATIC]);
       t.hereFails = true;
@@ -872,7 +888,7 @@ def test_check_ins_follow_the_live_document_and_skip_a_hidden_tab(tmp_path):
 
 @needs_node
 def test_the_probability_gate_uses_here_sample(tmp_path):
-    assert run_public(tmp_path, "here_probability") == 1
+    assert run_public(tmp_path, "here_probability") == 0
 
 
 @needs_node
@@ -896,12 +912,13 @@ def test_the_header_counts_watchers_like_1_2k_and_hides_zero(tmp_path):
         "const e = { h: { hidden: true }, n: { textContent: '' } };\n"
         "const $ = (id) => (id === 'h-watching' ? e.h : e.n);\n"
         "const setText = (el, t) => { el.textContent = t; };\n" + fmt + show +
-        "const out = {};\nfor (const v of [0, undefined, 1, 999, 1000, 1234, 9949, 9950, 12000, 150000]) {\n"
+        "const out = {};\nfor (const v of [0, undefined, 1, 999, 1000, 1234, 9949, 9950, 12000, 150000, 999499, 999500, 1234567, 15000000]) {\n"
         "  showWatching(v); out[String(v)] = e.h.hidden ? null : e.n.textContent; }\n"
         "console.log(JSON.stringify(out));\n")
     out = json.loads(subprocess.run([NODE, str(script)], capture_output=True, text=True, check=True).stdout)
     assert out == {"0": None, "undefined": None, "1": "1", "999": "999", "1000": "1.0k", "1234": "1.2k", "9949": "9.9k",
-                   "9950": "10k", "12000": "12k", "150000": "150k"}
+                   "9950": "10k", "12000": "12k", "150000": "150k",
+                   "999499": "999k", "999500": "1.0M", "1234567": "1.2M", "15000000": "15M"}
 
 
 def test_the_header_has_the_watching_count_with_a_person_icon():
@@ -909,3 +926,8 @@ def test_the_header_has_the_watching_count_with_a_person_icon():
     assert re.search(r'<span class="watching" id="h-watching" hidden [^>]*><span class="ico" data-ico="person"></span>'
                      r'<span><b class="num" id="h-watching-n">0</b> watching</span></span>', html)
     assert 'html.lz-ui[data-skin="limezu"] .watching' in (WEB / "style.css").read_text()
+
+
+@needs_node
+def test_the_first_check_in_obeys_the_sample_and_a_hidden_tab(tmp_path):
+    assert run_public(tmp_path, "here_first") == {"gated": 0, "dflt": 1, "hidden": 0, "later": 1}

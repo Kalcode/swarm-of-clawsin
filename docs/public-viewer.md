@@ -60,17 +60,20 @@ You need `cloudflared` installed (`brew install cloudflared`) and a domain on Cl
 ## The watching count
 
 The header shows "N watching". Edge caching hides every watcher's poll from the Mac, so each open page also sends a small
-uncached check-in: `POST /public/here` with `{"id": "<32 hex>"}`, once after the first `live.json`, then every 30 s
-(`here.every`) with probability `here.sample`, never while the tab is hidden. The Mac counts the distinct ids it heard
+uncached check-in: `POST /public/here` with `{"id": "<32 hex>"}`, once after the first `live.json` (with probability `here.sample` like every
+later one), then every 30 s (`here.every`), never while the tab is hidden, so the count means visible tabs. The Mac counts the distinct ids it heard
 from in the last 90 s (at most 5 per address, 100,000 in all) and puts the number in `live.json` as `watching`, so
 everyone gets it through the cache they already poll.
 
 - **Privacy:** the id is random per page load, made in the browser and kept in memory (no cookie, no localStorage). The
   Mac keeps ids and addresses in memory only, an address as a hash salted with a random value made at boot; nothing is
   saved, logged or published but the total.
-- **Ceiling:** `here.sample` shrinks as the crowd grows (smoothed over about a minute), so the origin hears about 10
-  check-ins a second at most, however many are watching. Past roughly 300 watchers the count is an estimate. It is
-  corrected for the chance that a page is heard at all within the window (three tries), not just divided by the sample.
+- **Ceiling:** `here.sample` shrinks as the crowd grows, so in steady state the origin hears about 10 check-ins a second
+  however many are watching. When a crowd arrives all at once it overshoots for a few seconds (the sample moves within
+  two publishes, but cached `live.json` and the smoothing delay it), and the rate-limit rule bounds that. Past roughly
+  300 watchers the count is an estimate: each id is weighted by the chance it was heard at the sample in force when it
+  checked in, and the published value is smoothed over about 30 s. After a big drop it takes about 4 minutes to settle.
+- **Address:** `CF-Connecting-IP` is believed only from this machine (cloudflared); IPv6 counts as its /64.
 - **Cloudflare:** it never caches a POST, so no new cache rule is needed. The rate-limit rule already covers
   `/public/here` (it is under `/public/`, outside `/public/app/`): a watcher sends about 2 requests a minute.
 - The home-network viewer shows the same count (its metrics message carries `watching`).
