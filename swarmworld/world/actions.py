@@ -82,6 +82,7 @@ class Intention:
     speech: str = ""
     plan: list[str] = field(default_factory=list)
     step_done: bool = False
+    said: str = ""  # the verb as it was said, when that was an alias ("climb_up" for climb): it may say which way
 
     def summary(self) -> str:
         bits = [self.action]
@@ -178,6 +179,7 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
         speech=str(raw.get("speech") or "").strip().strip('"')[:200],
         plan=plan,
         step_done=raw.get("step_done") is True,
+        said=said if said != action else "",
     )
 
 
@@ -214,30 +216,53 @@ def find_creature(world: World, c: Creature, target: str, max_dist: int | None =
 LANDMARK_WALK = 30  # how far a named place can be and still be walked to
 
 
-def _landmark_matches(world: World, c: Creature, target: str, same: bool) -> dict | None:
-    t = " ".join(_words(target.replace("'", "'")))
+def _loosely_named(t: str, name: str) -> bool:
+    """The target names the place: its name, the name within the target, or (over 3 letters) the target within it."""
+    return bool(name) and (name == t or name in t or (t in name and len(t) > 3))
+
+
+def _wholly_named(words: list[str], name: list[str]) -> bool:
+    """The target's words hold the place's whole name, word for word ("the dripping hall below")."""
+    n = len(name)
+    return n > 0 and any(words[i:i + n] == name for i in range(len(words) - n + 1))
+
+
+def find_landmark(world: World, c: Creature, target: str) -> dict | None:
+    """A named place the creature would know: in its own region, within a long walk, matched by its name (a place
+    known "by_sight", like a cave mouth, once it has seen it)."""
+    t = " ".join(_words(target))
     if not t:
         return None
     best = None
     for lm in getattr(world, "landmarks", []):
-        if world.same_region((c.x, c.y), (lm["x"], lm["y"])) != same:
+        if not world.same_region((c.x, c.y), (lm["x"], lm["y"])) or not _loosely_named(t, " ".join(_words(lm["name"]))):
             continue
-        name = " ".join(_words(lm["name"]))
-        if name and (name == t or name in t or (t in name and len(t) > 3)):
-            d = dist(c.x, c.y, lm["x"], lm["y"])
-            if (not same or d <= LANDMARK_WALK) and (best is None or d < best[0]):
-                best = (d, lm)
+        d = dist(c.x, c.y, lm["x"], lm["y"])
+        if lm.get("by_sight") and lm["name"] not in c.landmarks_seen and d > sight_range(world, c):
+            continue
+        if d <= LANDMARK_WALK and (best is None or d < best[0]):
+            best = (d, lm)
     return best[1] if best else None
 
 
-def find_landmark(world: World, c: Creature, target: str) -> dict | None:
-    """A named place the creature would know: in its own region, within a long walk, matched by its name."""
-    return _landmark_matches(world, c, target, True)
-
-
 def landmark_elsewhere(world: World, c: Creature, target: str) -> dict | None:
-    """A named place matching the target in another region, at any distance."""
-    return _landmark_matches(world, c, target, False)
+    """A named place in another region, at any distance, that the creature has known (c.landmarks_seen) and the
+    target names wholly; none when a place in its own region goes by the target, even one too far to walk to."""
+    words = _words(target)
+    t = " ".join(words)
+    if not t:
+        return None
+    best = None
+    for lm in getattr(world, "landmarks", []):
+        name = _words(lm["name"])
+        if world.same_region((c.x, c.y), (lm["x"], lm["y"])):
+            if _loosely_named(t, " ".join(name)):
+                return None
+        elif lm["name"] in c.landmarks_seen and _wholly_named(words, name):
+            d = dist(c.x, c.y, lm["x"], lm["y"])
+            if best is None or d < best[0]:
+                best = (d, lm)
+    return best[1] if best else None
 
 
 def way_to_region(world: World, c: Creature, region: Region) -> str:

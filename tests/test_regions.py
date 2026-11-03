@@ -142,3 +142,13 @@ def test_a_save_from_before_regions_restores_one_surface(tmp_path):
     assert w.regions[0] == Region("surface", 0, 0, data["world"]["height"], True, True) and w.seed is None
     assert [r.name for r in w.regions] == ["surface", "deep"]  # and the underground pack grows its deep on load
     assert w.skylight == set()
+
+
+def test_spawn_point_is_never_in_water(two_levels):
+    """Shallow water is walkable, but nobody wakes in it: here the only dry land is 8 steps from the meadow's heart."""
+    w = two_levels(24)
+    for y in range(24):
+        for x in range(24):
+            w.set_tile(x, y, "w")
+    w.set_tile(20, 12, "g")
+    assert all(w.spawn_point() == (20, 12) for _ in range(20))

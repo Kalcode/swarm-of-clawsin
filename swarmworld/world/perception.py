@@ -99,8 +99,9 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
                 d = dist(c.x, c.y, x, y)
                 if "water" not in nearest or d < nearest["water"][0]:
                     nearest["water"] = (d, x, y)
-    for lm in getattr(world, "landmarks", []):
-        if dist(c.x, c.y, lm["x"], lm["y"]) <= LANDMARK_RANGE and world.same_region((c.x, c.y), (lm["x"], lm["y"])):
+    for lm in getattr(world, "landmarks", []):  # known when near; a place known "by_sight" (a cave mouth) when seen
+        if (dist(c.x, c.y, lm["x"], lm["y"]) <= (r if lm.get("by_sight") else LANDMARK_RANGE)
+                and world.same_region((c.x, c.y), (lm["x"], lm["y"]))):
             c.landmarks_seen.add(lm["name"])
     for kind, (x, y, _t) in list(c.spots.items()):
         if kind not in nearest and dist(c.x, c.y, x, y) <= r and world.same_region((c.x, c.y), (x, y)):  # should be in view, isn't: it's gone
@@ -128,8 +129,21 @@ def glow_light(world: World, x: int, y: int) -> int:
     return min(1 + reach, SOFT_SIGHT) if reach else 0
 
 
+def lent_light(world: World, c: Creature) -> tuple[int, Creature | None]:
+    """The light someone else here carries that reaches you: (its reach, its bearer), the widest and then the nearest,
+    or (0, None)."""
+    best: tuple[int, int, Creature | None] = (0, 0, None)
+    for o in world.creatures.values():
+        n = carried_light(o)[0] if o is not c else 0
+        d = dist(c.x, c.y, o.x, o.y)
+        if n and d <= n and (n, -d) > best[:2] and world.same_region((c.x, c.y), (o.x, o.y)):
+            best = (n, -d, o)
+    return best[0], best[2]
+
+
 def _light(world: World, c: Creature) -> tuple[int, str]:
-    """(how far the light alone lets you see, where it comes from: day, fire, carried, glow or dark)."""
+    """(how far the light alone lets you see, where it comes from: day, fire, carried, lent, glow or dark). Below the
+    sky, a light someone near carries lights you too ("lent")."""
     sky = world.under_sky(c.x, c.y)
     if sky and world.clock()["phase"] != "night":
         return DAY_SIGHT, "day"
@@ -145,7 +159,11 @@ def _light(world: World, c: Creature) -> tuple[int, str]:
             base, src = glow_light(world, c.x, c.y), "glow"
     carried = carried_light(c)[0]
     if carried > base:
-        return carried, "carried"
+        base, src = carried, "carried"
+    if not sky:
+        lent = lent_light(world, c)[0]
+        if lent > base:
+            return lent, "lent"
     return base, src
 
 
@@ -197,12 +215,13 @@ def visible_objects(world: World, creature: Creature, rng: int | None = None) ->
 
 def visible_creatures(world: World, creature: Creature, rng: int | None = None) -> list[tuple[Creature, int, str]]:
     r = sight_range(world, creature) if rng is None else rng
+    glowing = rng is None and r < DAY_SIGHT and not world.under_sky(creature.x, creature.y)  # below, in the dark
     out = []
     for c in world.creatures.values():
         if c.id == creature.id or not world.same_region((creature.x, creature.y), (c.x, c.y)):
             continue
         d = dist(creature.x, creature.y, c.x, c.y)
-        if d <= r:
+        if d <= r or (glowing and d <= GLOW_SIGHT and carried_light(c)[0]):  # a light carried shows from afar, as fires
             out.append((c, d, direction(c.x - creature.x, c.y - creature.y)))
     out.sort(key=lambda t: t[1])
     return out
@@ -314,9 +333,12 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
     item = world.catalog.name(carried_light(c)[1]) if source == "carried" else ""
     weather = ""
     if not sky:
+        _, bearer = lent_light(world, c) if source == "lent" else (0, None)
+        lent = f"{bearer.name}'s {world.catalog.name(carried_light(bearer)[1])}" if bearer else ""
         light = {"dark": "Down here it is pitch dark; you feel cold stone around you.",
                  "fire": "Down here it is always dark, but firelight flickers on the stone.",
                  "carried": f"Down here it is always dark, but your {item} lights the stone around you.",
+                 "lent": f"Down here it is always dark, but {lent} lights the stone around you.",
                  "glow": "Down here it is always dark, but a soft glow lets you see a step or two."}[source]
     else:
         light = ("" if phase != "night" else
@@ -402,14 +424,18 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
                 if act:
                     desc += f", {act}"
             tool = next((world.catalog.name(t) for t in ("copper_pickaxe", "stone_pickaxe", "stone_axe", "stone_knife") if o.inventory.get(t)), None)
-            if tool:
-                desc += f", carrying a {tool}"
+            lamp = None if sky else carried_light(o)[1]  # below, a light someone carries is the first thing you see
+            held = [n for n in (lamp and world.catalog.name(lamp), tool) if n]
+            if held:
+                desc += ", carrying a " + " and a ".join(held)
             parts.append(desc)
         lines.append("Others: " + "; ".join(parts) + ".")
 
     marks = []
     for lm in getattr(world, "landmarks", []):
         d = dist(c.x, c.y, lm["x"], lm["y"])
+        if lm.get("by_sight") and d > r and lm["name"] not in c.landmarks_seen:  # not seen yet: not a place it knows
+            continue
         if d <= LANDMARK_RANGE and world.same_region((c.x, c.y), (lm["x"], lm["y"])):
             marks.append((d, "you are at " + lm["name"] if d <= 3 else f"{lm['name']} {_where(d, direction(lm['x'] - c.x, lm['y'] - c.y))}"))
     if marks:

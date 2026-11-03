@@ -355,8 +355,9 @@ class World:
         cx, cy = self.center
         surface = self.region("surface")
 
-        def free(x: int, y: int) -> bool:
-            return surface.y0 <= y < surface.y1 and self.walkable(x, y) and not self.object_at(x, y)
+        def free(x: int, y: int) -> bool:  # dry, open ground on the surface: nobody wakes in water
+            return (surface.y0 <= y < surface.y1 and self.walkable(x, y) and self.tiles[y][x] not in WATER_TILES
+                    and not self.object_at(x, y))
 
         for _ in range(500):
             x = cx + self.rng.randint(-radius, radius)

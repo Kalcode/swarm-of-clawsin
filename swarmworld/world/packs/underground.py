@@ -10,12 +10,14 @@ swarmworld/data/packs/underground/).
 - Portals: a way down and its way up, each end an object ("up" is the end on the surface, "down" the end in the deep):
   a cave mouth and its exit, and later a mine shaft or an open pit with a ladder below.
 - Landmarks: the four largest caverns and the pool by name, each way down by its name and its way up as "the way up to
-  <name>". Creatures hear of a place only in its own region.
+  <name>". Creatures hear of a place only in its own region, and know a way's ("by_sight") once they have seen it or
+  been told of it by the way line.
 - What lies in the deep: iron and copper veins, coal seams, crystal clusters, cave mushrooms and loose rock on the cave
   floor, placed once (`_stock_deep`).
 
 - Torches: a torch (stick, plant fiber, charcoal) is lit at a burning campfire or from someone's lit torch, burns
-  TORCH_TICKS carried (c.ext["underground"]["torch_until"]) and lights the dark; then it is a stick.
+  TORCH_TICKS carried (c.ext["underground"]["torch_until"]; handed on, it keeps what it had left) and lights the dark,
+  its bearer's way and that of anyone in its reach; then it is a stick.
 - Climbing: the verb `climb` takes a creature from beside one end of a way to the other end (or the nearest free tile
   beside it), and a creature that doesn't know where a way is walks to the nearest it saw, remembers or climbed.
   Climbing down into a shaft's or a pit's chamber that is still sealed in the rock, it is told so.
@@ -24,7 +26,7 @@ swarmworld/data/packs/underground/).
   placed or carried and never burns out, and one ordinary terminal with a hint-tablet stands on the deep floor farthest
   (by walking) from every cave exit; world.ext["underground"]["terminal"] = {"x", "y"}.
 
-State: c.ext["underground"] = {"ways": [portal ids climbed or seen], "told": last way line}.
+State: c.ext["underground"] = {"ways": [portal ids climbed, seen or told of], "told": last way line}.
 State: world.ext["underground"] = {"seed": int, "next_portal": int, "placed": bool, "caves": [{"name", "x", "y"}], "portals": [{"id", "kind", "name",
 "up": [x, y], "down": [x, y], and for a shaft or pit "chamber": [[x, y], ...], the chamber dug below it}]}. Nothing here draws from world.rng or the generator's rng (the deep and its mouths
 roll their own random.Random, seeded from the deep's seed), so the surface's weather, animals and placement roll as
@@ -34,6 +36,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import zlib
 from collections import Counter
 from typing import TYPE_CHECKING
@@ -45,8 +48,9 @@ from ..caves import BORDER, carve_deep, carve_passage, tile_codes
 from ..catalog import DATA
 from ..model import LIGHT_ITEMS, SOLID_TILES, WATER_TILES
 from ..perception import DARK_SIGHT, direction, dist
-from ..registry import (ANIMALS, BLOCKING, KINDS, STORES, Technique, register_handoff, register_landmarks, register_perception,
-                        register_populate, register_system, register_technique, register_verb)
+from ..registry import (ALIAS_TARGETS, ANIMALS, BLOCKING, KINDS, STORES, Technique, register_handoff,
+                        register_landmarks, register_perception, register_populate, register_system, register_technique,
+                        register_verb)
 
 if TYPE_CHECKING:  # never at the top for real: simulation imports the packs (see registry.py)
     from ..actions import ActionResult, Intention
@@ -375,9 +379,10 @@ def _places(world: World) -> list[dict]:
     out = [{"name": c["name"], "x": c["x"], "y": c["y"], "kind": "cave"} for c in mine.get("caves", ())]
     if "terminal" in mine:
         out.append({"name": "the ancient terminal", "x": mine["terminal"]["x"], "y": mine["terminal"]["y"], "kind": "terminal"})
-    for p in mine.get("portals", ()):
-        out.append({"name": p["name"], "x": p["up"][0], "y": p["up"][1], "kind": "way down"})
-        out.append({"name": f"the way up to {p['name']}", "x": p["down"][0], "y": p["down"][1], "kind": "way up"})
+    for p in mine.get("portals", ()):  # a way is a place a creature knows once it has seen it (or been told of it)
+        out.append({"name": p["name"], "x": p["up"][0], "y": p["up"][1], "kind": "way down", "by_sight": True})
+        out.append({"name": f"the way up to {p['name']}", "x": p["down"][0], "y": p["down"][1], "kind": "way up",
+                    "by_sight": True})
     return out
 
 
@@ -393,11 +398,33 @@ UP_WORDS = {"up", "surface", "daylight", "outside", "above", "ascend"}
 CLIMB_LINE = ('climb (target "down" or "up"): climb down into the deep at a cave mouth, shaft or open pit beside you, '
               'or back up at a cave exit or ladder.')
 DEEP_PHRASES = {"deep", "underground", "caves below", "the deep below", "deep below", "the deep"}
+LEAVING = re.compile(r"\b(?:out|leave|leaving|exit|from)(?: of)?(?: the)? (?:deep|underground|below|caves below)\b")
 CROWDED_REACH = 2  # how far from a crowded end a creature may arrive
 
 
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z]+", text.lower())
+
+
 def _words(text: str) -> set[str]:
-    return set(text.lower().replace("_", " ").split())
+    return set(_tokens(text))
+
+
+def _aim(world: World, c: Creature, it: Intention) -> str | None:
+    """Which way a climb means: "down", "up" or None (not said). An alias that says the way ("climb_up") or the word
+    "up" wins; leaving the deep ("out of the deep", "leave the deep", "from underground", "out of the caves below") is
+    up; with words both ways, the way away from where the creature is (below, up)."""
+    said = ALIAS_TARGETS.get(it.said)
+    if said in ("down", "up"):
+        return said
+    tokens = _tokens(it.target)
+    words = set(tokens)
+    if "up" in words or LEAVING.search(" ".join(tokens)):
+        return "up"
+    down, up = bool(words & DOWN_WORDS), bool(words & UP_WORDS)
+    if down and up:
+        return "up" if _level(world, c.x, c.y) < 0 else "down"
+    return "down" if down else "up" if up else None
 
 
 def _level(world: World, x: int, y: int) -> int:
@@ -441,12 +468,13 @@ def _known_ends(world: World, c: Creature, sight_only: bool = False) -> list[tup
 
 
 def _arrival(world: World, c: Creature, pos: tuple[int, int]) -> tuple[int, int] | None:
-    """The tile to arrive on: the end itself if walkable and free, else the nearest free walkable tile within reach."""
+    """The tile to arrive on: the end itself if walkable, dry and free, else the nearest such tile within reach."""
     best = None
     for dy in range(-CROWDED_REACH, CROWDED_REACH + 1):
         for dx in range(-CROWDED_REACH, CROWDED_REACH + 1):
             x, y = pos[0] + dx, pos[1] + dy
-            if world.walkable(x, y) and world.same_region(pos, (x, y)) and not world.occupied(x, y, ignore=c.id):
+            if (world.walkable(x, y) and world.tile(x, y) not in WATER_TILES and world.same_region(pos, (x, y))
+                    and not world.occupied(x, y, ignore=c.id)):
                 key = (max(abs(dx), abs(dy)), abs(dx) + abs(dy), y, x)
                 if best is None or key < best[0]:
                     best = (key, (x, y))
@@ -475,9 +503,8 @@ def _sealed(world: World, p: dict, pos: tuple[int, int]) -> bool:
 
 def _climb(world: World, c: Creature, it: Intention) -> ActionResult:
     from ..actions import ActionResult, Intention, _adjacent_goals, _busy, start_walk
-    words = _words(it.target)
     level = _level(world, c.x, c.y)
-    want = "down" if words & DOWN_WORDS else "up" if words & UP_WORDS else None
+    want = _aim(world, c, it)
     near = portal_near(world, c.x, c.y, 1)
     if near:
         p, end = near  # "up" is the end on the surface, which leads down
@@ -530,13 +557,14 @@ def _way_to_region(world: World, c: Creature, region: Region) -> str:
 
 
 def _handoff_climb(world: World, c: Creature, it: Intention) -> bool:
-    words = _words(it.target)
+    tokens = _tokens(it.target)
+    words = set(tokens)
     if words in ({"down"}, {"up"}):
         return True
     below = _level(world, c.x, c.y) < 0
     if below:
-        return bool(words & {"surface", "daylight", "outside"})
-    phrase = " ".join(w for w in it.target.lower().replace("_", " ").split() if w != "the")
+        return bool(words & {"surface", "daylight", "outside"} or LEAVING.search(" ".join(tokens)))
+    phrase = " ".join(w for w in tokens if w != "the")
     return phrase in DEEP_PHRASES  # "deep water" and the like stay plain walks
 
 
@@ -544,8 +572,20 @@ def _climb_fits(world: World, c: Creature) -> float | None:
     return 6.4 if portal_near(world, c.x, c.y, 1) else None
 
 
+def _told(world: World, c: Creature, p: dict, end: str) -> None:
+    """A way end the creature is told of is one it knows: a known way, a remembered spot and a known place, so climb
+    and walk_to find what it was just told (at night or in the dark it may lie beyond sight)."""
+    if p["id"] not in _ways(c):
+        _ways(c).append(p["id"])
+    x, y = p[end]
+    o = world.object_at(x, y)
+    if o:
+        c.spots[o.kind] = (x, y, world.tick)
+    c.landmarks_seen.add(_end_name(p, end))
+
+
 def _way_line(world: World, c: Creature) -> str | None:
-    """The way down or up near you, said when it changes and when you wake."""
+    """The way down or up near you, said when it changes and when you wake. A way it names becomes known (_told)."""
     _known_ends(world, c, sight_only=True)  # notes the ends in sight as known ways
     surface = _level(world, c.x, c.y) >= 0
     near = sorted(((dist(c.x, c.y, *pos), p, end, pos) for p, end, pos in _ends_here(world, c)
@@ -555,6 +595,7 @@ def _way_line(world: World, c: Creature) -> str | None:
         for d, p, end, pos in near:
             if end != "up":
                 continue
+            _told(world, c, p, end)
             where = perception._where(d, direction(pos[0] - c.x, pos[1] - c.y))
             if p["kind"] == "cave":
                 line = f"A dark cave mouth opens {where}; cool air breathes out of it."
@@ -571,9 +612,14 @@ def _way_line(world: World, c: Creature) -> str | None:
         for d, p, end, pos in near:
             if end != "down":
                 continue
+            _told(world, c, p, end)
             where = perception._where(d, direction(pos[0] - c.x, pos[1] - c.y))
-            line = (f"Grey daylight glimmers {where}: the way up to {p['name']}." if p["kind"] == "cave"
-                    else f"A ladder {where} leads up to {p['name']}.")
+            if p["kind"] != "cave":
+                line = f"A ladder {where} leads up to {p['name']}."
+            elif world.clock()["phase"] != "night":  # the surface's clock: day or night above
+                line = f"Grey daylight glimmers {where}: the way up to {p['name']}."
+            else:
+                line = f"Night air drifts in {where}: the way up to {p['name']} opens to the night sky."
             break
         else:
             known = [t for t in _known_ends(world, c) if t[2] == "down"]
@@ -651,6 +697,8 @@ def _torch_out(sim, c: Creature) -> None:
     c.inventory["stick"] += 1
     mine = c.ext[PACK]
     mine.pop("torch_until", None)
+    if c.inventory.get("lit_torch"):  # another lit torch carried burns on from now
+        mine["torch_until"], mine["torch_said"] = w.tick + TORCH_TICKS, 0
     text = "Your torch burned out, leaving a charred stick."
     if not w.under_sky(c.x, c.y) and perception.light_range(w, c) == DARK_SIGHT:
         text += " It is pitch dark."
@@ -658,7 +706,16 @@ def _torch_out(sim, c: Creature) -> None:
 
 
 def _torches(sim, t: int) -> None:
+    """Every TORCH_EVERY ticks: torches burn down and out. A lit torch that changed hands since the last pass (given,
+    or dropped or stored and picked up before it guttered out) keeps the burn it had: its new holder takes the burn
+    let go of by the nearest creature that no longer holds a lit torch; one from nowhere (a gift from the sky) burns
+    afresh."""
     w = sim.world
+    let_go = []  # (until, creature): burns of lit torches that left their holders
+    for c in w.creatures.values():
+        mine = c.ext.get(PACK) or {}
+        if "torch_until" in mine and not c.inventory.get("lit_torch") and not (c.collapsed or c.asleep):
+            let_go.append((mine.pop("torch_until"), c))
     for c in w.creatures.values():
         mine = c.ext.get(PACK) or {}
         if c.collapsed or c.asleep:  # a body in stasis or collapsed burns nothing: the torch waits
@@ -666,11 +723,15 @@ def _torches(sim, t: int) -> None:
                 mine["torch_until"] += TORCH_EVERY
             continue
         if not c.inventory.get("lit_torch"):
-            mine.pop("torch_until", None)
-        elif "torch_until" not in mine:  # lit when it came to this holder: a fresh burn
+            continue
+        if "torch_until" not in mine:  # lit when it came to this holder
+            here = [g for g in let_go if w.same_region((c.x, c.y), (g[1].x, g[1].y))]
+            came = min(here, key=lambda g: dist(c.x, c.y, g[1].x, g[1].y), default=None)
+            if came:
+                let_go.remove(came)
             m = c.ext.setdefault(PACK, {})
-            m["torch_until"], m["torch_said"] = t + TORCH_TICKS, 0
-        elif t >= mine["torch_until"]:
+            m["torch_until"], m["torch_said"] = came[0] if came else t + TORCH_TICKS, 0
+        if t >= c.ext[PACK]["torch_until"]:
             _torch_out(sim, c)
     for (x, y), pile in list(w.ground.items()):  # a lit torch not carried gutters out
         n = pile.get("lit_torch", 0)

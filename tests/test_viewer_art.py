@@ -318,7 +318,8 @@ def test_the_viewer_times_each_object_move_from_its_own_start():
     assert "SwarmMotion.slide(a, now, S.tickMs)" in src            # objPos uses the move's own clock, not S.tickAt
 
 
-# The deep (underground plan, Task 14): its tiles and every new kind draw in the Kenney and ASCII skins, never "?".
+# The deep (underground plan, Task 14): its tiles and every kind (the deep's new ones among them) draw in the Kenney and
+# ASCII skins, never "?".
 DEEP_KINDS = {"coal_seam", "crystal_cluster", "cave_mushrooms", "cave_mushrooms_picked", "cave_mouth", "cave_exit",
               "mine_shaft", "ladder", "open_pit", "crystal_lamp", "terminal", "tablet"}
 DEEP_ITEMS = {"torch": "torch", "lit_torch": "lit torch", "dirt": "dirt", "crystal_lamp": "crystal lamp", "coal": "coal",
@@ -365,7 +366,8 @@ def test_the_new_kinds_render_without_a_question_mark(tmp_path):
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
     got = json.loads(r.stdout)
-    for kind in DEEP_KINDS:
+    assert set(got["kenney"]) == set(got["ascii"]) == set(kinds)
+    for kind in kinds:                                                     # every kind the world names, the deep's too
         k, a = got["kenney"][kind], got["ascii"][kind]
         assert "?" not in k["drawn"], (kind, k)                            # a sprite or its glyph, in Kenney's skin
         if k["look"]["type"] == "glyph":

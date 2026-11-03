@@ -1,4 +1,6 @@
-from swarmworld.world.catalog import Catalog
+import json
+
+from swarmworld.world.catalog import Catalog, data_files
 
 
 def test_resolve_aliases():
@@ -32,10 +34,18 @@ def test_recipe_for():
 
 
 def test_every_recipe_references_known_items():
+    """Every recipe in every recipes.json, the core's and each pack's, alternatives too, names items of the default
+    catalog: an alternative that leans on another pack's item (a crystal lamp from crystal and a food-pack clay pot)
+    fails here if that item goes."""
     cat = Catalog.load()
-    for r in cat.recipes:
-        assert r.output in cat.items
-        for i in list(r.inputs) + r.tools:
-            assert i in cat.items, i
-        if r.station:
-            assert r.station in cat.items
+    seen = []
+    for source, path in data_files("recipes.json"):
+        for r in json.loads(path.read_text()):
+            seen.append((source, r["output"], bool(r.get("alt"))))
+            for i in [r["output"], *r["inputs"], *r.get("tools", [])]:
+                assert i in cat.items, (source, r["output"], i)
+            if r.get("station"):
+                assert r["station"] in cat.items, (source, r["output"], r["station"])
+    assert len(seen) == len(cat.recipes) and {s for s, _, _ in seen} > {"recipes.json"}
+    assert ("packs/underground/recipes.json", "crystal_lamp", True) in seen
+    assert any(r.output == "crystal_lamp" and r.alt and "clay_pot" in r.inputs for r in cat.recipes)

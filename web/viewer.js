@@ -2219,7 +2219,8 @@
       }
     }
 
-    const V = { S, skin: SK, ox, oy, ts, x0, y0, x1, y1, vw, vh, dpr, now, dt, zoom: Z.view, sky: R.sky };   // no weather below
+    const V = { S, skin: SK, ox, oy, ts, x0, y0, x1, y1, vw, vh, dpr, now, dt, zoom: Z.view, sky: R.sky,   // no weather below
+                skylit: R.sky ? null : SwarmLayers.skylitTiles(R, S.tiles, S.regions) };           // but rain into open pits
     if (FX) FX.under(ctx, V);
 
     // Objects and creatures are drawn back to front so tall sprites (trees,
@@ -2421,11 +2422,13 @@
         hole(cx, cy, r, [[0, 0.9 * k], [0.5, 0.5 * k], [1, 0]]);
       } else hole(cx, cy, r, [[0, 1], [0.5, 0.8], [1, 0]]);
     }
-    // without a light, an awake creature sees a step around it (the deep's sight), and so does the viewer
+    // without a light, an awake creature sees a step around it (the deep's sight), and so does the viewer; a sleeper
+    // sees nothing, but keeps a faint hole so it can be found
     for (const e of list) {
-      if (e.d.asleep || e.d.light > 0) continue;
-      const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts, r = 1.5 * ts;
-      if (onScreen(cx, cy, r)) hole(cx, cy, r, [[0, 0.5], [1, 0]]);
+      const h = SwarmLayers.darkHole(e.d);
+      if (!h) continue;
+      const cx = ox + (e.rx + 0.5) * ts, cy = oy + (e.ry + 0.5) * ts, r = h.r * ts;
+      if (onScreen(cx, cy, r)) hole(cx, cy, r, [[0, h.a], [1, 0]]);
     }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
