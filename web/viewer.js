@@ -348,7 +348,7 @@
         const jump = Math.abs(o.x - cur.x) > 2.5 || Math.abs(o.y - cur.y) > 2.5;
         const mx = o.x - prev.x, my = o.y - prev.y;
         S.objAnim.set(o.id, {
-          fx: jump ? o.x : cur.x, fy: jump ? o.y : cur.y, tx: o.x, ty: o.y,
+          fx: jump ? o.x : cur.x, fy: jump ? o.y : cur.y, tx: o.x, ty: o.y, at: now,
           dir: Math.abs(mx) >= Math.abs(my) ? (mx > 0 ? 'right' : 'left') : (my > 0 ? 'down' : 'up'),
         });
         if (a && jump) S.objAnim.get(o.id).dir = a.dir;
@@ -415,8 +415,8 @@
   function objPos(o, now) {
     const a = S.objAnim.get(o.id);
     if (!a) return { x: o.x, y: o.y, moving: false, dir: 'down' };
-    const t = clamp((now - S.tickAt) / S.tickMs, 0, 1);
-    return { x: a.fx + (a.tx - a.fx) * t, y: a.fy + (a.ty - a.fy) * t, moving: t < 1 && (a.fx !== a.tx || a.fy !== a.ty), dir: a.dir };
+    const p = SwarmMotion.slide(a, now, S.tickMs);  // each move's own clock: a later tick doesn't restart it
+    return { x: p.x, y: p.y, moving: p.t < 1 && (a.fx !== a.tx || a.fy !== a.ty), dir: a.dir };
   }
 
   function lerpPos(e, now) {

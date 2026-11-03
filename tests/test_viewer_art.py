@@ -282,3 +282,36 @@ def test_limezu_roofs_come_from_the_roof_sheet(tmp_path):
     assert out["beforeLoad"] >= 1                 # without its sheets the Kenney roof stands in
     assert out["loaded"] is True and out["drawn"] >= 1 and out["fromSheet"]
     assert {"tent", "hut", "storehouse", "workshop"} <= set(out["designs"])
+
+
+# Moving things (wild game, farm animals) slide between ticks. Each move keeps its own clock: a later tick must
+# not restart an earlier, finished move, or every animal snaps back a tile and slides again (rubber banding).
+MOTION_HARNESS = r"""
+const fs = require('fs');
+global.window = global;
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+const M = window.SwarmMotion;
+const move = { fx: 10, fy: 5, tx: 11, ty: 5, at: 0 };   // a deer steps east on the tick at t=0
+const out = { mid: M.slide(move, 500, 1000), later: M.slide(move, 1010, 1000), much_later: M.slide(move, 5000, 1000),
+              before: M.slide(move, -50, 1000) };
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_a_finished_move_stays_finished_when_the_next_tick_arrives(tmp_path):
+    harness = tmp_path / "motion.js"
+    harness.write_text(MOTION_HARNESS)
+    r = subprocess.run([NODE, str(harness), str(WEB / "motion.js")], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    p = json.loads(r.stdout)
+    assert p["mid"]["x"] == pytest.approx(10.5) and p["mid"]["t"] == pytest.approx(0.5)
+    assert p["later"]["x"] == 11 and p["later"]["t"] == 1          # the next tick doesn't send it back to 10
+    assert p["much_later"]["x"] == 11 and p["before"]["x"] == 10
+
+
+def test_the_viewer_times_each_object_move_from_its_own_start():
+    src = (WEB / "viewer.js").read_text()
+    html = (WEB / "index.html").read_text()
+    assert html.index('src="motion.js"') < html.index('src="viewer.js"')
+    assert "SwarmMotion.slide(a, now, S.tickMs)" in src            # objPos uses the move's own clock, not S.tickAt
