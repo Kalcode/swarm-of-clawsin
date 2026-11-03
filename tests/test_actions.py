@@ -732,3 +732,14 @@ def test_a_station_named_among_the_ingredients_is_where_you_work_not_what_you_us
     world.add_object("campfire", 11, 10, lit=True, lit_until=world.tick + 1000)
     res = act(world, c, action="combine", items=["fish", "campfire"])
     assert res.ok and c.inventory.get("cooked_fish", 0) == 1
+
+
+def test_stone_shortfall_points_to_boulders_and_the_caves(world):
+    c = creature(world)
+    c.known_recipes.add("stone_axe")
+    c.inventory.update({"stick": 1, "plant_fiber": 1})
+    res = act(world, c, action="craft", target="stone axe")
+    assert not res.ok and "caves below" in res.message and "cave mouth" in res.message and "lies" not in res.message
+    c.spots["cave_mouth"] = (c.x, c.y - 9, world.tick)
+    res = act(world, c, action="craft", target="stone axe")
+    assert "a cave mouth you know lies north" in res.message
