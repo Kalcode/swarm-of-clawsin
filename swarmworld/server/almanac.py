@@ -253,6 +253,45 @@ def prompt_lines() -> dict[str, str]:
     return out
 
 
+# verb -> one plain sentence for a watcher (the public almanac); the prompt lines above are for the creatures
+VERB_ABOUT: dict[str, str] = {
+    "walk_to": "Walks to stand beside something or someone the creature can see.",
+    "explore": "Wanders about eight steps in one direction to find new places.",
+    "gather": "Takes materials from something beside the creature: sticks from trees (logs with an axe), berries from bushes, stone from boulders.",
+    "combine": "Tries putting carried things together to discover a recipe; some need a tool in hand or a station close by.",
+    "craft": "Makes something from a recipe the creature already knows.",
+    "eat": "Eats food from the creature's pack.",
+    "drink": "Drinks from water beside the creature.",
+    "say": "Speaks aloud, to one creature or to anyone in earshot.",
+    "give": "Hands an item to a creature nearby, feeds an animal, or feeds sticks to a campfire.",
+    "pick_up": "Picks up items lying on the ground.",
+    "drop": "Leaves carried items on the ground.",
+    "place": "Sets down a structure the creature carries, such as a campfire, workbench, chest or sign.",
+    "write": "Carves words onto a sign, tree or boulder, where anyone can read them later.",
+    "read": "Reads a sign, carving, tablet or terminal.",
+    "program": "Enters Lua code into a terminal beside the creature.",
+    "rest": "Sits still to recover energy.",
+    "wait": "Pauses and watches what happens.",
+    "plant": "Plants seeds or berries in soil that has been broken with a tool.",
+    "invent": "Makes up a brand-new item from two to four things the creature carries, and names it; the world adds it to its catalog.",
+    "store": "Puts items into a basket or chest that every creature can use.",
+    "take": "Takes items out of a basket or chest.",
+    "teach": "Shows a nearby creature how to make something the teacher knows.",
+    "wish": "Wishes aloud for something the world lacks; the sky may be listening.",
+    "recall": "Searches the creature's own memories for something it half remembers.",
+    "build": "Starts or works on a building, bringing the materials its design asks for.",
+    "dig": "Digs the ground with a tool, opening a pit or a way down into the deep.",
+    "fill_in": "Fills a pit or hole back in, closing it.",
+    "hunt": "Hunts an animal with a weapon for meat and hides.",
+    "fill": "Fills a container, such as a bottle or bucket, from water or another source.",
+    "play": "Plays with another creature or an animal, which builds friendship.",
+    "dance": "Dances, alone or with others, for the joy of it.",
+    "make_music": "Plays a tune on an instrument; creatures nearby can hear it.",
+    "climb": "Climbs down into the deep at a cave mouth, shaft or open pit, or back up to the surface.",
+    "light": "Lights a torch or lamp so the creature can see in the dark.",
+}
+
+
 def _when(t: registry.Technique) -> str:
     if t.name in TRIGGER_WORDS:
         return TRIGGER_WORDS[t.name]
@@ -376,7 +415,8 @@ def game(st: ServerState) -> dict:
         tip = mine[0].line if mine else prompt_lines().get(v) or (RECALL_HINT if v == "recall" else "")
         verbs.append({"name": v, "pack": pack_of(registry.owner("verb", v)),
                       "aliases": sorted(a for a, x in registry.VERB_ALIASES.items() if x == v),
-                      "core": v in CORE_VERBS, "tip": tip or f"{v}: (no description)", "shown": _shown(v, mine),
+                      "core": v in CORE_VERBS, "about": VERB_ABOUT.get(v, ""),
+                      "tip": tip or f"{v}: (no description)", "shown": _shown(v, mine),
                       "uses": [{"name": t.name, "line": t.line, "shown": f"As a tip, {_when(t)}."}
                                for t in uses.get(v, ())]})
     technique_list = [{"name": t.name, "line": t.line, "verbs": list(t.verbs) or [_technique_verb(t)],

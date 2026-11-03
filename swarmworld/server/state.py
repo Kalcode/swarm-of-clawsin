@@ -236,7 +236,7 @@ class ServerState:
             assigned += picked
             budget -= len(picked)
         self.harness.assign(self.world.creatures.values())
-        self.world.emit("join", None, *self.world.center, f"Brain node '{name}' joined with {len(assigned)} creatures.")
+        self.world.emit("join", None, *self.world.center, f"Brain node '{name}' joined with {len(assigned)} creatures.", brain_node=True)
         return node, assigned
 
     def transplant(self, c: Creature, tag: str) -> None:
@@ -263,7 +263,7 @@ class ServerState:
                 c.asleep = True
                 c.thinking = False
                 c.activity = None
-        self.world.emit("sleep", None, *self.world.center, f"Brain node '{node.name}' left; its creatures fell asleep.")
+        self.world.emit("sleep", None, *self.world.center, f"Brain node '{node.name}' left; its creatures fell asleep.", brain_node=True)
 
     # ------------------------------------------------------------ dispatch
     def _next_job_id(self) -> str:
@@ -522,7 +522,8 @@ class ServerState:
         if it is None:
             write_log({"ok": False, "parsed": False})
             self.metrics.bump(c.model, "parse_failures")
-            info.update(thought="(confused)", intention=str(output)[:200], result="You hesitate, unsure what to do.")
+            info.update(thought="(confused)", intention=str(output)[:200], result="You hesitate, unsure what to do.",
+                        unparsed=True)
             self._remember(c, "You hesitated, unsure what to do.", 1)
             c.wake_reason = "idle"
             return
@@ -534,7 +535,7 @@ class ServerState:
             mem.set_plan(it.plan)
         res = apply_intention(self.world, c, it)
         write_log({"ok": res.ok, "noop": res.noop, "message": res.message[:240]})
-        info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick)
+        info.update(thought=it.thought, intention=it.summary(), result=res.message, tick=self.world.tick, unparsed=False)
         self.metrics.bump(c.model, "act_ok" if res.ok else "act_fail")
         self.metrics.verb(c.model, it.action, res.ok)
         if res.noop:
