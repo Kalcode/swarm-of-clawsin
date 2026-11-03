@@ -415,7 +415,8 @@ def game(st: ServerState) -> dict:
         tip = mine[0].line if mine else prompt_lines().get(v) or (RECALL_HINT if v == "recall" else "")
         verbs.append({"name": v, "pack": pack_of(registry.owner("verb", v)),
                       "aliases": sorted(a for a, x in registry.VERB_ALIASES.items() if x == v),
-                      "core": v in CORE_VERBS, "about": VERB_ABOUT.get(v, ""), "tip": tip or f"{v}: (no description)", "shown": _shown(v, mine),
+                      "core": v in CORE_VERBS, "about": VERB_ABOUT.get(v, ""),
+                      "tip": tip or f"{v}: (no description)", "shown": _shown(v, mine),
                       "uses": [{"name": t.name, "line": t.line, "shown": f"As a tip, {_when(t)}."}
                                for t in uses.get(v, ())]})
     technique_list = [{"name": t.name, "line": t.line, "verbs": list(t.verbs) or [_technique_verb(t)],

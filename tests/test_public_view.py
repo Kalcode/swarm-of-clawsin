@@ -3,10 +3,12 @@
 import json
 import re
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
 from swarmworld.server.almanac import VERB_ABOUT, build, prompt_lines
+from swarmworld.server import public_view as pv
 from swarmworld.server.public_view import (
     ALMANAC_KEYS, ALMANAC_PRIVATE, CARD_KEYS, DETAIL_KEYS, DETAIL_PRIVATE, EVENT_KEYS, METRICS_KEYS, METRICS_PRIVATE,
     OBJECT_KEYS, PACK_KEYS, PACK_PRIVATE, VERB_KEYS, VERB_PRIVATE, WISH_KEYS, public_almanac, public_card,
@@ -48,6 +50,16 @@ def busy(tmp_path):
     for i in range(300):
         st.relations[f"a{i}|b{i}"] = Counter(talk=i + 1)
     st.finish_chronicle(True, "The creatures gathered.")
+    w = st.world
+    w.catalog.add_invention({"id": "inv_lamp", "name": "lamp", "desc": "A lamp.", "food": 0, "placeable": True, "tool": False,
+                             "depth": 1, "effects": ["light"], "inputs": {"stick": 1, "stone": 1}, "station": None,
+                             "by": "Holt", "model": "mock", "tick": 3})
+    w.discoveries["inv_lamp"] = {"item": "inv_lamp", "by": "Holt", "by_id": st.cid1, "model": "mock", "tick": 3, "invented": True}
+    b = w.ext.setdefault("building", {})
+    b.setdefault("sites", {})["s1"] = {"design": "hut", "needs": {"log": 2}, "have": {}, "work": 3, "done": 0, "by": ["Holt"]}
+    b.setdefault("built", {})["b1"] = {"design": "hut", "x0": 1, "y0": 1, "x1": 3, "y1": 3, "door": [2, 3], "roof": True,
+                                       "by": ["Holt"], "tick": 5}
+    st.record_history()
     st.tick_message(st.world.events)
     return st
 
@@ -121,3 +133,65 @@ def test_every_verb_has_plain_words():
         about = VERB_ABOUT.get(v, "")
         assert about and about != prompt_lines().get(v), v
         assert "(target" not in about and not re.search(r"\byou\b", about, re.I), v
+
+
+def test_every_nested_almanac_field_is_classified(busy, issues_dir):
+    full = build(busy, issues_dir)
+    w = full["world"]
+    assert w["sites"] and w["buildings"] and w["discoveries"] and full["inventions"]  # the fixture reaches every part
+    assert any(i["discovered"] for i in full["items"]) and any(i["sources"] for i in full["items"])
+    checks = [(full["items"], pv.ITEM_KEYS), (full["recipes"], pv.RECIPE_KEYS), (full["processes"], pv.PROCESS_KEYS),
+              (full["designs"], pv.DESIGN_KEYS), (full["kinds"], pv.KIND_KEYS), (full["inventions"], pv.INVENTION_KEYS),
+              (full["tree"]["nodes"], pv.TREE_NODE_KEYS), (full["tree"]["edges"], pv.TREE_EDGE_KEYS),
+              ([x for i in full["items"] for x in i["sources"]], pv.SOURCE_KEYS),
+              ([x for i in full["items"] for x in i["used_in"]], pv.USED_IN_KEYS),
+              ([i["discovered"] for i in full["items"] if i["discovered"]], pv.DISCOVERY_KEYS),
+              (w["discoveries"], pv.DISCOVERY_KEYS), (w["buildings"], pv.BUILDING_KEYS), (w["sites"], pv.SITE_KEYS),
+              (w["creatures"], pv.WORLD_CREATURE_KEYS), ([w["clock"]], pv.CLOCK_KEYS),
+              (list(w["groups"].values()), pv.GROUP_KEYS), ([v["used"] for v in full["verbs"]], pv.VERB_USED_KEYS)]
+    for rows, keys in checks:
+        assert rows
+        for r in rows:
+            assert set(r) <= set(keys), set(r) - set(keys)
+    assert set(full["tree"]) == set(pv.TREE_KEYS) and set(w) == set(pv.WORLD_KEYS)
+    # and the public copy keeps those fields (nothing is picked away by mistake)
+    a = public_almanac(full)
+    assert a["world"]["sites"] == w["sites"] and a["world"]["buildings"] == w["buildings"]
+    assert a["items"] == full["items"] and a["kinds"] == full["kinds"] and a["inventions"] == full["inventions"]
+
+
+def test_nested_metrics_history_society_and_detail_fields_are_classified(busy):
+    snap = busy.metrics.snapshot(busy.world, busy.started)
+    assert all(set(m) <= set(pv.METRICS_MODEL_KEYS) for m in snap["models"].values())
+    assert snap["discoveries"] and all(set(d) <= set(pv.METRICS_DISCOVERY_KEYS) for d in snap["discoveries"])
+    assert busy.history
+    for row in busy.history:
+        assert set(row) <= set(pv.HISTORY_KEYS) and set(row["world"]) <= set(pv.HISTORY_WORLD_KEYS)
+        assert all(set(m) <= set(pv.HISTORY_MODEL_KEYS) for m in row["models"].values())
+    soc = busy.society()
+    assert soc["hubs"] and all(set(h) <= set(pv.SOCIETY_HUB_KEYS) for h in soc["hubs"])
+    assert all(set(q) <= set(pv.QUOTE_KEYS) for w in busy.wishes.ranked() for q in w["quotes"])
+    for cid in busy.world.creatures:
+        d = busy.creature_detail(cid)
+        assert set(d["persona"]) <= set(pv.PERSONA_KEYS) and all(set(m) <= set(pv.MIND_KEYS) for m in d["minds"])
+        assert set(d["stats"]) <= set(pv.STAT_KEYS) | {k for k in d["stats"] if k.startswith("invented_day_")}
+        assert all(isinstance(x, str) for k in ("plan", "people", "recent", "harness", "known_recipes") for x in d[k])
+
+
+def test_every_stat_the_source_counts_is_classified():
+    root = Path(pv.__file__).parents[1]
+    found = {m for f in root.rglob("*.py") for m in re.findall(r"\bstats\[[\"'](\w+)[\"']\]", f.read_text())}
+    assert found and found <= set(pv.STAT_KEYS), found - set(pv.STAT_KEYS)
+
+
+def test_public_documents_keep_only_listed_fields(busy):
+    d = public_detail(busy, busy.cid1)
+    assert set(d["stats"]) <= set(pv.STAT_KEYS) and not any(k.startswith("invented_day_") for k in d["stats"])
+    busy.world.creatures[busy.cid1].stats["brand_new_counter"] = 1
+    busy.world.creatures[busy.cid1].persona["secret"] = "x"
+    d = public_detail(busy, busy.cid1)
+    assert "brand_new_counter" not in d["stats"] and "secret" not in d["persona"]
+    busy.relations["a0|b0"]["gift"] += 1
+    assert all(set(e) == set(pv.SOCIETY_EDGE_KEYS) for e in public_society(busy)["edges"])
+    row = {"tick": 1, "day": 1, "models": {"m": {"crafted": 1, "extra": 2}}, "world": {"ties": 1, "extra": 3}, "extra": 4}
+    assert public_history([row]) == [{"tick": 1, "day": 1, "models": {"m": {"crafted": 1}}, "world": {"ties": 1}}]
