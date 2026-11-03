@@ -18,6 +18,15 @@ TICK_SECONDS = 0.5
 DAY_TICKS = 1200
 START_TICK = int(DAY_TICKS * 0.12)
 
+SOAKING = ("rain", "storm")  # weather that soaks whoever is out in it (a fire or a roof keeps it off)
+WET = SOAKING + ("drizzle",)  # weather that wets the land: plants grow faster, insects shelter, a roof drums
+
+
+def wet(world, drizzle: bool = False) -> bool:
+    """Rain or a storm is falling (with drizzle=True, a drizzle counts too)."""
+    return getattr(world, "weather", "clear") in (WET if drizzle else SOAKING)
+
+
 # Tiles: g grass, d dirt, s sand, w shallow water (wadeable), W deep water, r rocky ground, f forest floor
 TILE_NAMES = {
     "g": "grass", "d": "dirt", "s": "sand", "w": "shallow water",
@@ -104,6 +113,8 @@ class World:
         self.recall_hook: Callable[[Creature, str], list[tuple[str, str]]] | None = None  # set by the server: (creature, query) -> [(kind, text)]
         self.ext: dict = {}  # packs' world state, by pack name: ext["nature"]["rivers"] (JSON-able; saved)
         self.buildings_changed = False  # a building went up or came down since the last tick message (viewer)
+        self.tiles_version = 0  # bumped by set_tile, so what is worked out from the land can be kept until it changes
+        self.terminals: dict[str, None] = {}  # ids of the terminal objects, in the order they came (Simulation)
 
     # --- ids / objects -------------------------------------------------
     def new_id(self, prefix: str) -> str:
@@ -116,6 +127,11 @@ class World:
     def tile(self, x: int, y: int) -> str:
         return self.tiles[y][x] if self.in_bounds(x, y) else "W"
 
+    def set_tile(self, x: int, y: int, t: str) -> None:
+        """Change the land at (x, y): use this rather than writing self.tiles, so cached views of the land update."""
+        self.tiles[y][x] = t
+        self.tiles_version += 1
+
     def object_at(self, x: int, y: int) -> WorldObject | None:
         oid = self.grid.get((x, y))
         return self.objects.get(oid) if oid else None
@@ -126,11 +142,25 @@ class World:
         obj = WorldObject(self.new_id("o"), kind, x, y, dict(data))
         self.objects[obj.id] = obj
         self.grid[(x, y)] = obj.id
+        self._index(obj)
         self.changed_objects.add(obj.id)
         return obj
 
+    def _index(self, obj: WorldObject) -> None:
+        if obj.kind == "terminal":
+            self.terminals[obj.id] = None
+        else:
+            self.terminals.pop(obj.id, None)
+
+    def reindex(self) -> None:
+        """Rebuild the object indexes after objects were put in self.objects directly (a restored save)."""
+        self.terminals = {}
+        for obj in self.objects.values():
+            self._index(obj)
+
     def change_kind(self, obj: WorldObject, kind: str) -> None:
         obj.kind = kind
+        self._index(obj)
         self.changed_objects.add(obj.id)
 
     def move_object(self, obj: WorldObject, x: int, y: int) -> bool:
@@ -146,6 +176,7 @@ class World:
         obj = self.objects.pop(oid, None)
         if obj:
             self.grid.pop((obj.x, obj.y), None)
+            self.terminals.pop(oid, None)
             self.removed_objects.add(oid)
             self.changed_objects.discard(oid)
 
@@ -196,7 +227,7 @@ class World:
         else:
             phase, light = "night", 0.25
         weather = getattr(self, "weather", "clear")
-        if weather in ("rain", "storm"):
+        if wet(self):
             light *= 0.75
         elif weather in ("fog", "drizzle"):
             light *= 0.85
@@ -327,9 +358,11 @@ class World:
         return ev
 
     def sound(self, x: int, y: int, text: str, radius: int = 8, kind: str = "", loud: bool = False,
-              source: str | None = None) -> Event:
+              source: str | None = None, makers: list[str] | None = None) -> Event:
         """Something makes a noise at (x, y), e.g. text "chopping". The simulation tells awake creatures within
-        radius, except the source (a creature id), "You hear chopping, about 6 steps north." Creatures asleep for
-        the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio (see
-        registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
-        return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source)
+        radius, except the source (a creature id, or the id of the thing that makes it, like a fire) and any other
+        makers (creature ids: a crowd doesn't hear itself), "You hear chopping, about 6 steps north." Creatures
+        asleep for the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio
+        (see registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
+        extra = {"makers": list(makers)} if makers else {}
+        return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source, **extra)

@@ -593,7 +593,7 @@ class ServerState:
     # ------------------------------------------------------------ society
     def _note_relation(self, ev) -> None:
         kind = {"say": "talk", "give": "gift", "learn": "teach", "play": "play"}.get(ev.kind)
-        if not kind:
+        if not kind or not ev.data.get("tie", True):  # play again too soon: no new tie (packs/play.py)
             return
         if ev.kind == "learn":
             a, b = ev.data.get("teacher"), ev.actor

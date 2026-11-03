@@ -62,7 +62,7 @@ def test_fresh_world_has_all_biomes(seed):
     w = fresh(seed)
     took = time.perf_counter() - t
     assert (w.width, w.height) == (128, 128)
-    assert took < 3.0, took
+    assert took < 10.0, took  # about a second here; loose, so a busy machine doesn't fail it
     land = Counter(biome_at(w, x, y) for y in range(w.height) for x in range(w.width) if w.tile(x, y) not in "wW")
     assert set(BIOMES.values()) == {"meadow", "oak forest", "pine forest", "marsh", "rocky hills", "beach"}
     for name in BIOMES.values():

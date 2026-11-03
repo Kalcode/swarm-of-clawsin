@@ -54,6 +54,11 @@ TOOLS_PICK = ("stone_pickaxe", "copper_pickaxe")
 DRINKS: dict[str, str | None] = {}  # packs: a carried drink -> what's left once it's drunk (food: pot of water -> clay pot)
 
 
+def water_kinds() -> set[str]:
+    """Kinds you can drink from or fill a pot at, like a well: a kind with "water" in its data."""
+    return {k for k, spec in KINDS.items() if spec.get("water")}
+
+
 def catch_fish(world: World, c: Creature) -> str | None:
     """What bites on one cast of a fishing line beside water: an item id, or None. A plain fish half the time; a pack
     may replace this function (the food pack: species by water type and time of day)."""
@@ -353,10 +358,14 @@ def _gather_yields(world: World, c: Creature, obj: WorldObject, got: Counter) ->
         if got:
             return True
         return ActionResult(False, f"You'd need a {world.catalog.name(y['tool'])} to gather from the {obj.name}.")
+    rolled = False
     for item, (lo, hi) in y["items"].items():
         n = world.rng.randint(lo, hi)
         if n:
             got[item] += n
+            rolled = True
+    if not rolled:  # nothing came of it this time: nothing used up
+        return False
     obj.data["uses"] = obj.data.get("uses", y["uses"]) - 1
     if obj.data["uses"] > 0:
         return False
@@ -694,6 +703,8 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         here = world.tile(c.x, c.y)
         near_tiles = {world.tile(c.x + dx, c.y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
         if want_item == "plant_fiber" or any(w in ("grass", "fiber", "fibers", "fibre", "plant") for w in words):
+            if perception.floor_at(world, c.x, c.y):
+                return ActionResult(False, "Nothing grows on the floor in here; step outside to gather grass.")
             if near_tiles & {"g", "f"}:
                 knife = _has_tool(c, ("stone_knife",))
                 n = it.count * (2 if knife else 1)
@@ -704,7 +715,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                     kind = "carrot_seeds" if world.rng.random() < 0.35 else "wheat_seeds"
                     c.inventory[kind] += seeds
                     got_txt += f" and {seeds} {world.catalog.name(kind)}"
-                world.emit("gather", c.id, c.x, c.y, f"{c.name} gathered {got_txt}.")
+                world.emit("gather", c.id, c.x, c.y, f"{c.name} gathered {got_txt}.", source_kind="grass")
                 verb = "cut grass with your knife" if knife else "pull up grass"
                 return _busy(c, 2 * it.count, "cutting grass" if knife else "pulling up grass", f"You {verb} and get {got_txt}.")
             return ActionResult(False, "There's no grass within reach here.")
@@ -730,7 +741,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             if caught:
                 c.inventory.update(caught)
                 c.stats["gathered"] += sum(caught.values())
-                world.emit("gather", c.id, c.x, c.y, f"{c.name} caught {_items_text(world, caught)}.")
+                world.emit("gather", c.id, c.x, c.y, f"{c.name} caught {_items_text(world, caught)}.", source_kind="water")
             msg = (f"You cast your line and catch {_items_text(world, caught)}." if caught
                    else "You fish patiently but catch nothing this time.")
             return _busy(c, 4 * it.count, "fishing", msg)
@@ -742,6 +753,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, f"There's no '{target}' within reach to gather from.")
 
     got: Counter = Counter()
+    source_kind = obj.kind  # what it was before this gather used it up (a tree becomes a stump)
     label = f"gathering from the {obj.name}"
     count = 3 if it.count == 1 and obj.kind in ("tree", "pine", "bush", "rock", "clay") else it.count  # a handful
     for _ in range(count):
@@ -848,7 +860,7 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
     c.inventory.update(got)
     c.stats["gathered"] += sum(got.values())
     c.energy = max(0.0, c.energy - 0.5 * sum(got.values()))  # gathering is work
-    world.emit("gather", c.id, c.x, c.y, f"{c.name} gathered {_items_text(world, got)}.")
+    world.emit("gather", c.id, c.x, c.y, f"{c.name} gathered {_items_text(world, got)}.", source_kind=source_kind)
     bonus = f" Your {world.catalog.name(helper)} helps." if helper else ""
     return _busy(c, 2 * max(1, sum(got.values()) // 2 + 1), label, f"You gathered {_items_text(world, got)}.{bonus}")
 
@@ -1001,8 +1013,7 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
 
 
 def _drink(world: World, c: Creature, it: Intention) -> ActionResult:
-    water_kinds = {k for k, spec in KINDS.items() if spec.get("water")}  # a well, say
-    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds):
+    if _nearest_tile(world, c, "wW", 1) is None and not find_object(world, c, "", max_dist=1, kinds=water_kinds()):
         held = next((i for i in DRINKS if c.inventory.get(i, 0) > 0), None)
         if held is None:
             return ActionResult(False, "There's no water within reach. Walk to the water first.")

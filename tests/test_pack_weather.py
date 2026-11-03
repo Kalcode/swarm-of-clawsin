@@ -84,11 +84,13 @@ def test_heat_makes_creatures_hungrier():
 def test_weather_line_only_when_not_clear():
     st, w, c = _world()
     assert wx._weather_line(w, c) is None
-    for kind in ("drizzle", "fog", "wind", "storm", "heat"):
+    for kind in ("drizzle", "wind", "storm", "heat"):
         wx.set_weather(w, kind, w.tick + 100)
         line = wx._weather_line(w, c)
         assert line and len(line) < 100
         assert line in registry.extra_perception(w, c)
+    wx.set_weather(w, "fog", w.tick + 100)
+    assert wx._weather_line(w, c) is None  # fog is in the core time line, which no pack line can push out
 
 
 def test_weather_rain_cycle_still_works_and_exposure():
@@ -134,3 +136,12 @@ def test_weather_old_save_loads(prepack_save):
     for _ in range(200):
         st.tick_message(st.sim.tick())
     assert st.world.weather in wx.KINDS
+
+
+def test_wet_says_whether_rain_is_falling():
+    from swarmworld.world.model import wet
+    st, w, c = _world()
+    for kind in wx.KINDS:
+        wx.set_weather(w, kind, w.tick + 100)
+        assert wet(w) == (kind in ("rain", "storm")), kind  # soaking: what a fire or a roof keeps off
+        assert wet(w, drizzle=True) == (kind in ("rain", "storm", "drizzle")), kind

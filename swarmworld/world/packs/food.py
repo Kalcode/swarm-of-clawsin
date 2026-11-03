@@ -14,7 +14,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 
 from .. import actions, perception
-from ..actions import ActionResult, Intention, find_object, start_walk, station_near
+from ..actions import ActionResult, Intention, _busy, find_object, start_walk, station_near, water_kinds
 from ..catalog import DATA
 from ..perception import dist, direction, sight_range, visible_objects
 from ..registry import (ANIMALS, KINDS, STORES, Technique, register_perception, register_populate, register_system,
@@ -56,11 +56,6 @@ def _state(holder) -> dict:
 
 def _and(words: list[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
-
-
-def _busy(c: Creature, ticks: int, label: str, result: str) -> ActionResult:
-    c.activity = {"type": "busy", "ticks": max(1, ticks), "label": label, "result": result}
-    return ActionResult(True, result, instant=False)
 
 
 def _take(c: Creature, item: str, n: int = 1) -> None:
@@ -127,13 +122,9 @@ def _fishing_line(world: World, c: Creature) -> str | None:
 actions.DRINKS.update({full: empty for empty, full in FILL.items()})  # drink a pot of water anywhere; the pot stays
 
 
-def _water_kinds() -> set[str]:
-    return {k for k, spec in KINDS.items() if spec.get("water")}
-
-
 def _water_in_reach(world: World, c: Creature) -> str | None:
     """What you could fill a pot from right here: "well" (or another water kind's name), "water", or None."""
-    well = find_object(world, c, "", max_dist=1, kinds=_water_kinds())
+    well = find_object(world, c, "", max_dist=1, kinds=water_kinds())
     if well:
         return well.name
     return "water" if _water_type(world, c.x, c.y) else None
@@ -160,7 +151,7 @@ def _fill(world: World, c: Creature, it: Intention) -> ActionResult:
         return ActionResult(False, "You'd need an empty clay pot to carry water in. (A pot is made of clay, fired.)")
     source = _water_in_reach(world, c)
     if source is None:
-        kinds = _water_kinds()
+        kinds = water_kinds()
         well = find_object(world, c, it.target, kinds=kinds) if it.target else None
         well = well or find_object(world, c, "", kinds=kinds)
         water = _water_in_sight(world, c)
@@ -194,7 +185,7 @@ def _fill(world: World, c: Creature, it: Intention) -> ActionResult:
 def _fill_fits(world: World, c: Creature) -> float | None:
     if not any(c.inventory.get(e, 0) > 0 for e in FILL):
         return None
-    if find_object(world, c, "", kinds=_water_kinds()) or _water_in_sight(world, c):
+    if find_object(world, c, "", kinds=water_kinds()) or _water_in_sight(world, c):
         return 4.2
     return None
 
@@ -423,6 +414,19 @@ def _age(held: dict, since: dict, t: int) -> list[tuple[str, int]]:
     return spoiled
 
 
+def _went_bad(sim: Simulation, x: int, y: int, item: str, n: int, where: str) -> None:
+    """Food left in a store or on the ground spoiled: an event, and a memory for those who see it (as _dry tells)."""
+    w = sim.world
+    name = w.catalog.name(item)
+    what = name if n == 1 else f"{n} {name}"
+    w.emit("spoil", None, x, y, f"The {what} {where} spoiled.")
+    for h in w.creatures.values():
+        d = dist(h.x, h.y, x, y)
+        if not h.collapsed and d <= sight_range(w, h):
+            spot = "right here" if d == 0 else f"{direction(x - h.x, y - h.y)} of you"
+            sim.remember(h, f"The {what} {where} {spot} went bad.", 1)
+
+
 def _spoil(sim: Simulation, t: int) -> None:
     w = sim.world
     for c in w.creatures.values():
@@ -454,9 +458,10 @@ def _spoil(sim: Simulation, t: int) -> None:
     for o in w.objects.values():
         if o.kind in STORES and o.kind != "drying_rack" and o.data.get("items"):
             since = o.data.setdefault("fresh_since", {})
-            for item, _ in _age(o.data["items"], since, t):
+            for item, n in _age(o.data["items"], since, t):
                 del o.data["items"][item]
                 w.changed_objects.add(o.id)
+                _went_bad(sim, o.x, o.y, item, n, f"in the {o.name}")
             if not since:
                 o.data.pop("fresh_since", None)
     piles = _state(w).setdefault("piles", {})
@@ -467,6 +472,7 @@ def _spoil(sim: Simulation, t: int) -> None:
             since = piles.setdefault(f"{x},{y}", {})
             for item, n in _age(dict(pile), since, t):
                 w.take_items(x, y, item, n)
+                _went_bad(sim, x, y, item, n, "on the ground")
             if not since:
                 del piles[f"{x},{y}"]
     if not piles:

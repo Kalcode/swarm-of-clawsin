@@ -20,6 +20,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
+from .. import model
 from ..perception import DAY_SIGHT, DIRS
 from ..registry import register_perception, register_populate, register_system
 from ..terrain import FLOW_STEP, NEIGHBORS, SIZE, STILL, derive_biomes, derive_flow, flow_at, water_near
@@ -32,7 +33,6 @@ PLANTS = ("flower_patch", "picked_flowers", "reed_bed", "cut_reeds", "mushroom_p
           "flint_outcrop")
 INSECTS = ("honeybee", "butterfly", "firefly")
 RENEWING = ("mushroom_patch", "shell_bed", "driftwood")  # used up and gone; new ones turn up (renew_step)
-WET = ("rain", "storm", "drizzle")  # weather that sends the insects to shelter
 
 BIOME_LINES = {
     "m": "You're in open meadow: grass, wildflowers and berry bushes.",
@@ -214,7 +214,7 @@ def insects_step(sim: Simulation, t: int) -> None:
         return
     amb = _ambient(w)
     phase = w.clock()["phase"]
-    wet = getattr(w, "weather", "clear") in WET
+    rainy = model.wet(w, drizzle=True)  # the insects shelter from it
     scale = w.width * w.height / (SIZE * SIZE)
     flowers, have = [], {k: [] for k in INSECTS}
     for o in w.objects.values():
@@ -222,10 +222,10 @@ def insects_step(sim: Simulation, t: int) -> None:
             flowers.append(o)
         elif o.kind in have:
             have[o.kind].append(o)
-    day = phase == "day" and not wet
+    day = phase == "day" and not rainy
     want = {"honeybee": min(round(INSECT_CAP["honeybee"] * scale), len(flowers) // FLOWERS_PER_BEE) if day else 0,
             "butterfly": round(INSECT_CAP["butterfly"] * scale) if day else 0,
-            "firefly": round(INSECT_CAP["firefly"] * scale) if phase in ("dusk", "night") and not wet else 0}
+            "firefly": round(INSECT_CAP["firefly"] * scale) if phase in ("dusk", "night") and not rainy else 0}
     rng = amb["rng"]
     for kind, objs in have.items():
         extra = len(objs) - want[kind]
@@ -284,10 +284,10 @@ def renew_step(sim: Simulation, t: int) -> None:
     rng = amb["rng"]
     have = Counter(o.kind for o in w.objects.values() if o.kind in RENEWING)
     watchers = [(c.x, c.y) for c in w.creatures.values() if not c.collapsed]
-    wet = getattr(w, "weather", "clear") in WET
+    rainy = model.wet(w, drizzle=True)  # mushrooms come up faster in the wet
     for kind in RENEWING:
         target = targets.get(kind, 0)
-        n = min(target - have[kind], max(1, target // 10) * (2 if wet and kind == "mushroom_patch" else 1))
+        n = min(target - have[kind], max(1, target // 10) * (2 if rainy and kind == "mushroom_patch" else 1))
         pool = amb["tiles"][HABITAT[kind]]
         for _ in range(max(0, n)):
             for _try in range(20):

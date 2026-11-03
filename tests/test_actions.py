@@ -381,7 +381,9 @@ def test_fishing(world):
     c.inventory["fishing_rod"] = 1
     world.rng.seed(1)
     res = act(world, c, action="gather", target="fish", count=5)
-    assert res.ok and sum(c.inventory.values()) > 1  # the rod and what bit (the food pack names the species)
+    caught = {i: n for i, n in c.inventory.items() if i != "fishing_rod" and n > 0}
+    assert res.ok and caught and c.inventory["fishing_rod"] == 1  # what bit (the food pack names the species)
+    assert all(world.catalog.items[i].food > 0 for i in caught), caught
 
 
 def test_eat_from_bush_and_forgiving_combine(world):
@@ -626,3 +628,29 @@ def test_myth_can_become_an_invention(world):
     assert not res.ok and "could invent it" in res.message
     res = act(world, c, action="invent", target="berry-rope", items=["rope", "berries"], text="a warm rope rubbed with berries")
     assert res.ok and "inv_berry_rope" in c.inventory
+
+
+def test_a_gather_that_yields_nothing_spends_no_use(world, monkeypatch):
+    from swarmworld.world.registry import YIELDS
+    c = creature(world)
+    patch = world.add_object("herb_patch", 11, 10)
+    uses = YIELDS["herb_patch"]["uses"]
+    monkeypatch.setitem(YIELDS, "herb_patch", dict(YIELDS["herb_patch"], items={"herbs": [0, 0]}))
+    act(world, c, action="gather", target="herb patch")
+    assert not c.inventory.get("herbs") and patch.kind == "herb_patch"
+    assert patch.data.get("uses", uses) == uses  # nothing came of it, so nothing was used up
+    monkeypatch.setitem(YIELDS, "herb_patch", dict(YIELDS["herb_patch"], items={"herbs": [1, 1]}))
+    assert act(world, c, action="gather", target="herb patch").ok and c.inventory["herbs"] == 1
+    assert patch.data["uses"] == uses - 1
+
+
+def test_one_set_of_water_kinds_for_drinking_and_filling(world):
+    from swarmworld.world import actions
+    from swarmworld.world.packs import food
+    from swarmworld.world.registry import KINDS
+    assert actions.water_kinds() == {k for k, spec in KINDS.items() if spec.get("water")} and "well" in KINDS
+    assert "well" in actions.water_kinds()
+    assert not hasattr(food, "_water_kinds") and food._busy is actions._busy  # the core's, not copies
+    c = creature(world)
+    world.add_object("well", 11, 10)
+    assert act(world, c, action="drink").message == "You drink cool water and feel refreshed."

@@ -58,7 +58,7 @@ log = logging.getLogger("swarmworld.packs")
 # "animal:<kind>" means one per animal kind (animal:cow, animal:deer). Every sound is an event, logged and sent to
 # viewers: emit ambient sounds from systems sparingly (cooldowns, a few at a time).
 SOUND_KINDS = ("chop", "knock", "splash", "fire", "thunder", "rain", "river", "crickets", "bird", "animal:<kind>",
-               "crowd", "footsteps", "build", "music", "dance", "hunt")
+               "crowd", "footsteps", "build", "music", "dance", "hunt", "rustle")
 
 # (what, name) -> the module or data file that registered it
 _OWNERS: dict[tuple[str, object], str] = {}

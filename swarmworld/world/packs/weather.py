@@ -6,7 +6,8 @@ expect them; world.ext["weather"] holds the derived bits ("sight": a cap on how 
 
 from __future__ import annotations
 
-from ..model import World
+from .. import perception
+from ..model import World, wet
 from ..perception import direction, dist
 from ..registry import register_perception, register_system
 
@@ -21,8 +22,7 @@ STARTS = {"rain": "Clouds gather, and rain begins to fall.", "drizzle": "A fine 
 ENDS = {"rain": "The rain stops and the clouds drift apart.", "drizzle": "The drizzle thins away.",
         "fog": "The fog lifts.", "wind": "The wind dies down.", "storm": "The storm blows itself out.",
         "heat": "The heat breaks at last."}
-LINES = {"drizzle": "A fine drizzle is falling.",
-         "fog": "Fog hangs thick around you; you can only see a few steps.",
+LINES = {"drizzle": "A fine drizzle is falling.",  # rain and fog are in the core time line (perception.perceive)
          "wind": "Wind tugs at everything; fires eat their fuel faster.",
          "storm": "A storm is raging: rain, wind and thunder.",
          "heat": "The heat is heavy; you hunger faster."}
@@ -147,6 +147,8 @@ def _burn(w: World, t: int) -> None:
 
 
 def _weather_line(world: World, c) -> str | None:
+    if wet(world, drizzle=True) and perception.roof_over(world, c.x, c.y):  # the building's line says it's wet out
+        return None
     return LINES.get(current(world))
 
 

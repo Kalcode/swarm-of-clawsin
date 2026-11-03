@@ -2,7 +2,8 @@
 
 Joy (0-100) lives in c.ext["play"]["joy"], default 70. It falls slowly, never harms health, and only shows as one
 perception line when low. Playing, dancing, music and stories raise it for everyone involved; playing together
-emits "play" events, which the society graph counts as a "play" tie."""
+emits "play" events, which the society graph counts as a "play" tie (once per pair per TIE_COOLDOWN ticks: the event's
+"tie" says whether it counts)."""
 
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ LOW_JOY = 30.0          # below this, one perception line
 RECOVERED = 45.0        # above this, the line may be shown again
 INSTRUMENTS = ("flute", "drum")
 STORY_COOLDOWN = 60     # ticks before the same speaker's next tale counts again
+TIE_COOLDOWN = 200      # ticks before the same two playing together counts as another tie (the society graph)
 FIRE_REACH = 3
 GAMES = ("a game of tag", "a clapping game", "a guessing game", "a game of stones and sticks", "a wrestling match")
 
@@ -45,12 +47,25 @@ def _awake_near(world: World, c: Creature, radius: int) -> list[Creature]:
     return [o for o in hearers(world, c.x, c.y, radius) if o.id != c.id and not o.asleep]
 
 
+def _tie(world: World, a: Creature, b: Creature) -> bool:
+    """Whether playing together now counts as a 'play' tie between a and b: once per pair per TIE_COOLDOWN ticks."""
+    ties = world.ext.setdefault("play", {}).setdefault("ties", {})
+    key = "|".join(sorted((a.id, b.id)))
+    last = ties.get(key)
+    if last is not None and 0 <= world.tick - last < TIE_COOLDOWN:
+        return False
+    for k in [k for k, t in ties.items() if not 0 <= world.tick - t < TIE_COOLDOWN]:  # forget what has cooled down
+        del ties[k]
+    ties[key] = world.tick
+    return True
+
+
 def _together(world: World, c: Creature, others: list[Creature], what: str) -> None:
-    """Everyone involved is glad of it, remembers it once, and gets a 'play' tie with c."""
+    """Everyone involved is glad of it, remembers it once, and gets a 'play' tie with c (not again for a while)."""
     for o in others:
         add_joy(o, 6)
         _mine(o)["note"] = f"{c.name} {what}; you joined in and your spirits lift."
-        world.emit("play", c.id, c.x, c.y, f"{c.name} and {o.name} {what}.", to=o.id)
+        world.emit("play", c.id, c.x, c.y, f"{c.name} and {o.name} {what}.", to=o.id, tie=_tie(world, c, o))
 
 
 # ------------------------------------------------------------------ verbs

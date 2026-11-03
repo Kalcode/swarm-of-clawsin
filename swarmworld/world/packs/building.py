@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from .. import perception
 from ..actions import FILLER, SOURCE_HINT, ActionResult, Intention, start_walk
 from ..catalog import DATA
-from ..model import DAY_TICKS
+from ..model import DAY_TICKS, wet
 from ..perception import article, dist, direction, sight_range
 from ..registry import (ANIMALS, BLOCKING, HANDLERS, KINDS, STORES, Technique, register_perception, register_system,
                         register_technique, register_verb)
@@ -47,7 +47,7 @@ ADD_TICKS, WORK_TICKS = 2, 8  # busy for this long after bringing materials, aft
 WORK_ENERGY = 2
 STALE_TICKS = 3 * DAY_TICKS  # a site nobody has touched for this long falls apart
 UPKEEP_EVERY = 50
-WET = ("rain", "storm", "drizzle")
+STRAND_REACH = 8  # a creature left on deep water finds land within this many steps (half the longest bridge, and more)
 MATERIALS = {i for d in DESIGNS.values() for i in d["needs"]} - {"stick", "stone", "plant_fiber", "rope"}  # say "build"
 SITE_WORDS = {"", "site", "building site", "construction site", "construction", "building", "frame", "foundation",
               "it", "work"}
@@ -120,7 +120,17 @@ def roof_over(world: World, x: int, y: int) -> str | None:
     return None
 
 
+def floor_at(world: World, x: int, y: int) -> str | None:
+    """Inside a building (not its walls or doorway): its floor, "the hut's earthen floor"; perception.floor_at."""
+    for b in _read(world, "built").values():
+        d = DESIGNS.get(b["design"], {})
+        if d.get("floor") and b["x0"] < x < b["x1"] and b["y0"] < y < b["y1"]:
+            return f"the {d['name']}'s {d['floor']}"
+    return None
+
+
 perception.roof_over = roof_over
+perception.floor_at = floor_at
 
 
 # ------------------------------------------------------------------ words
@@ -449,6 +459,14 @@ def _free_spot(world: World, x: int, y: int, avoid: set, r: int = 4) -> tuple[in
     return None
 
 
+def _step_aside(world: World, c: Creature, spot: tuple[int, int], why: str) -> None:
+    """Move a creature out of the way and tell it (the "building news" system remembers it for them)."""
+    c.x, c.y = spot
+    if (c.activity or {}).get("type") == "walk":
+        c.activity = None
+    _state(world).setdefault("news", {}).setdefault(c.id, []).append(why)
+
+
 def _clear_the_way(world: World, plan: dict, rect: dict) -> set[tuple[int, int]]:
     """Insects flit off, animals are shooed out, and creatures, things and piles in the way of a wall move aside.
     Returns the tiles where something wouldn't budge (the building goes up around it)."""
@@ -466,9 +484,7 @@ def _clear_the_way(world: World, plan: dict, rect: dict) -> set[tuple[int, int]]
         if (c.x, c.y) in solid:
             spot = _free_spot(world, c.x, c.y, avoid)
             if spot:
-                c.x, c.y = spot
-                if (c.activity or {}).get("type") == "walk":
-                    c.activity = None
+                _step_aside(world, c, spot, "You step aside as the walls go up.")
     for p in plan:
         o = world.object_at(*p)
         if o and o.kind != SITE_KIND:
@@ -590,7 +606,7 @@ def _cozy(world: World) -> str:
     weather = getattr(world, "weather", "clear")
     if weather == "storm":
         return "The storm rages outside, but you're dry in here."
-    if weather in WET:
+    if wet(world, drizzle=True):
         return "Rain drums on the roof, but you're dry in here."
     if world.clock()["phase"] == "night":
         return "The night is cold outside, but it's sheltered in here."
@@ -608,7 +624,7 @@ def inside_line(world: World, c: Creature) -> str | None:
     what = _contents(world, b)
     line = (f"You're inside the {DESIGNS[b['design']]['name']} {_names(b['by'])} built"
             f"{', with ' + what if what else ''}. {_cozy(world)}")
-    matters = getattr(world, "weather", "clear") in WET or world.clock()["phase"] == "night"
+    matters = wet(world, drizzle=True) or world.clock()["phase"] == "night"
     mine = _mine(c)
     if mine.get("inside") == line and not matters:
         return None
@@ -649,12 +665,37 @@ def _abandon(sim: Simulation, sid: str, site: dict) -> None:
             sim.remember(c, f"The {name} site you worked on, left untouched for days, has fallen apart{left}.", 2)
 
 
+def _news(sim: Simulation, t: int) -> None:
+    """What happened to creatures because of a building (moved aside as its walls went up), remembered by them."""
+    news = (sim.world.ext.get(PACK) or {}).pop("news", None)
+    for cid, texts in (news or {}).items():
+        c = sim.world.creatures.get(cid)
+        for text in texts if c else ():
+            sim.remember(c, text, 1)
+
+
+def _unstrand(sim: Simulation) -> None:
+    """Nobody stays where no one can stand (a bridge span taken away from under them): to the nearest open land."""
+    w = sim.world
+    for c in w.creatures.values():
+        if c.collapsed or w.walkable(c.x, c.y):  # a collapsed body is moved when it comes round (Simulation._respawn)
+            continue
+        spot = _free_spot(w, c.x, c.y, set(), r=STRAND_REACH)
+        if spot:
+            water = w.tile(c.x, c.y) == "W"
+            _step_aside(w, c, spot, "The bridge under you is gone; you scramble out of the deep water." if water
+                        else "You squeeze out onto open ground.")
+    _news(sim, w.tick)
+
+
 def _upkeep(sim: Simulation, t: int) -> None:
-    """Sites nobody tends fall apart; insects flit off sites and floors; a building mostly taken down is gone."""
+    """Sites nobody tends fall apart; insects flit off sites and floors; a building mostly taken down is gone; whoever
+    is left where no one can stand moves to open land."""
     w = sim.world
     st = w.ext.get(PACK)
     if not st:
         return
+    _unstrand(sim)
     for sid, site in list(st.get("sites", {}).items()):
         if sid not in w.objects or t - site.get("touched", t) >= STALE_TICKS:
             _abandon(sim, sid, site)
@@ -679,5 +720,6 @@ register_technique(Technique(
              "the site to bring what it needs and to work on it; anyone can help. Build alone lists what each needs.",
     _build_fits))
 register_system("building upkeep", UPKEEP_EVERY, _upkeep)
+register_system("building news", 1, _news)
 register_perception(inside_line, priority=46)
 register_perception(site_line, priority=47)

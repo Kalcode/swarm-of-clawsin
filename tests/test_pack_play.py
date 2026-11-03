@@ -81,6 +81,34 @@ def test_playing_together_bonds():
     assert edge["play"] >= 1 and edge["weight"] >= 2
 
 
+def test_playing_again_soon_adds_no_new_tie():
+    st = ServerState(seed=1)
+    w, _ = make()
+    st.world = w
+    a, b = w.creatures["c1"], w.creatures["c2"]
+
+    def ties():
+        for ev in w.events:
+            st._note_relation(ev)
+        w.events.clear()
+        return next(e for e in st.society()["edges"] if {e["a"], e["b"]} == {a.id, b.id})["play"]
+
+    for _ in range(4):
+        assert do(w, a, "play", target=b.name).ok
+        assert do(w, b, "play", target=a.name).ok
+    assert ties() == 1 and play.joy(b) > 70  # their spirits still lift every time
+    w.tick += play.TIE_COOLDOWN
+    assert do(w, a, "play", target=b.name).ok
+    assert ties() == 2
+
+
+def test_collapsed_creatures_do_not_join_in():
+    w, _ = make(3)
+    a, b, c = w.creatures["c1"], w.creatures["c2"], w.creatures["c3"]
+    c.collapsed_until = w.tick + 50
+    assert play._awake_near(w, a, 3) == [b]
+
+
 def test_music_with_an_instrument():
     w, sim = make()
     tam, bo = w.creatures["c1"], w.creatures["c2"]
@@ -122,8 +150,12 @@ def test_stories_need_a_fire_and_dark():
 def test_play_old_save_loads(prepack_save):
     st = ServerState(seed=1)
     restore(st, prepack_save)
-    for c in st.world.creatures.values():
+    creatures = list(st.world.creatures.values())
+    assert creatures and all("joy" not in (c.ext.get("play") or {}) for c in creatures)  # nothing saved ...
+    assert all(play.joy(c) == play.JOY_START for c in creatures)  # ... so everyone starts at the default
+    for c in creatures:
         c.asleep = False
     for _ in range(200):
         st.tick_message(st.sim.tick())
-    assert all(0 <= play.joy(c) <= 70 for c in st.world.creatures.values())
+    fallen = play.JOY_START - 200 // play.JOY_EVERY  # a point every JOY_EVERY ticks, and nothing to cheer anyone
+    assert all(play.joy(c) == fallen for c in creatures if not c.collapsed), [play.joy(c) for c in creatures]

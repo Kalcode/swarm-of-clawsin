@@ -237,6 +237,27 @@ def test_raw_meat_spoils_but_dried_and_cooked_food_keeps():
     assert any("went bad" in text for _, text in memories)
 
 
+def test_food_spoiling_in_a_store_or_on_the_ground_is_told():
+    w = grass_world()
+    memories = []
+    sim = quiet_sim(w, memories)
+    c = creature(w)
+    far = creature(w, "Odo", 35, 35)
+    w.add_object("basket", 11, 10, items={"fish": 3})
+    w.drop_items(10, 12, Counter({"perch": 1}))
+    spoil = system("food spoilage")
+    start = w.tick
+    spoil(sim, w.tick)
+    w.tick = start + food.SPOILS_AFTER
+    spoil(sim, w.tick)
+    told = [e.text for e in w.events if e.kind == "spoil"]
+    assert any("3 fish" in t and "basket" in t for t in told) and any("perch" in t for t in told), told
+    mine = [text for name, text in memories if name == "Tam"]
+    assert any("The 3 fish in the basket east of you went bad" in t for t in mine), mine
+    assert any("The perch on the ground south of you went bad" in t for t in mine), mine
+    assert not any(name == "Odo" for name, _ in memories)  # too far off to see it
+
+
 def test_a_mind_away_keeps_its_food_fresh():
     w = grass_world()
     sim = quiet_sim(w)
