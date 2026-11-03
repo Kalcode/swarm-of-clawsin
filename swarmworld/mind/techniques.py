@@ -4,7 +4,7 @@ This only shows. It never picks an action, and every verb stays valid whether sh
 
 from __future__ import annotations
 
-from ..world.actions import ANIMAL_FOOD, CARVABLE, STORES
+from ..world.actions import ANIMAL_FOOD, CARVABLE, PLANT_TOOLS, PLANTABLE, STORES, is_wild, plant_spot
 from ..world.events import HEARING
 from ..world.model import ANIMALS, Creature, World
 from ..world.perception import dist, visible_creatures, visible_objects
@@ -38,8 +38,16 @@ def _program(world, c):
     return 7.0 if _seen(world, c, {"terminal"}) else None
 
 
+def _news(world, c) -> bool:
+    """Something of its own worth carving: more recipes found or learned (beyond everyone's first ones) than times it
+    has written."""
+    first = {r.output for r in world.catalog.recipes if r.known_at_start}
+    return len(c.known_recipes - first) > c.stats.get("writing", 0)
+
+
 def _write(world, c):
-    if c.inventory.get("sign") or _near(world, c, {"sign"} | CARVABLE):
+    """A sign beside you is for writing on; a tree or boulder beside you only when you have something to record."""
+    if _near(world, c, {"sign"}) or (_near(world, c, CARVABLE) and _news(world, c)):
         return 4.0
     return None
 
@@ -58,10 +66,10 @@ def _place(world, c):
 
 
 def _plant(world, c):
-    items = world.catalog.items
-    for i, n in c.inventory.items():
-        if n > 0 and (i == "berries" or (i in items and "seed" in items[i].tags)):
-            return 5.5
+    """What plant needs: something that grows, a tool to break the soil, and free soil beside you."""
+    if (any(c.inventory.get(i, 0) > 0 for i in PLANTABLE) and any(c.inventory.get(t, 0) > 0 for t in PLANT_TOOLS)
+            and plant_spot(world, c)):
+        return 5.5
     return None
 
 
@@ -89,7 +97,8 @@ def _fire(world, c):
 
 
 def _animal(world, c):
-    if _seen(world, c, ANIMALS) and any(n > 0 and i in ANIMAL_FOOD for i, n in c.inventory.items()):
+    tame = {k for k in ANIMALS if not is_wild(k)}  # wild game bolts when fed; it can only be hunted
+    if _seen(world, c, tame) and any(n > 0 and i in ANIMAL_FOOD for i, n in c.inventory.items()):
         return 5.8
     return None
 
@@ -120,13 +129,24 @@ LORE = [
 ]
 
 
+PACK_SLOTS = 2  # at most this many of a limit's slots (and at most half) are kept for the packs' techniques
+
+
 def relevant(world: World, c: Creature, limit: int = 5, packs_only: bool = False) -> list[str]:
     """The lines of the techniques that fit now, best first; packs_only: only those packs registered. A trigger that
-    fails counts as not fitting."""
-    scored = [(s, t.line) for t in TECHNIQUES
+    fails counts as not fitting.
+
+    With the core techniques too, the best min(PACK_SLOTS, limit // 2) pack techniques that fit keep their slots, the
+    core ones fill the rest, and pack ones any slots still free: core tips fit often, and would otherwise crowd out
+    the packs' verbs, which every creature should get to see."""
+    scored = [(s, t) for t in TECHNIQUES
               if (t.pack or not packs_only) and (s := call_safely(f"technique '{t.name}'", t.trigger, world, c)) is not None]
     scored.sort(key=lambda p: -p[0])
-    return [line for _, line in scored[:limit]]
+    packs = [t for _, t in scored if t.pack]
+    kept = packs[:min(PACK_SLOTS, limit // 2)]
+    rest = [t for _, t in scored if not t.pack] + packs[len(kept):]
+    chosen = kept + rest[:max(0, limit - len(kept))]
+    return [t.line for _, t in scored if t in chosen]
 
 
 def lore() -> list[tuple[str, str]]:

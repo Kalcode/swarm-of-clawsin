@@ -1299,6 +1299,18 @@ def _program(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(True, "You enter your program into the terminal. It will run shortly; read the terminal to see its screen.")
 
 
+PLANTABLE = ("wheat_seeds", "carrot_seeds", "berries")  # what grows if you plant it
+PLANT_TOOLS = ("hoe",)  # what breaks the soil
+
+
+def plant_spot(world: World, c: Creature) -> tuple[int, int] | None:
+    """The first free patch of soil beside the creature, or None."""
+    return next(((x, y) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                 for x, y in [(c.x + dx, c.y + dy)]
+                 if (dx or dy) and world.tile(x, y) in "gdf" and not world.object_at(x, y)
+                 and not world.occupied(x, y)), None)
+
+
 def _plant(world: World, c: Creature, it: Intention) -> ActionResult:
     name = it.target or (it.items[0] if it.items else "seeds")
     if _words(name) and _words(name)[-1] in ("seeds", "seed") and world.catalog.resolve(name) is None:
@@ -1308,16 +1320,13 @@ def _plant(world: World, c: Creature, it: Intention) -> ActionResult:
     iid, err = _resolve_held(world, c, name)
     if not iid:
         return ActionResult(False, err)
-    if iid not in ("wheat_seeds", "carrot_seeds", "berries"):
+    if iid not in PLANTABLE:
         return ActionResult(False, f"{world.catalog.name(iid).capitalize()} won't grow if you plant it.")
-    if not _has_tool(c, ("hoe",)):
+    if not _has_tool(c, PLANT_TOOLS):
         return ActionResult(False, "The ground is too hard to plant in with bare hands. You'd need a tool to break the soil.")
     planted = 0
     for _ in range(min(it.count, c.inventory[iid])):
-        spot = next(((x, y) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-                     for x, y in [(c.x + dx, c.y + dy)]
-                     if (dx or dy) and world.tile(x, y) in "gdf" and not world.object_at(x, y)
-                     and not world.occupied(x, y)), None)
+        spot = plant_spot(world, c)
         if not spot:
             break
         if iid in ("wheat_seeds", "carrot_seeds"):
