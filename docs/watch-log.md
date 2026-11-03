@@ -10,7 +10,7 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 
 ## 2026-11-03 (fresh world at 10:42; public at https://swarm-world.4rc4de.com)
 
-- **admin (done 10:48):** the student slowed from 2.8 s to 30 s per decision while it shared this Mac's GPU with
+- **admin (done 10:48, tick ~340):** the student slowed from 2.8 s to 30 s per decision while it shared this Mac's GPU with
   Qwen3.5-9B. The 9B model's work starves the small one. So this Mac now runs the student only: its node adopted the four
   Qwen-9B creatures, making 12. Rule of thumb: one model per machine's GPU when speed matters.
 - **tweak (node):** `--adopt` only fills the count the node asks for, and its own creatures come first. Adopting 4 more
@@ -27,7 +27,7 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **admin:** the Air's Qwen3.5-4B node answers in about 33 s per decision (p50) with 3 slots: slow but alive. The Air's
   node runs inside its Claude session, so it stops if that session ends.
 - **mod:** 16 wishes already by tick 441. Read and answer the ones worth answering (steward policy).
-- **tweak (wishes):** by tick ~800 there are 36 "wishes", and every one was pulled from a reflection; no creature has
+- **tweak (wishes):** by tick ~450 there are 36 "wishes", and every one was pulled from a reflection; no creature has
   made an explicit wish. Many are fragments: "steady supply", "tool", "world had more of the right kind",
   "group to keep trading fibers opal should". Taking wishes from reflections is noisy. Options:
   - take only explicit wish phrasing;
@@ -36,3 +36,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mod (balance, watching):** fiber and rope are the early bottleneck: about 20 of the 36 are about fiber, rope, grass
   or sticks; others ask for stone or a place to trade. Nothing granted. It's early, and finding tall grass is part of the
   game. If fiber is still the theme by day 2, consider faster grass regrowth or a bigger fiber yield.
+- **admin (11:00, tick ~600):** with this Mac to itself, the student runs at a median of 14.6 s per decision (p90
+  19 s), with 88% succeeding, for 12 creatures. This morning, with 6 creatures, it was 2.8 s. Qwen-9B did unload
+  (oMLX log: freed 8.3 GB). The cause is load:
+  - 12 prompts of ~1,850 tokens, of which only 46% come from the prompt cache (58% this morning), so the Mac reads
+    roughly three times the prompt per minute;
+  - the 1.7B model's speed is spent on reading the prompt, not on writing the answer.
+
+  Today's speeds: gpt-oss on the PC's gaming GPU at 8.5 s, the student at 15 s, Qwen3.5-4B on the Air at 29 s.
+  Round-2 levers:
+  - a shorter prompt (the student needs fewer tips than a general model);
+  - keeping the stable parts of the prompt first, so the cache hits more often;
+  - fewer creatures per Mac when speed is the point.
