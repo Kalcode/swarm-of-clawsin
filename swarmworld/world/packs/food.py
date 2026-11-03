@@ -423,6 +423,19 @@ def _age(held: dict, since: dict, t: int) -> list[tuple[str, int]]:
     return spoiled
 
 
+def _went_bad(sim: Simulation, x: int, y: int, item: str, n: int, where: str) -> None:
+    """Food left in a store or on the ground spoiled: an event, and a memory for those who see it (as _dry tells)."""
+    w = sim.world
+    name = w.catalog.name(item)
+    what = name if n == 1 else f"{n} {name}"
+    w.emit("spoil", None, x, y, f"The {what} {where} spoiled.")
+    for h in w.creatures.values():
+        d = dist(h.x, h.y, x, y)
+        if not h.collapsed and d <= sight_range(w, h):
+            spot = "right here" if d == 0 else f"{direction(x - h.x, y - h.y)} of you"
+            sim.remember(h, f"The {what} {where} {spot} went bad.", 1)
+
+
 def _spoil(sim: Simulation, t: int) -> None:
     w = sim.world
     for c in w.creatures.values():
@@ -454,9 +467,10 @@ def _spoil(sim: Simulation, t: int) -> None:
     for o in w.objects.values():
         if o.kind in STORES and o.kind != "drying_rack" and o.data.get("items"):
             since = o.data.setdefault("fresh_since", {})
-            for item, _ in _age(o.data["items"], since, t):
+            for item, n in _age(o.data["items"], since, t):
                 del o.data["items"][item]
                 w.changed_objects.add(o.id)
+                _went_bad(sim, o.x, o.y, item, n, f"in the {o.name}")
             if not since:
                 o.data.pop("fresh_since", None)
     piles = _state(w).setdefault("piles", {})
@@ -467,6 +481,7 @@ def _spoil(sim: Simulation, t: int) -> None:
             since = piles.setdefault(f"{x},{y}", {})
             for item, n in _age(dict(pile), since, t):
                 w.take_items(x, y, item, n)
+                _went_bad(sim, x, y, item, n, "on the ground")
             if not since:
                 del piles[f"{x},{y}"]
     if not piles:

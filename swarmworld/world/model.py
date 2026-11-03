@@ -327,9 +327,11 @@ class World:
         return ev
 
     def sound(self, x: int, y: int, text: str, radius: int = 8, kind: str = "", loud: bool = False,
-              source: str | None = None) -> Event:
+              source: str | None = None, makers: list[str] | None = None) -> Event:
         """Something makes a noise at (x, y), e.g. text "chopping". The simulation tells awake creatures within
-        radius, except the source (a creature id), "You hear chopping, about 6 steps north." Creatures asleep for
-        the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio (see
-        registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
-        return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source)
+        radius, except the source (a creature id, or the id of the thing that makes it, like a fire) and any other
+        makers (creature ids: a crowd doesn't hear itself), "You hear chopping, about 6 steps north." Creatures
+        asleep for the night only hear a loud sound, and it wakes them. kind names the sound for the viewer's audio
+        (see registry.SOUND_KINDS). Every sound is logged and sent to viewers: make ambient ones sparingly."""
+        extra = {"makers": list(makers)} if makers else {}
+        return self.emit("sound", source, x, y, text, sound=kind, radius=radius, loud=loud, source=source, **extra)

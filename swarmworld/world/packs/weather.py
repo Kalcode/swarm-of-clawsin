@@ -6,6 +6,7 @@ expect them; world.ext["weather"] holds the derived bits ("sight": a cap on how 
 
 from __future__ import annotations
 
+from .. import perception
 from ..model import World
 from ..perception import direction, dist
 from ..registry import register_perception, register_system
@@ -21,8 +22,7 @@ STARTS = {"rain": "Clouds gather, and rain begins to fall.", "drizzle": "A fine 
 ENDS = {"rain": "The rain stops and the clouds drift apart.", "drizzle": "The drizzle thins away.",
         "fog": "The fog lifts.", "wind": "The wind dies down.", "storm": "The storm blows itself out.",
         "heat": "The heat breaks at last."}
-LINES = {"drizzle": "A fine drizzle is falling.",
-         "fog": "Fog hangs thick around you; you can only see a few steps.",
+LINES = {"drizzle": "A fine drizzle is falling.",  # rain and fog are in the core time line (perception.perceive)
          "wind": "Wind tugs at everything; fires eat their fuel faster.",
          "storm": "A storm is raging: rain, wind and thunder.",
          "heat": "The heat is heavy; you hunger faster."}
@@ -34,6 +34,7 @@ THUNDER_CHANCE = 0.2  # per 10 ticks of storm
 STRIKE_CHANCE = 0.12  # of a thunderclap, a tree is struck
 BURN_TICKS = 30
 WINDY = ("wind", "storm")
+UNDER_ROOF = ("rain", "drizzle", "storm")  # not told under a roof: the building's line says so
 
 
 def current(world: World) -> str:
@@ -147,7 +148,10 @@ def _burn(w: World, t: int) -> None:
 
 
 def _weather_line(world: World, c) -> str | None:
-    return LINES.get(current(world))
+    kind = current(world)
+    if kind in UNDER_ROOF and perception.roof_over(world, c.x, c.y):  # the building's own line says it's wet outside
+        return None
+    return LINES.get(kind)
 
 
 def _burning_line(world: World, c) -> str | None:

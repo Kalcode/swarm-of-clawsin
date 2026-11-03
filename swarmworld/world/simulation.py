@@ -362,12 +362,13 @@ class Simulation:
         self._event_cursor = len(w.events)
 
     def _hear_sound(self, ev) -> None:
-        """A sound (World.sound) reaches awake creatures in range, not its source. Sleepers only hear a loud one, and
+        """A sound (World.sound) reaches awake creatures in range, not its source or makers. Sleepers only hear a loud one, and
         it wakes them. It isn't a memory and doesn't make anyone think; it's in their next perception."""
         w = self.world
         loud = bool(ev.data.get("loud"))
+        makers = ev.data.get("makers") or ()
         for h in hearers(w, ev.x, ev.y, ev.data.get("radius", 8)):
-            if h.id == ev.data.get("source") or h.asleep:  # asleep: its mind is away
+            if h.id == ev.data.get("source") or h.id in makers or h.asleep:  # asleep: its mind is away
                 continue
             sleeping = bool((h.activity or {}).get("sleep"))
             if sleeping and not loud:

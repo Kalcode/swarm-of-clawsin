@@ -16,7 +16,7 @@ The registry's docstring (`swarmworld/world/registry.py`) is the reference.
 | a perception line | `register_perception(fn(world, c) -> str or None, priority=50)` |
 | placing things | `register_populate(name, fn(world, rng, fresh))`, run on new worlds and restored saves |
 | state | `c.ext[<pack>]` and `world.ext[<pack>]`: JSON-able, saved automatically |
-| a sound | `world.sound(x, y, text, radius=8, kind=..., loud=False, source=c.id)`; kinds from `registry.SOUND_KINDS` |
+| a sound | `world.sound(x, y, text, radius=8, kind=..., loud=False, source=c.id, makers=None)`; kinds from `registry.SOUND_KINDS` |
 
 Worked example, pack `marsh` (installed and run end to end at `72898c2`, then removed): one item, one recipe, one
 data-only kind with yields, one verb with its technique, one system, one perception line, one sound, plus populate
@@ -174,10 +174,11 @@ Rules of thumb:
   At most 2 a turn for all packs together; lower `priority` wins (urgent below 50, ambience above), then the first
   registered. Once the lines are full, later functions aren't called that turn.
 - **Sounds.**
-  - Pass `source=c.id` for a creature's own action, so it isn't echoed back.
+  - Pass `source=c.id` for a creature's own action, so it isn't echoed back (a thing's id, like a fire's, for a
+    thing's own noise), and `makers=[ids]` for the others making it with them (a crowd doesn't hear itself).
   - `loud=True` only for what should wake sleepers (thunder).
   - `kind` comes from `registry.SOUND_KINDS`, which is advisory: chop, knock, splash, fire, thunder, rain, river,
-    crickets, bird, `animal:<kind>`, crowd, footsteps, build, music, dance, hunt.
+    crickets, bird, `animal:<kind>`, crowd, footsteps, build, music, dance, hunt, rustle.
   - Every sound is an event, logged and sent to viewers, so emit ambient ones from systems sparingly (cooldowns, a few
     at a time).
   - A creature hears at most 2 sounds a turn, the latest of each kind. Sounds aren't memories and don't make anyone

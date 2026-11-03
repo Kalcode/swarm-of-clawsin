@@ -2,7 +2,7 @@ import pytest
 
 from swarmworld.world.catalog import Catalog
 from swarmworld.world.model import DAY_TICKS, START_TICK, Creature, World
-from swarmworld.world.perception import direction, perceive, sight_range
+from swarmworld.world.perception import direction, perceive, sight_range, visible_objects
 
 
 @pytest.fixture
@@ -81,3 +81,55 @@ def test_remembers_resources_out_of_sight_and_forgets_gone_ones(world):
     c.x, c.y = 10, 11
     note_spots(world, c, world.tick)
     assert "bush" not in c.spots and "rock" in c.spots
+
+
+NIGHT = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)
+
+
+def fog(w):
+    from swarmworld.world.packs import weather as wx
+    wx.set_weather(w, "fog", w.tick + 500)
+
+
+def test_fog_by_day_is_in_the_time_line_not_a_pack_line(world):
+    from swarmworld.world import registry
+    from swarmworld.world.packs import weather as wx
+    c = add_creature(world)
+    fog(world)
+    first = perceive(world, c).splitlines()[0]
+    assert first.endswith("Fog hangs thick around you; you can only see a few steps.")
+    assert wx._weather_line(world, c) is None and not any("Fog" in ln for ln in registry.extra_perception(world, c))
+
+
+def test_fog_at_night_beside_a_fire_is_firelight_not_a_soft_glow(world):
+    c = add_creature(world)
+    world.tick = NIGHT
+    world.add_object("campfire", 11, 10, lit=True, lit_until=world.tick + 5000)
+    fog(world)
+    assert sight_range(world, c) == 3  # the fog still caps how far you see
+    first = perceive(world, c).splitlines()[0]
+    assert "firelight" in first and "soft glow" not in first
+    assert "Fog hangs thick around you; you can only see a few steps." in first
+
+
+def test_fog_in_the_dark_does_not_promise_more_sight(world):
+    c = add_creature(world)
+    world.tick = NIGHT
+    fog(world)
+    first = perceive(world, c).splitlines()[0]
+    assert "It is dark; you can only see a couple of steps." in first
+    assert "Fog hangs thick around you." in first and "a few steps" not in first
+
+
+def test_far_fireflies_are_only_the_nearest_few(world):
+    c = add_creature(world, x=15, y=15)
+    world.tick = NIGHT
+    far = [(x, y) for y in range(7, 24) for x in range(7, 24) if max(abs(x - 15), abs(y - 15)) >= 4][:30]
+    for x, y in far:
+        world.add_object("firefly", x, y)
+    flies = [d for o, d, _ in visible_objects(world, c) if o.kind == "firefly"]
+    assert len(flies) == 3 and flies == sorted(flies)
+    assert "3 fireflies" in perceive(world, c)
+    world.add_object("campfire", 8, 20, lit=True, lit_until=world.tick + 5000)  # fires afar are not capped
+    world.add_object("campfire", 22, 20, lit=True, lit_until=world.tick + 5000)
+    assert "2 campfires (burning)" in perceive(world, c)

@@ -84,11 +84,13 @@ def test_heat_makes_creatures_hungrier():
 def test_weather_line_only_when_not_clear():
     st, w, c = _world()
     assert wx._weather_line(w, c) is None
-    for kind in ("drizzle", "fog", "wind", "storm", "heat"):
+    for kind in ("drizzle", "wind", "storm", "heat"):
         wx.set_weather(w, kind, w.tick + 100)
         line = wx._weather_line(w, c)
         assert line and len(line) < 100
         assert line in registry.extra_perception(w, c)
+    wx.set_weather(w, "fog", w.tick + 100)
+    assert wx._weather_line(w, c) is None  # fog is in the core time line, which no pack line can push out
 
 
 def test_weather_rain_cycle_still_works_and_exposure():

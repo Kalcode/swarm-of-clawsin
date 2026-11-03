@@ -13,6 +13,7 @@ NIGHT_SIGHT = 2
 FIRE_SIGHT = 5
 FIRE_RADIUS = 3
 GLOW_SIGHT = 8  # how far a fire's glow can be seen at night
+FAR_GLOWS = 3  # of each kind of soft glow beyond sight (fireflies), only the nearest this many are seen
 SOFT_SIGHT = 3  # at night beside a soft glow (a kind with "glow" in its data, like fireflies): a step more than dark
 LANDMARK_RANGE = 14
 
@@ -50,6 +51,13 @@ def roof_over(world: World, x: int, y: int) -> str | None:
     """The id of the roofed building whose inside (x, y) is, or None. A roof keeps off rain and cold
     (Simulation.exposure), and a bed or station under one serves only those under it (actions.station_near). Nothing
     has a roof until a pack replaces this function (the building pack does)."""
+    return None
+
+
+def floor_at(world: World, x: int, y: int) -> str | None:
+    """What you stand on inside a building instead of the land ("the hut's earthen floor"), or None. Nothing grows on
+    a floor: no grass to gather (actions._gather). Nothing has a floor until a pack replaces this function (the
+    building pack does)."""
     return None
 
 
@@ -101,15 +109,22 @@ def note_spots(world: World, c: Creature, tick: int) -> None:
             del c.spots[kind]
 
 
-def sight_range(world: World, creature: Creature) -> int:
+def light_range(world: World, creature: Creature) -> int:
+    """How far the light alone lets you see: daylight, a fire, a soft glow or the dark (fog comes on top)."""
     if world.clock()["phase"] != "night":
-        r = DAY_SIGHT
-    elif near_lit_fire(world, creature.x, creature.y):
-        r = FIRE_SIGHT
-    else:
-        r = SOFT_SIGHT if near_glow(world, creature.x, creature.y) else NIGHT_SIGHT
+        return DAY_SIGHT
+    if near_lit_fire(world, creature.x, creature.y):
+        return FIRE_SIGHT
+    return SOFT_SIGHT if near_glow(world, creature.x, creature.y) else NIGHT_SIGHT
+
+
+def _fog_cap(world: World, r: int) -> int:
     cap = world.ext.get("weather", {}).get("sight")  # fog: set by the weather pack
     return min(r, cap) if cap else r
+
+
+def sight_range(world: World, creature: Creature) -> int:
+    return _fog_cap(world, light_range(world, creature))
 
 
 def visible_objects(world: World, creature: Creature, rng: int | None = None) -> list[tuple[WorldObject, int, str]]:
@@ -123,13 +138,21 @@ def visible_objects(world: World, creature: Creature, rng: int | None = None) ->
                 out.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
     if rng is None and r < DAY_SIGHT:  # in the dark, fires and lights still glow from afar
         seen = {o.id for o, _, _ in out}
+        far = []
         for y in range(creature.y - GLOW_SIGHT, creature.y + GLOW_SIGHT + 1):
             for x in range(creature.x - GLOW_SIGHT, creature.x + GLOW_SIGHT + 1):
                 o = world.object_at(x, y)
                 if o and o.id not in seen and ((o.kind == "campfire" and o.data.get("lit")) or glows(o)
                                                or (o.kind == "creation" and "light" in o.data.get("effects", ()))):
                     dx, dy = o.x - creature.x, o.y - creature.y
-                    out.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
+                    far.append((o, dist(0, 0, dx, dy), direction(dx, dy)))
+        shown: dict[str, int] = defaultdict(int)
+        for hit in sorted(far, key=lambda t: t[1]):  # of soft glows afar (fireflies), only the nearest few
+            if glows(hit[0]):
+                shown[hit[0].kind] += 1
+                if shown[hit[0].kind] > FAR_GLOWS:
+                    continue
+            out.append(hit)
     out.sort(key=lambda t: t[1])
     return out
 
@@ -245,22 +268,26 @@ def _far_features(world: World, c: Creature, r: int) -> str:
 
 def perceive(world: World, creature: Creature, heard: list[str] | None = None) -> str:
     c = creature
-    r = sight_range(world, c)
+    lit = light_range(world, c)
+    r = _fog_cap(world, lit)
     lines: list[str] = []
     phase = world.clock()["phase"]
-    light = "It is dark; you can only see a couple of steps." if r == NIGHT_SIGHT else (
-        "It is dark, but a soft glow around you lets you see a few steps." if r == SOFT_SIGHT and phase == "night" else
+    light = "It is dark; you can only see a couple of steps." if lit == NIGHT_SIGHT else (
+        "It is dark, but a soft glow around you lets you see a few steps." if lit == SOFT_SIGHT and phase == "night" else
         "It is night, but firelight lets you see around you." if phase == "night" else "")
     weather = ""
     if getattr(world, "weather", "clear") == "rain":  # a storm's own line says it
         weather = "Rain is falling."
+    elif getattr(world, "weather", "clear") == "fog":  # the fog, not the light, is what keeps you from seeing far
+        weather = "Fog hangs thick around you; you can only see a few steps." if r < lit else "Fog hangs thick around you."
     if c.satiety < 15:  # the body's alarm comes before everything else
         lines.append("You are starving: eat now or you will collapse.")
     lines.append(f"{world.time_text()}. {weather} {light}".replace("  ", " ").strip())
 
+    floor = floor_at(world, c.x, c.y)
     under = TILE_NAMES[world.tile(c.x, c.y)]
     here_obj = world.object_at(c.x, c.y)
-    here = f"You stand on {under}"
+    here = f"You stand on {floor or under}"
     if here_obj and KINDS.get(here_obj.kind, {}).get("over_water"):  # a bridge
         here = f"You stand on {article(here_obj.name)} {here_obj.name} over {under}"
     elif here_obj:
@@ -270,7 +297,7 @@ def perceive(world: World, creature: Creature, heard: list[str] | None = None) -
         here += ". On the ground here: " + ", ".join(f"{n} {world.catalog.name(i)}" for i, n in pile.items())
     lines.append(here + ".")
     near = {world.tile(c.x + dx, c.y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
-    if near & {"g", "f"}:
+    if near & {"g", "f"} and not floor:
         lines.append("Tall grass grows all around you; its tough stems could be gathered as plant fiber.")
 
     groups: dict[str, list[tuple[int, str]]] = defaultdict(list)

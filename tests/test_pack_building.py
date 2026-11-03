@@ -218,6 +218,21 @@ def test_a_creature_standing_in_the_way_steps_aside():
     assert sheep.id in w.objects and building.rect_dist(site, sheep.x, sheep.y) > 0
 
 
+def test_a_creature_moved_aside_by_the_walls_is_told():
+    w = grass_world()
+    memories = []
+    sim = Simulation(w, memory_sink=lambda c, text, imp: memories.append((c.name, text)))
+    mira, tam = creature(w, "Mira", 10, 10), creature(w, "Tam", 30, 30)
+    mira.inventory.update(building.DESIGNS["tent"]["needs"])
+    act(w, mira, action="build", target="tent")
+    _, site = only_site(w)
+    tam.x, tam.y = site["x0"], site["y0"]  # where a wall will go
+    finish(w, mira, "tent")
+    sim.tick()
+    assert ("Tam", "You step aside as the walls go up.") in memories
+    assert not any(name == "Mira" and "step aside" in text for name, text in memories)
+
+
 # ------------------------------------------------------------------ inside
 def test_inside_a_hut_is_sheltered_and_described():
     w = grass_world()
@@ -253,6 +268,38 @@ def test_inside_a_hut_is_sheltered_and_described():
     assert mira.sleeping and mira.activity["bed"] and mira.activity["label"] == "sleeping"
     assert tam.sleeping and tam.activity["label"] == "sleeping out in the cold"
     assert mira.energy - before[0] > tam.energy - before[1]
+
+
+def test_inside_you_stand_on_the_floor_not_the_grass():
+    w = grass_world()
+    mira = creature(w, "Mira", 10, 10)
+    b = finish(w, mira, "hut", HUT)
+    mira.x, mira.y = inside_tiles(w, b)[0]
+    seen = perceive(w, mira)
+    assert "You stand on the hut's earthen floor." in seen
+    assert "You stand on grass" not in seen and "Tall grass" not in seen
+    res = act(w, mira, action="gather", target="grass")
+    assert not res.ok and "floor" in res.message and not mira.inventory.get("plant_fiber")
+    mira.x, mira.y = b["door"]  # the doorway is outside: grass underfoot again
+    assert "You stand on grass" in perceive(w, mira)
+    mira.x, mira.y = 30, 30
+    tent = finish(w, mira, "tent")
+    mira.x, mira.y = tent["x0"] + 1, tent["y0"] + 1
+    assert "You stand on the tent's woven floor mat." in perceive(w, mira)
+
+
+def test_indoors_in_a_storm_the_storm_is_said_once():
+    from swarmworld.world.packs import weather as wx
+    w = grass_world()
+    mira, tam = creature(w, "Mira", 10, 10), creature(w, "Tam", 30, 30)
+    b = finish(w, mira, "hut", HUT)
+    mira.x, mira.y = inside_tiles(w, b)[0]
+    for kind in ("storm", "drizzle"):
+        wx.set_weather(w, kind, w.tick + 500)
+        assert wx._weather_line(w, mira) is None  # the inside line says what the weather is doing outside
+        assert wx._weather_line(w, tam)
+        lines = registry.extra_perception(w, mira)
+        assert sum("storm" in ln or "drizzle" in ln or "Rain" in ln for ln in lines) == 1, lines
 
 
 def test_a_tent_keeps_off_the_rain():
@@ -349,6 +396,24 @@ def test_bridge_makes_water_walkable():
     while tam.activity:
         step_activity(w, tam)
     assert (tam.x, tam.y) == (16, 10)
+
+
+def test_a_creature_left_on_deep_water_scrambles_ashore():
+    w = river_world()
+    memories = []
+    sim = Simulation(w, memory_sink=lambda c, text, imp: memories.append((c.name, text)))
+    tam = creature(w, "Tam", 11, 10)
+    tam.inventory.update({"planks": 6, "log": 3})
+    act(w, tam, action="build", target="bridge")
+    for _ in range(5):
+        if building.sites(w):
+            act(w, tam, action="build")
+    tam.x, tam.y = 13, 10  # the middle of the bridge
+    w.remove_object(w.object_at(13, 10).id)  # say the steward takes that span away
+    assert not w.walkable(tam.x, tam.y)
+    system("building upkeep")(sim, w.tick)
+    assert w.walkable(tam.x, tam.y) and w.tile(tam.x, tam.y) not in "wW"
+    assert any(name == "Tam" and "deep water" in text for name, text in memories)
 
 
 def test_no_bridge_where_you_can_wade_or_cannot_reach():
