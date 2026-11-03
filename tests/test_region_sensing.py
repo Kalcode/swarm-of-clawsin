@@ -41,7 +41,7 @@ def test_no_sight_across_regions(pair):
     assert [(x, y) for x, y, _, _ in visible_piles(w, low)] == [(13, 26)]
     text_top, text_low = perceive(w, top), perceive(w, low)
     assert "rock" not in text_top and "Low" not in text_top and "stick" not in text_top
-    assert "bush" not in text_low and "Top" not in text_low and "stone" not in text_low
+    assert "bush" not in text_low and "Top" not in text_low and "1 stone" not in text_low
     w.tiles[27][14] = "w"  # water in the deep: not "Around you" on the surface
     w.tiles[20][3] = "s"  # sand on the surface, 9 steps away: out of the deep's reach too
     assert "water" not in (_far_features(w, top, 6) or "")
