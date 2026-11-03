@@ -510,7 +510,7 @@ ABOUT = [
     ("<b>Wishes.</b> When a creature wishes for something the world doesn’t have, the Wishes tab collects it. The people "
      "running the world read them and sometimes answer from the sky. You can read them, not answer them."),
     ("<b>The deep.</b> Under the meadow lie dark caves with ore, coal and crystal. Creatures climb down at cave mouths and "
-     "see only by torchlight. Switch to Underground at the top to look."),
+     "see only by torchlight. Use the Surface / Underground switch at the top (Above / Below on narrow screens) to look."),
     "What you see is a few seconds behind the world.",
 ]
 
@@ -529,7 +529,7 @@ def test_the_banner_and_about_read_as_written():
     assert '<h2 id="about-title">What you’re watching</h2>' in about.group(1) and paras == ABOUT
     tail = about.group(1)[about.group(1).index(ABOUT[-1]):]
     assert re.search(r'<p id="about-more" hidden><a id="about-link" target="_blank" rel="noopener">More about this project</a></p>'
-                     r'\s*<form method="dialog"><button class="pill-btn" id="about-close">Close</button></form>', tail)
+                     r'\s*<form method="dialog"><button class="pill-btn" id="about-close" autofocus>Close</button></form>', tail)
 
 
 def test_the_short_banner_takes_over_at_900px():
@@ -801,3 +801,19 @@ def test_keys_typed_in_a_dialog_stay_in_it():
     keydown = src[src.index("window.addEventListener('keydown', (e) => {"):]
     first = keydown[:keydown.index("if (e.metaKey || e.ctrlKey) return;")]
     assert "closest('dialog')" in first
+
+
+def test_the_about_dialog_opens_on_close_and_the_sound_key_ignores_dialogs():
+    assert 'id="about-close" autofocus' in (WEB / "index.html").read_text()
+    sound = (WEB / "sound.js").read_text()
+    assert "closest('dialog')" in sound and "e.key === 'm'" in sound
+
+
+def test_the_almanac_reads_the_public_document_in_public_mode():
+    src = (WEB / "almanac.js").read_text()
+    assert "'/public/almanac.json'" in src and "dataset.public === '1'" in src
+    assert "['tree', 'things', 'verbs', 'census']" in src
+    verbs = function_body(src, "renderVerbs")
+    assert "v.about" in verbs and "What it does" in verbs
+    assert "Couldn’t reach the world" in src and "Trying again every minute." in src
+    assert "d.roadmap ?" in function_body(src, "renderCounts")

@@ -13,10 +13,12 @@
   const SKINS = { limezu: () => window.SwarmLimeZu, kenney: () => T, ascii: () => window.SwarmASCII };
   const SKIN_LABEL = { limezu: 'LimeZu', kenney: 'Kenney', ascii: 'ASCII' };
   const SKIN_KEY = 'swarmworld.skin';
-  const REFRESH_MS = 30000;
-  const DAY_TICKS = 1200;
-  const TABS = ['tree', 'things', 'verbs', 'census', 'packs', 'roadmap'];
   const params = new URLSearchParams(location.search);
+  // the public copy: reads the published snapshot, shows no packs or roadmap, and refreshes once a minute
+  const PUBLIC = document.documentElement.dataset.public === '1' || params.has('public');
+  const REFRESH_MS = PUBLIC ? 60000 : 30000;
+  const DAY_TICKS = 1200;
+  const TABS = PUBLIC ? ['tree', 'things', 'verbs', 'census'] : ['tree', 'things', 'verbs', 'census', 'packs', 'roadmap'];
   const TOKEN = params.get('token') || '';
   const NARROW = window.matchMedia('(max-width: 720px)');
 
@@ -248,7 +250,7 @@
     S.loading = true;
     setSync('loading', manual ? 'Refreshing' : (S.X ? 'Refreshing' : 'Loading'));
     try {
-      const r = await fetch('api/almanac', { cache: 'no-store', headers: TOKEN ? { 'X-Swarm-Token': TOKEN } : {} });
+      const r = await fetch(PUBLIC ? '/public/almanac.json' : 'api/almanac', { cache: 'no-store', headers: TOKEN && !PUBLIC ? { 'X-Swarm-Token': TOKEN } : {} });
       if (r.status === 403) throw Object.assign(new Error('forbidden'), { forbidden: true });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
@@ -272,10 +274,15 @@
     } catch (err) {
       S.error = err;
       if (!S.X) {
+        if (PUBLIC) {
+          $('veil-title').textContent = 'Couldn’t reach the world';
+          $('veil-sub').textContent = 'It runs on one Mac at home and may be restarting. Trying again every minute.';
+        } else {
         $('veil-title').textContent = err.forbidden ? 'The almanac opens on the world\'s own machine' : 'Couldn\'t reach the world';
         $('veil-sub').innerHTML = err.forbidden
           ? 'It lists the backlog and everything in the game, so from elsewhere it needs the join token: add <code>?token=…</code> to this page\'s address.'
           : `The server didn't answer (${esc(err.message)}). It tries again every 30 seconds.`;
+        }
       }
       setSync('offline', err.forbidden ? 'Needs the token' : 'Offline');
     } finally {
@@ -297,7 +304,7 @@
     $('alm-clock').innerHTML = `<b>Day ${fmt(X.d.day)}</b> · ${esc(c.phase || '')} · tick <span class="num">${fmt(X.d.tick)}</span>` +
       ` · ${plural(X.creatures.length, 'creature')} (${fmt(awake)} awake)` +
       (S.error ? ` · <span title="${esc(S.error.message)}">showing the last answer, ${fmt(ago)} s old</span>` : ` · updated ${ago < 5 ? 'just now' : fmt(ago) + ' s ago'}`);
-    $('alm-sync').title = S.lastOk ? `Last read ${new Date(S.lastOk).toLocaleTimeString()}; every 30 s` : '';
+    $('alm-sync').title = S.lastOk ? `Last read ${new Date(S.lastOk).toLocaleTimeString()}; every ${REFRESH_MS / 1000} s` : '';
   }
 
   /* ------------------------------------------------------------------ routing and tabs */
@@ -327,8 +334,9 @@
     $('n-tree').textContent = d.recipes.length;
     $('n-things').textContent = d.kinds.length;
     $('n-verbs').textContent = d.verbs.length;
+    if (PUBLIC) return;                       // no Packs or Roadmap tabs in the public copy
     $('n-packs').textContent = d.packs.length;
-    const open = (d.roadmap.counts.open || 0) + (d.roadmap.counts.progress || 0);
+    const open = d.roadmap ? (d.roadmap.counts.open || 0) + (d.roadmap.counts.progress || 0) : 0;
     $('n-roadmap').textContent = open || '';
   }
   function render() {
@@ -875,7 +883,7 @@
       any = true;
       const total = kinds.reduce((a, k) => a + k.count, 0);
       html += `<section class="th-pack"><div class="th-pack-head"><h2>${esc(p.id)}</h2><p>${plural(kinds.length, 'kind')} · ${fmt(total)} on the map</p></div>` +
-        `<p class="alm-lede">${esc(p.about)}</p>` +
+        (p.about ? `<p class="alm-lede">${esc(p.about)}</p>` : '') +
         '<table class="alm-table"><thead><tr><th class="th-look"><span class="sr-only">Look</span></th><th>Thing</th><th class="r">On the map</th><th>Gives</th><th>Behaviour</th></tr></thead><tbody>';
       for (const k of kinds) html += thingRow(k);
       html += '</tbody></table></section>';
@@ -956,8 +964,11 @@
       '<span class="alm-seg" role="radiogroup" aria-label="Order" id="vb-sort">' +
       `<button type="button" role="radio" data-sort="schema" aria-checked="${S.verbSort === 'schema'}">In schema order</button>` +
       `<button type="button" role="radio" data-sort="used" aria-checked="${S.verbSort === 'used'}">Most used</button></span></div>`;
-    html += '<p class="alm-lede">The tip is the line a creature reads; the last column says when it reads it. Every verb works whether it was shown or not.</p>';
-    html += '<table class="alm-table"><thead><tr><th>Verb</th><th>Pack</th><th class="vb-used">Chosen</th><th>Tip</th><th>When it\'s shown</th></tr></thead><tbody>';
+    html += PUBLIC
+      ? '<p class="alm-lede">What each verb does, in plain words, and how often this world’s creatures chose it.</p>'
+      : '<p class="alm-lede">The tip is the line a creature reads; the last column says when it reads it. Every verb works whether it was shown or not.</p>';
+    html += '<table class="alm-table"><thead><tr><th>Verb</th><th>Pack</th><th class="vb-used">Chosen</th>' +
+      (PUBLIC ? '<th>What it does</th>' : '<th>Tip</th><th>When it\'s shown</th>') + '</tr></thead><tbody>';
     for (const v of verbs) {
       const u = v.used;
       const ok = u.tries ? Math.round((u.ok / u.tries) * 100) : null;
@@ -967,8 +978,9 @@
         `<td class="vb-used" data-th="Chosen"><div class="vb-bar" ${models ? `data-tip-title="${esc(v.name)}" data-tip="${esc(models)}"` : ''}><span class="t-n${u.tries ? '' : ' zero'}">${fmt(u.tries)}</span>` +
         `<span class="vb-track">${u.tries ? `<span class="vb-fill" style="width:${(u.tries / max) * 100}%"></span>` : ''}</span></div>` +
         (ok != null ? `<span class="vb-ok">${ok}% worked</span>` : '') + '</td>' +
-        `<td class="vb-tip" data-th="Tip">${esc(v.tip)}</td><td class="vb-shown" data-th="Shown">${esc(v.shown)}</td></tr>`;
-      for (const use of v.uses) {
+        (PUBLIC ? `<td class="vb-tip" data-th="What it does">${esc(v.about)}</td></tr>`
+          : `<td class="vb-tip" data-th="Tip">${esc(v.tip)}</td><td class="vb-shown" data-th="Shown">${esc(v.shown)}</td></tr>`);
+      for (const use of PUBLIC ? [] : v.uses) {
         html += `<tr class="vb-use"><td><span class="vb-verb">↳ ${esc(use.name)}</span></td><td></td><td></td>` +
           `<td class="vb-tip" data-th="Tip">${esc(use.line)}</td><td class="vb-shown" data-th="Shown">${esc(use.shown)}</td></tr>`;
       }
@@ -1209,7 +1221,7 @@
       if (b && b.dataset.skin !== SK.name) setSkin(b.dataset.skin, true);
     });
     $('refresh-btn').addEventListener('click', () => load(true));
-    $('back-link').href = './' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : '');
+    $('back-link').href = './' + (TOKEN && !PUBLIC ? '?token=' + encodeURIComponent(TOKEN) : '');  // never repeat a token on the public page
 
     $('tt-search').addEventListener('input', (e) => {
       S.q = e.target.value.trim().toLowerCase();
@@ -1308,6 +1320,7 @@
     window.scrollTo(0, 0);
     readHash();
     if (S.sel) S.pendingCenter = true;
+    if (PUBLIC) for (const t of ['packs', 'roadmap']) { $('tab-' + t).hidden = true; $('pane-' + t).hidden = true; }
     wire();
     wireViewport();
     wireTooltip();
