@@ -11,6 +11,7 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from ..mind.recall import embed_pending
+from .almanac import Almanac
 from .harness import Harness
 from .persistence import restore, save
 from .state import ServerState
@@ -18,6 +19,7 @@ from .state import ServerState
 log = logging.getLogger("swarmworld.server")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 STATE = web.AppKey("state", ServerState)
+ALMANAC = web.AppKey("almanac", Almanac)
 PROXY_HEADERS = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "Forwarded")
 
 
@@ -218,6 +220,15 @@ async def api_admin(request: web.Request) -> web.Response:
     return web.json_response(out)
 
 
+async def api_almanac(request: web.Request) -> web.Response:
+    """Everything in the game, this world's discoveries and census, and the roadmap (web/almanac.html). For the
+    user, not the creatures; only from this machine, or with the join token."""
+    st = request.app[STATE]
+    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+        raise web.HTTPForbidden(text="the almanac only opens on the world's own machine, or with the join token")
+    return web.Response(text=request.app[ALMANAC].text(st), content_type="application/json")
+
+
 async def api_society(request: web.Request) -> web.Response:
     return web.json_response(request.app[STATE].society())
 
@@ -257,6 +268,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
         restore(st, world_path)
         log.info("resumed world from %s at tick %d with %d creatures", world_path, st.world.tick, len(st.world.creatures))
     app[STATE] = st
+    app[ALMANAC] = Almanac()
     app.router.add_get("/ws/node", node_ws)
     app.router.add_get("/ws/view", view_ws)
     app.router.add_get("/api/state", api_state)
@@ -271,6 +283,7 @@ def create_app(seed: int = 7, token: str | None = None, tick_seconds: float = 0.
     app.router.add_post("/api/wishes/{wid}", api_wish_answer)
     app.router.add_post("/api/admin/{action}", api_admin)
     app.router.add_get("/api/history", api_history)
+    app.router.add_get("/api/almanac", api_almanac)
     app.router.add_get("/", static_file)
     app.router.add_get("/{path:.+}", static_file)
 

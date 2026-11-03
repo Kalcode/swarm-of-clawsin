@@ -14,6 +14,9 @@ class Metrics:
         self.items: dict[str, set] = defaultdict(set)
         self.retired: dict[str, Counter] = defaultdict(Counter)  # what creatures did under minds they've since lost
         self.think_stamps: deque[float] = deque()
+        self.verbs: dict[str, Counter] = defaultdict(Counter)  # model -> verb -> times its creatures chose it
+        self.verbs_ok: dict[str, Counter] = defaultdict(Counter)  # ... and it worked
+        self.verbs_since = 0  # the tick verb counting began (0: with the world; a save from before: its restore)
 
     def think(self, model: str, latency_ms: int, tokens_in: int, tokens_out: int, ok: bool) -> None:
         m = self.models[model]
@@ -30,6 +33,12 @@ class Metrics:
 
     def bump(self, model: str, key: str, n: int = 1) -> None:
         self.models[model][key] += n
+
+    def verb(self, model: str, verb: str, ok: bool) -> None:
+        """A creature of this model chose this verb (for the almanac's verbs: how often each is used)."""
+        self.verbs[model][verb] += 1
+        if ok:
+            self.verbs_ok[model][verb] += 1
 
     def retire(self, model: str, stats: Counter) -> None:
         self.retired[model].update(stats)
