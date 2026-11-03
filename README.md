@@ -121,7 +121,7 @@ MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2
 - **Developing while it runs:** `uv run pytest` uses rule-based brains, no GPU. Never start a second world on port 7777 (`start-world.sh` refuses). For a throwaway world use another port and save file: `uv run python -m swarmworld.server --port 7791 --world /tmp/scratch.json --fresh`.
 - **Benchmarks** go to a machine that isn't thinking for the live world: `uv run python bench/world_bench.py --base-url http://<machine>:11434/v1 --model <name> --episodes 3`.
 - **Reviewing a run:** `uv run python scripts/review_world.py runs/<timestamp>` shows how each model spends its turns, its no-op and failure rates, and the unmet desires. The backlog lives in [issues/](issues/README.md).
-- **The steward:** Claude watches the live world with the user's permission. Interventions (answering wishes, speaking from the sky, admin actions) are logged in [docs/steward-log.md](docs/steward-log.md); observations and proposals in [docs/watch-log.md](docs/watch-log.md).
+- **The steward:** Claude watches the live world with the owner's permission. Interventions (answering wishes, speaking from the sky, admin actions) are logged in [docs/steward-log.md](docs/steward-log.md); observations and proposals in [docs/watch-log.md](docs/watch-log.md).
 
 ## How a creature thinks
 
@@ -196,7 +196,7 @@ Every 600 ticks (10 minutes at the default speed), a model reads what happened a
 
 ## Art and sound
 
-The viewer uses LimeZu's art packs (Modern Interiors, Exteriors, Farm, Serene Village) and ElvGames and Pegonthetrack sound effects. These are the user's bought packs, and the user holds the licenses. Both show in the private viewer and in the public viewer, and are credited in the About panel and in the footer. Only the viewer's built sheets and clips are served; the original packs (`inbox/`) and the build scripts never are.
+The viewer uses LimeZu's art packs (Modern Interiors, Exteriors, Farm, Serene Village) and ElvGames and Pegonthetrack sound effects. These are packs the project's owner bought and holds the licenses for. Both show in the private viewer and in the public viewer, and are credited in the About panel and in the footer. Only the viewer's built sheets and clips are served; the original packs (`inbox/`) and the build scripts never are.
 
 None of it is in git: `web/assets/limezu/`, `web/assets/sfx/`, `inbox/` and `docs/media/` are gitignored and must not be redistributed. A fresh clone falls back to Kenney's CC0 1-Bit Pack (`?skin=kenney`) and synthesized sound. `web/assets/limezu/CATALOG.md` lists what else is in the packs for future eras.
 

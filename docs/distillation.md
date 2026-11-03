@@ -126,7 +126,7 @@ learning rate 2e-5 with cosine decay.
 
 - About 2.6 s per step on the M1 Max, so 2 h 50 m in all.
 - Validation loss went from 3.32 at the start to 0.357 (best, step 1,400) and ended at 0.389.
-- The adapter was fused and quantized to 8-bit: 1.9 GB at `~/models/swarm-student-20261103`.
+- The adapter was fused and quantized to 8-bit: about 1.8 GB at `~/models/swarm-student-20261103`.
 
 **Offline check** on 100 held-out decisions:
 
