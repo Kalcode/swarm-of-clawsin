@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from . import perception
 from .catalog import Recipe
 from .events import HEARING
-from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, WATER_TILES, Creature, Region, World, WorldObject
+from .model import ANIMALS, BLOCKING, SOLID_TILES, OBJECT_ALIASES, OBJECT_NAMES, WATER_TILES, Creature, Region, World, WorldObject
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
@@ -917,10 +917,9 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             if done:
                 break
         else:  # "gather stone" beside the stone tablet: say where the stone they want comes from
-            # the target names the object ("stone tablet"), so its words aren't a want; the items say what they want
-            own = set(_words(obj.name))
-            want = next((iid for w in [*(x for x in words if x not in own), *(x for n in (it.items if it.target else it.items[1:]) for x in _words(n))]
-                         if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
+            # what they want: any word of the target, or of the items (an items-only form names the object first)
+            wanted_words = [*words, *(x for n in (it.items if it.target else it.items[1:]) for x in _words(n))]
+            want = next((iid for w in wanted_words if (iid := world.catalog.resolve(w)) in SOURCE_HINT), None)
             hint = f" {world.catalog.name(want).capitalize()}: {_source_hint(world, c, want)}." if want else ""
             return ActionResult(False, f"You can't gather anything from the {obj.name}.{hint}")
     helper = next((i for i in c.inventory if c.inventory[i] > 0 and "tool" in world.catalog.items.get(i, None).tags
@@ -1047,16 +1046,26 @@ def _go_eat(world: World, c: Creature, why: str) -> ActionResult:
         _GOING_TO_EAT.discard(c.id)
 
 
+def _nearest_reachable(world: World, c: Creature, cands: list):
+    """The food (object, distance, direction, what) nearest by walking, from candidates in sight: one search toward all
+    of them at once, the same limit a walk uses. Food within arm's reach needs no walk."""
+    if not cands:
+        return None
+    if cands[0][1] <= 1:
+        return cands[0]
+    goals_of = {id(t): _adjacent_goals(world, t[0].x, t[0].y, include_self=t[0].kind not in BLOCKING) for t in cands}
+    taken = occupied_tiles(world, c.id)
+    allgoals = set().union(*goals_of.values())
+    path = bfs_path(world, (c.x, c.y), allgoals - taken or allgoals, avoid=taken) or bfs_path(world, (c.x, c.y), allgoals)
+    if not path:
+        return None
+    return next((t for t in cands if path[-1] in goals_of[id(t)]), None)
+
+
 def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
     """A creature that wants to eat but named nothing it can eat: its body goes for the nearest food in sight (a bush
     with fruit, a ripe crop, a food patch) and eats there, like "eat berries" walks to a bush. With none in sight, the
     refusal says what food is. (The student kept trying "eat grass" beside a bush the world had named.)"""
-    foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
-    if foods:  # it carries food: eat that, not a walk to a bush for what is already in the pack
-        best = max(foods, key=lambda i: world.catalog.items[i].food)
-        res = _eat(world, c, Intention("eat", target=world.catalog.name(best)))
-        return replace(res, message=f"{why} So you eat your {world.catalog.name(best)} instead. {res.message}")
-
     def eats(o: WorldObject) -> str | None:  # what to eat from it, if it feeds
         if o.kind == "bush":
             return "berries" if o.data.get("berries", 6) > 0 else None
@@ -1069,9 +1078,14 @@ def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
                          if i in world.catalog.items and world.catalog.items[i].food > 0), None)
         return None
     cands = sorted(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := eats(o))), key=lambda t: t[1])
-    # the nearest one it can actually walk to (food in sight: a small search is plenty)
-    near = next((t for t in cands if t[1] <= 1 or bfs_path(world, (c.x, c.y), _adjacent_goals(
-        world, t[0].x, t[0].y, include_self=t[0].kind not in BLOCKING), limit=400) is not None), None)
+    near = _nearest_reachable(world, c, cands)
+    foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
+    if foods:  # it carries food: eat that, not a walk to a bush for what is already in the pack
+        best = max(foods, key=lambda i: world.catalog.items[i].food)
+        item = world.catalog.items[best]
+        if near is None or not ("seed" in item.tags or item.food < 5):  # seed stock is for planting: better food first
+            res = _eat(world, c, Intention("eat", target=world.catalog.name(best)))
+            return replace(res, message=f"{why} So you eat your {world.catalog.name(best)} instead. {res.message}")
     if near is None:
         return ActionResult(False, f"{why} Berries from a bush, ripe crops, mushrooms and fish are food.")
     o, d, dirn, food = near
@@ -1333,11 +1347,17 @@ def _placeable_held(world: World, c: Creature, name: str) -> str | None:
     return None
 
 
-def _walls_in(world: World, c: Creature, x: int | None, y: int | None) -> bool:
+def _walls_in(world: World, c: Creature, x: int | None, y: int | None, animals_open: bool = False) -> bool:
     """Whether a blocking thing set down at (x, y) would leave the creature no way to walk 3 steps away (Gale ringed
     herself with baskets). Same steps as bfs_path, with (x, y) blocked for the corner rule too."""
     def open_(px: int, py: int) -> bool:
-        return (px, py) != (x, y) and world.walkable(px, py)
+        if (px, py) == (x, y):
+            return False
+        if world.walkable(px, py):
+            return True
+        o = world.object_at(px, py) if animals_open else None  # an animal in the way is only passing
+        return bool(o and o.kind in ANIMALS and o.kind not in BLOCKING and world.in_bounds(px, py)
+                    and world.tile(px, py) not in SOLID_TILES and world.tile(px, py) != "W")
     seen = {(c.x, c.y)}
     q = deque([(c.x, c.y)])
     while q and len(seen) < 400:
@@ -1386,7 +1406,7 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     if not spots:
         return ActionResult(False, "There's no free spot beside you to place that.")
     if ("creation" if "invention" in world.catalog.items[iid].tags else kind) in BLOCKING:
-        if not _walls_in(world, c, None, None):  # already shut in: nothing placed here closes a way out
+        if not _walls_in(world, c, None, None, animals_open=True):  # already shut in: nothing placed here closes a way out
             spots = [s for s in spots if not _walls_in(world, c, s[1], s[2])]
         if not spots:
             return ActionResult(False, f"Setting the {world.catalog.name(iid)} down here would wall you in. Step somewhere more open first.")

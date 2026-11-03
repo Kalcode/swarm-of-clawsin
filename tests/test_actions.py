@@ -371,7 +371,7 @@ def test_recipe_choice_prefers_wanted_and_ready(world):
 
 
 def test_fishing(world):
-    world.tiles[10][12] = "W"
+    world.tiles[10][12] = "w"
     c = creature(world)
     res = act(world, c, action="gather", target="fish")
     assert not res.ok or c.activity is None  # walks to water first, then needs a rod
@@ -687,7 +687,7 @@ def test_gathering_stone_from_the_stone_tablet_says_where_stone_comes_from(world
     # gpt-oss creatures beside the old tablet tried "gather stone" 53 times in half an hour with no boulder in sight
     c = creature(world)
     world.add_object("tablet", 11, 10)
-    res = act(world, c, action="gather", target="stone tablet", items=["stone"])
+    res = act(world, c, action="gather", target="stone tablet")
     assert not res.ok and "can't gather anything from the stone tablet" in res.message
     assert "Stone: knock it off boulders, or pick up loose stone in the caves below" in res.message
 
@@ -847,13 +847,13 @@ def test_a_station_named_in_the_target_is_where_you_work(world):
     assert res.ok and c.inventory.get("cooked_fish", 0) == 1
 
 
-def test_gather_hint_reads_items_and_skips_the_objects_own_name(world):
+def test_gather_hint_reads_the_items_too(world):
     c = creature(world)
     world.add_object("tablet", 11, 10)
-    res = act(world, c, action="gather", target="stone tablet", items=["plant fiber"])
-    assert "Plant fiber:" in res.message and "Stone:" not in res.message
-    res = act(world, c, action="gather", target="stone tablet")
-    assert res.message.endswith("can't gather anything from the stone tablet.")
+    res = act(world, c, action="gather", target="tablet", items=["plant fiber"])
+    assert "Plant fiber:" in res.message
+    res = act(world, c, action="gather", items=["stone tablet"])  # items-only form: the object, not a want
+    assert not res.ok
 
 
 def test_the_reflex_treats_a_bush_with_no_berries_key_as_full(world):
@@ -882,3 +882,71 @@ def test_a_ripe_crop_with_no_crop_key_does_not_crash(world):
     world.add_object("crop", 11, 10, stage=2)
     res = act(world, c, action="eat", target="grass")
     assert "Something went wrong" not in res.message
+
+
+def _river(world, col=12, gap=None):
+    for y in range(40):
+        if y != gap:
+            world.tiles[y][col] = "W"
+
+
+def test_food_across_a_river_with_a_far_crossing_is_still_walked_to(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory["plant_fiber"] = 1
+    _river(world, 12, gap=18)  # crossing 8 rows off
+    world.add_object("bush", 15, 10)
+    res = act(world, c, action="eat", target="grass")
+    assert res.ok and c.satiety > 20 and (c.x, c.y) != (10, 10)
+
+
+def test_carried_seeds_are_not_eaten_when_a_bush_is_in_reach(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(wheat_seeds=19, plant_fiber=1)
+    world.add_object("bush", 13, 10)
+    res = act(world, c, action="eat", target="grass")
+    assert res.ok and c.inventory["wheat_seeds"] == 19 and c.satiety > 20 and c.inventory.get("berries", 0) >= 0
+
+
+def test_carried_seeds_are_eaten_when_nothing_better_is_reachable(world):
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(wheat_seeds=5, plant_fiber=1)
+    res = act(world, c, action="eat", target="grass")
+    assert res.ok and c.inventory["wheat_seeds"] < 5
+
+
+def test_eat_wheat_beside_ripe_wheat_does_not_eat_the_harvested_seeds(world):
+    c = creature(world)
+    c.satiety = 20
+    world.add_object("crop", 11, 10, crop="wheat", stage=2)
+    world.add_object("bush", 11, 11)
+    before = c.satiety
+    act(world, c, action="eat", target="wheat")
+    assert c.inventory.get("wheat_seeds", 0) >= 1 and c.satiety > before
+
+
+def _alcove(world, mouth_animal):
+    c = creature(world)
+    c.inventory["basket"] = 1
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (2, -1), (2, 1)):
+        world.add_object("basket", 10 + dx, 10 + dy)
+    if mouth_animal:
+        world.add_object("sheep", 12, 10)
+    return c
+
+
+def test_a_sheep_in_the_alcove_mouth_does_not_switch_the_wall_in_guard_off(world):
+    c = _alcove(world, True)
+    res = act(world, c, action="place", target="basket")
+    assert not res.ok and "wall you in" in res.message
+
+
+def test_with_east_and_southeast_open_placing_east_goes_southeast(world):
+    c = creature(world)
+    c.inventory["basket"] = 1
+    for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (-1, 1), (0, 1)):
+        world.add_object("basket", 10 + dx, 10 + dy)
+    res = act(world, c, action="place", target="basket east")
+    assert res.ok and world.object_at(11, 11) is not None and world.object_at(11, 10) is None
