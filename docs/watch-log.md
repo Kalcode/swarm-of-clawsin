@@ -207,3 +207,28 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **add (seen):** Mirth wished to the sky: "I wish for flint, so I can strike a fire." Flint turns up while gathering
   stone, so the trip south answers it.
 - **mod (watching), the rope stone:** 166 actions, steady and lower.
+
+### 14:07 watch (tick 12,387)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no errors, no public watchers. Two restarts to deploy fixes:
+  13:39 (combine lists) and 14:11 (walled in).
+- **Minds since tick 10,595:**
+
+  | Model | Acts | Success | p50 |
+  |---|---|---|---|
+  | gpt-oss | 908 | 78% | 8.9 s |
+  | Student | 1,022 | 76% | 13.2 s |
+
+  No failure streaks of 5+ after Gale was freed. "Combine what?" fell from 35 to 14 after the parser fix (other
+  phrasings remain). The rope stone is at 52 actions: the fad is ending.
+- **mod (done 14:09, 14:11), Gale's basket fort:** Gale ringed herself with six storage baskets (ticks 9,888-10,278).
+  With an oak and a bush they walled her in, and 28 walks to Jun failed. Moved out, and the world now refuses a
+  placement that would wall in the one placing it.
+- **tweak (wish board), a real bug:** the board returns at most 60 entries. Mirth's eight explicit wishes to the sky
+  for flint never appeared, because 60 reflected fragments ("steady supply") fill it. Fix: explicit wishes (wished,
+  failed, said) always outrank reflected-only ones, and the 60-cap applies after that ordering, or reflected fragments
+  get their own list. This matters most on the public page, where watchers see the Wishes tab.
+- **mod (done 14:12):** Mirth got the flint it prayed for, a gift from the sky.
+- **add (seen), hoarding:** Mirth carries 16 rope, 54 sticks and 80 plant fiber, while others wish for fiber. That's
+  emergent inequality. A "share" tip, or a gentle need to carry less (inventory weight), could be future content; for
+  now it's a story.
+- **mod (watching), eat-grass:** 20 refused meals this stretch, all from the student.
