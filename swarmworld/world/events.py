@@ -31,5 +31,5 @@ class Event:
 def hearers(world: "World", x: int, y: int, radius: int = HEARING) -> list["Creature"]:
     return [
         c for c in world.creatures.values()
-        if not c.collapsed and max(abs(c.x - x), abs(c.y - y)) <= radius
+        if not c.collapsed and max(abs(c.x - x), abs(c.y - y)) <= radius and world.same_region((c.x, c.y), (x, y))
     ]

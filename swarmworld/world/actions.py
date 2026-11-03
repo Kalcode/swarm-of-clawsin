@@ -11,12 +11,12 @@ from dataclasses import dataclass, field, replace
 from . import perception
 from .catalog import Recipe
 from .events import HEARING
-from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, World, WorldObject
+from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, Creature, Region, World, WorldObject
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
-from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, ITEM_SOURCES, KINDS, SOURCE_PRODUCTS, STORES,
-                       VERB_ALIASES, VERBS, YIELDS, register_verb)
+from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, HANDOFFS, ITEM_SOURCES, KINDS, SOURCE_PRODUCTS, STORES,
+                       VERB_ALIASES, VERBS, YIELDS, call_safely, register_verb)
 
 _CORE_ALIASES = {  # other words minds use for the core verbs (registered with them below)
     "pray": "wish", "wish_for": "wish", "make_wish": "wish", "make_a_wish": "wish",
@@ -211,19 +211,39 @@ def find_creature(world: World, c: Creature, target: str, max_dist: int | None =
     return best[0] if best else None
 
 
-def find_landmark(world: World, c: Creature, target: str) -> dict | None:
-    """A named place the creature would know: within a long walk, matched by its name."""
+LANDMARK_WALK = 30  # how far a named place can be and still be walked to
+
+
+def _landmark_matches(world: World, c: Creature, target: str, same: bool) -> dict | None:
     t = " ".join(_words(target.replace("'", "'")))
     if not t:
         return None
     best = None
     for lm in getattr(world, "landmarks", []):
+        if world.same_region((c.x, c.y), (lm["x"], lm["y"])) != same:
+            continue
         name = " ".join(_words(lm["name"]))
         if name and (name == t or name in t or (t in name and len(t) > 3)):
             d = dist(c.x, c.y, lm["x"], lm["y"])
-            if d <= 30 and (best is None or d < best[0]):
+            if (not same or d <= LANDMARK_WALK) and (best is None or d < best[0]):
                 best = (d, lm)
     return best[1] if best else None
+
+
+def find_landmark(world: World, c: Creature, target: str) -> dict | None:
+    """A named place the creature would know: in its own region, within a long walk, matched by its name."""
+    return _landmark_matches(world, c, target, True)
+
+
+def landmark_elsewhere(world: World, c: Creature, target: str) -> dict | None:
+    """A named place matching the target in another region, at any distance."""
+    return _landmark_matches(world, c, target, False)
+
+
+def way_to_region(world: World, c: Creature, region: Region) -> str:
+    """What a creature is told when it tries to walk to a place in another region. A pack replaces this to tell it
+    the way (the underground pack names the nearest way down or up)."""
+    return "You can't walk there from here."
 
 
 def find_object(world: World, c: Creature, target: str, max_dist: int | None = None,
@@ -250,7 +270,7 @@ def find_object(world: World, c: Creature, target: str, max_dist: int | None = N
 
 def _nearest_tile(world: World, c: Creature, tiles: str, r: int) -> tuple[int, int, int] | None:
     best = None
-    for y in range(c.y - r, c.y + r + 1):
+    for y in world.view_rows(c.y, r):
         for x in range(c.x - r, c.x + r + 1):
             if world.in_bounds(x, y) and world.tile(x, y) in tiles:
                 d = dist(c.x, c.y, x, y)
@@ -535,8 +555,10 @@ def _dream(world: World, c: Creature, hint: str) -> str:
 WATER_WORDS = {"water", "lake", "river", "pond", "stream"}
 
 
-def _recall(world: World, c: Creature, target: str, kinds: set[str] | None = None) -> tuple[str, int, int] | None:
-    """The nearest remembered spot of a thing out of sight: matched by name, or by kinds (sources of an item)."""
+def _recall(world: World, c: Creature, target: str, kinds: set[str] | None = None,
+            elsewhere: bool = False) -> tuple[str, int, int] | None:
+    """The nearest remembered spot of a thing out of sight, in the creature's own region (or, with elsewhere, only in
+    another one): matched by name, or by kinds (sources of an item)."""
     words = _words(target)
     phrase = " ".join(words)
     best = None
@@ -549,7 +571,7 @@ def _recall(world: World, c: Creature, target: str, kinds: set[str] | None = Non
             names = [spot_name(kind)] + OBJECT_ALIASES.get(kind, [])
             hit = bool(phrase) and (phrase in names or any(n in phrase for n in names if len(n) > 2) or any(w in names for w in words))
         d = dist(c.x, c.y, x, y)
-        if hit and (best is None or d < best[0]):
+        if hit and world.same_region((c.x, c.y), (x, y)) != elsewhere and (best is None or d < best[0]):
             best = (d, kind, x, y)
     return best[1:] if best else None
 
@@ -593,7 +615,7 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
         return res
     for w_ in _words(it.target):
         seen = c.seen_pos.get(w_)
-        if seen:
+        if seen and world.same_region((c.x, c.y), (seen[0], seen[1])):
             x, y, _t = seen
             name = next((o.name for o in world.creatures.values() if o.name.lower() == w_), w_.capitalize())
             res = start_walk(world, c, _adjacent_goals(world, x, y, include_self=True), f"heading to where you last saw {name}",
@@ -624,7 +646,7 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     iid = world.catalog.resolve(it.target)
     if iid:
         for (x, y), pile in world.ground.items():
-            if pile.get(iid) and dist(c.x, c.y, x, y) <= sight_range(world, c):
+            if pile.get(iid) and dist(c.x, c.y, x, y) <= sight_range(world, c) and world.same_region((c.x, c.y), (x, y)):
                 return start_walk(world, c, _adjacent_goals(world, x, y, include_self=True),
                                   f"walking to the {world.catalog.name(iid)}", f"You reach the {world.catalog.name(iid)} on the ground.")
     for d in DIRS:
@@ -633,6 +655,11 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     spot = _recall(world, c, it.target)
     if spot:
         return _walk_to_spot(world, c, *spot)
+    lm = landmark_elsewhere(world, c, it.target)
+    far = _recall(world, c, it.target, elsewhere=True)
+    there = world.region_at(lm["x"], lm["y"]) if lm else world.region_at(far[1], far[2]) if far else None
+    if there:
+        return ActionResult(False, way_to_region(world, c, there))
     return ActionResult(False, f"You don't see any '{it.target}' around you.")
 
 
@@ -1591,10 +1618,19 @@ for _verb, _handler in _CORE_HANDLERS.items():  # registered like any pack's ver
     register_verb(_verb, _handler, tuple(a for a, v in _CORE_ALIASES.items() if v == _verb))
 
 
+def _handed_off(world: World, c: Creature, it: Intention) -> Intention:
+    """The intention a pack's handoff turns this one into (the first that applies), or the intention itself."""
+    for h in HANDOFFS:
+        if h.verb == it.action and call_safely("handoff", h.when, world, c, it, default=False):
+            return replace(it, action=h.to)
+    return it
+
+
 def apply_intention(world: World, c: Creature, it: Intention) -> ActionResult:
     if c.collapsed:
         return ActionResult(False, "You are lying on the ground, too weak to move.")
     c.activity = None
+    it = _handed_off(world, c, it)
     try:
         res = HANDLERS[it.action](world, c, it)
     except Exception as exc:  # never let one bad intention break the world

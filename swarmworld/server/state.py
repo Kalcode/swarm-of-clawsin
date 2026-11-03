@@ -18,7 +18,7 @@ from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, 
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore
 from ..world.actions import ActionResult, apply_intention, parse_intention
-from ..world.model import OBJECT_NAMES, Creature
+from ..world.model import OBJECT_NAMES, WATER_TILES, Creature
 from ..world.packs.weather import KINDS, set_weather
 from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
 from ..world.simulation import Simulation
@@ -381,15 +381,24 @@ class ServerState:
         """Where this creature remembers things being: its map memory and the landmarks it can name."""
         out = []
         for kind, (x, y, t) in c.spots.items():
-            d = dist(c.x, c.y, x, y)
-            where = "right here" if d == 0 else f"about {d} steps {direction(x - c.x, y - c.y)}"
-            out.append(("place", f"{spot_name(kind)}, {where} of you (last seen {max(0, self.world.tick - t)} ticks ago)"))
+            where = self._where_is(c, x, y)
+            out.append(("place", f"{spot_name(kind)}, {where} (last seen {max(0, self.world.tick - t)} ticks ago)"))
         for lm in getattr(self.world, "landmarks", []):
             if lm["name"] not in c.landmarks_seen:  # only what it has been near
                 continue
-            d = dist(c.x, c.y, lm["x"], lm["y"])
-            out.append(("place", f"{lm['name']}, about {d} steps {direction(lm['x'] - c.x, lm['y'] - c.y)} of you"))
+            out.append(("place", f"{lm['name']}, {self._where_is(c, lm['x'], lm['y'])}"))
         return out
+
+    def _where_is(self, c: Creature, x: int, y: int) -> str:
+        """How far a remembered place is from a creature: steps and direction, or which level it lies on."""
+        w = self.world
+        if not w.same_region((c.x, c.y), (x, y)):
+            there, here = w.region_at(x, y), w.region_at(c.x, c.y)
+            if there and here and there.level != here.level:
+                return "below, in the deep" if there.level < here.level else "above, on the surface"
+            return "in another place"
+        d = dist(c.x, c.y, x, y)
+        return "right here" if d == 0 else f"about {d} steps {direction(x - c.x, y - c.y)} of you"
 
     def _recipes(self, c: Creature) -> list[tuple[str, str]]:
         cat = self.world.catalog
@@ -632,7 +641,8 @@ class ServerState:
         for c in w.creatures.values():
             if c.collapsed:
                 continue
-            if x is not None and y is not None and max(abs(c.x - int(x)), abs(c.y - int(y))) > int(radius or 6):
+            if x is not None and y is not None and (max(abs(c.x - int(x)), abs(c.y - int(y))) > int(radius or 6)
+                                                    or not w.same_region((c.x, c.y), (int(x), int(y)))):
                 continue
             if c.asleep:
                 self._remember(c, f'In a dream, a booming voice from the sky said: "{text}"', 3)
@@ -660,7 +670,7 @@ class ServerState:
     def _free_tile(self, x, y) -> tuple[int, int]:
         x, y = int(x), int(y)
         w = self.world
-        if not w.in_bounds(x, y) or not w.walkable(x, y) or w.object_at(x, y) or w.occupied(x, y) or w.tile(x, y) in "wW":
+        if not w.in_bounds(x, y) or not w.walkable(x, y) or w.object_at(x, y) or w.occupied(x, y) or w.tile(x, y) in WATER_TILES:
             raise ValueError(f"({x}, {y}) isn't free land")
         return x, y
 

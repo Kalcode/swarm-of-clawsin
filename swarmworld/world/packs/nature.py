@@ -292,7 +292,7 @@ def renew_step(sim: Simulation, t: int) -> None:
         for _ in range(max(0, n)):
             for _try in range(20):
                 x, y = rng.choice(pool) if pool else (0, 0)
-                if pool and _free(w, x, y) and all(max(abs(x - cx), abs(y - cy)) > DAY_SIGHT for cx, cy in watchers):
+                if pool and _free(w, x, y) and all(max(abs(x - cx), abs(y - cy)) > DAY_SIGHT for cx, cy in watchers if w.same_region((x, y), (cx, cy))):
                     w.add_object(kind, x, y)
                     break
 
