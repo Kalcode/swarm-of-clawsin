@@ -133,6 +133,22 @@ async def test_lan_requires_token(aiohttp_client):
     await ws2.close()
 
 
+async def test_a_node_message_that_is_not_an_object_is_skipped(client, caplog):
+    ws = await client.ws_connect("/ws/node")
+    for junk in ("[1, 2]", '"hello"', "42", "null", "true"):
+        await ws.send_str(junk)
+    await ws.send_json({"type": "hello", "node": "laptop", "slots": 4, "models": [{"tag": "mock", "creatures": 1}],
+                        "hardware": {}})
+    welcome = await _recv_type(ws, "welcome")
+    for junk in ("[1, 2]", '"result"', "7"):
+        await ws.send_str(junk)
+    job = await _recv_type(ws, "think")
+    await ws.send_json({"type": "result", "job": job["job"], "ok": True, "output": {"action": "wait"}})
+    assert len(welcome["creatures"]) == 1 and not ws.closed
+    assert client.app[STATE].nodes and "Traceback" not in caplog.text and "Error handling request" not in caplog.text
+    await ws.close()
+
+
 async def test_viewer_served(client):
     resp = await client.get("/api/state")
     assert resp.status == 200
