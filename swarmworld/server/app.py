@@ -250,11 +250,16 @@ async def api_voice(request: web.Request) -> web.Response:
     st = request.app[STATE]
     if not is_home_network(request) and not token_matches(request.headers.get("X-Swarm-Token"), st.token):
         raise web.HTTPForbidden(text="the voice from the sky only speaks from the home network")
-    body = await request.json()
-    text = " ".join(str(body.get("text", "")).split())[:300]
-    if not text:
-        raise web.HTTPBadRequest(text="say something")
-    heard = st.voice_from_the_sky(text, body.get("x"), body.get("y"), body.get("radius"))
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("bad request")
+        text = " ".join(str(body.get("text", "")).split())[:300]
+        if not text:
+            raise web.HTTPBadRequest(text="say something")
+        heard = st.voice_from_the_sky(text, body.get("x"), body.get("y"), body.get("radius"))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise web.HTTPBadRequest(text=str(exc) or "bad request")
     return web.json_response({"ok": True, "heard_by": heard})
 
 
@@ -269,6 +274,8 @@ async def api_wish_answer(request: web.Request) -> web.Response:
         raise web.HTTPForbidden(text="wishes can only be answered from the home network")
     try:
         body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("bad request")
         out = st.answer_wish(request.match_info["wid"], reply=str(body.get("reply") or ""), grant=str(body.get("grant") or ""),
                              count=int(body.get("count") or 1), status=str(body.get("status") or ""))
     except KeyError:

@@ -195,6 +195,16 @@ async def test_voice_from_the_sky(client):
     await ws.close()
 
 
+async def test_steward_endpoints_answer_400_to_malformed_json(client):
+    ws, _ = await _join(client, n=1)
+    for path in ("/api/voice", "/api/wishes/w1", "/api/admin/give"):
+        for raw in ("{not json", "[1, 2]", '"text"'):
+            resp = await client.post(path, data=raw, headers={"Content-Type": "application/json"})
+            assert resp.status in (400, 404), (path, raw, resp.status)
+            assert resp.status == 400 or path == "/api/wishes/w1"
+    await ws.close()
+
+
 async def test_society_graph(client):
     ws, welcome = await _join(client, n=2)
     st = client.app[STATE]
