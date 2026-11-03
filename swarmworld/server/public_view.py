@@ -26,7 +26,7 @@ DETAIL_KEYS: tuple[str, ...] = ("id", "name", "model", "minds", "color", "person
                                 "known_recipes", "people", "recent", "stats", "harness")
 DETAIL_PRIVATE: tuple[str, ...] = ("node", "last_error")
 WISH_KEYS: tuple[str, ...] = ("id", "thing", "kinds", "by", "quotes", "first_tick", "last_tick", "status", "answer",
-                              "granted", "creatures", "total", "score", "exists")
+                              "granted", "creatures", "total", "score", "exists", "reflected_only")
 INVENTION_KEYS: tuple[str, ...] = ("id", "name", "desc", "food", "placeable", "tool", "depth", "effects", "inputs",
                                    "station", "by", "model", "tick")
 METRICS_KEYS: tuple[str, ...] = ("tick", "uptime_s", "thinks_per_min", "models", "discoveries")
@@ -103,6 +103,7 @@ STAT_KEYS: tuple[str, ...] = (
     "wishes", "writing")
 
 WISHES_SHOWN = 40
+REFLECTED_SHOWN = 15
 TIES_SHOWN = 200
 HISTORY_POINTS = 400
 
@@ -184,7 +185,7 @@ def public_detail(st: ServerState, cid: str) -> dict | None:
 
 def public_wishes(st: ServerState) -> list[dict]:
     return [{**pick(w, WISH_KEYS), "quotes": pick_all(w.get("quotes", [])[-1:], QUOTE_KEYS)}
-            for w in st.wishes.ranked(WISHES_SHOWN)]
+            for w in st.wishes.ranked(WISHES_SHOWN, REFLECTED_SHOWN)]
 
 
 def public_society(st: ServerState) -> dict:

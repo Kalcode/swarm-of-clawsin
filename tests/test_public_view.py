@@ -253,3 +253,9 @@ def test_public_almanac_pack_descriptions_are_plain_words(busy, issues_dir):
     full = build(busy, issues_dir)
     full["packs"].append({"id": "homebrew", "about": "Internals in swarmworld/x.py", "items": 0, "recipes": 0, "kinds": 0, "verbs": 0, "designs": 0})
     assert {p["id"]: p["about"] for p in public_almanac(full)["packs"]}["homebrew"] == ""
+
+
+def test_public_wishes_carry_the_reflected_only_flag(busy):
+    ws = public_wishes(busy)
+    assert all("reflected_only" in w for w in ws)
+    assert sum(w["reflected_only"] for w in ws) <= 15

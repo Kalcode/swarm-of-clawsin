@@ -21,8 +21,8 @@ def test_wishes_come_from_speech_failures_and_the_wish_action():
     w.observe(ev("fail", "c1", "Inka tried to craft pattern key: You've never heard of a 'pattern key'."), names)
     w.observe(ev("wish", "c2", "", line="a boat to cross the lake"), names)
     ranked = w.ranked()
-    assert [x["thing"] for x in ranked][:1] == ["proper roof"]  # two creatures want it
-    roof = ranked[0]
+    assert [x["thing"] for x in ranked][:3] == ["boat to cross the lake", "pattern key", "proper roof"]  # wished, failed, then said
+    roof = ranked[2]
     assert roof["creatures"] == 2 and roof["kinds"]["said"] == 2 and not roof["exists"]
     assert {x["thing"] for x in ranked} == {"proper roof", "pattern key", "boat to cross the lake"}
     assert next(x for x in ranked if x["thing"] == "pattern key")["kinds"]["failed"] == 1
@@ -119,3 +119,17 @@ def test_saved_wishes_are_tidied_on_load():
                                        "by": {"Gus": 1}, "quotes": [], "first_tick": 1, "last_tick": 1, "status": "open",
                                        "answer": "", "granted": ""}}})
     assert not w2.ranked()
+
+
+def test_explicit_wishes_beat_reflected_fragments_on_the_board():
+    w = Wishes(Catalog.load())
+    names = {"c1": "Mirth"}
+    for i in range(70):
+        w.observe_reflection("Mirth", f"I wish for steady supply number{'x' * (i % 5)} of thing{chr(97 + i % 26)}{chr(97 + i // 26)}.", 5)
+    for _ in range(8):
+        w.observe(ev("wish", "c1", "", line="a flint to light my fire"), names)
+    board = w.ranked(60)
+    assert board[0]["thing"].startswith("flint") and not board[0]["reflected_only"]
+    refl = [v for v in board if v["reflected_only"]]
+    assert refl and len(refl) <= 30 and board[1:] == refl  # reflected-only sit after, in their own capped section
+    assert len(w.ranked(60, 5)) == 6
