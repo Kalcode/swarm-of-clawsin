@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 from pathlib import Path
@@ -26,6 +27,23 @@ PROXY_HEADERS = ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "
 def is_direct_local(request: web.Request) -> bool:
     """True only for a request made on this machine itself, not one relayed by a tunnel or proxy running here."""
     return request.remote in ("127.0.0.1", "::1") and not any(h in request.headers for h in PROXY_HEADERS)
+
+
+def home_network(remote: str | None, headers) -> bool:
+    """A request straight from this machine or the home network (private or link-local addresses), never one relayed
+    by a tunnel or proxy, even one running on this machine: the steward's actions work from a phone in bed, and a
+    public tunnel can't reach them."""
+    if any(h in headers for h in PROXY_HEADERS):
+        return False
+    try:
+        addr = ipaddress.ip_address(remote or "")
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private or addr.is_link_local
+
+
+def is_home_network(request: web.Request) -> bool:
+    return home_network(request.remote, request.headers)
 
 
 async def tick_loop(app: web.Application) -> None:
@@ -173,10 +191,10 @@ async def api_inventions(request: web.Request) -> web.Response:
 
 
 async def api_voice(request: web.Request) -> web.Response:
-    """A voice from the sky: the human experimenter speaks into the world. Only from this machine, or with the join token."""
+    """A voice from the sky: the human experimenter speaks into the world. Only from the home network, or with the join token."""
     st = request.app[STATE]
-    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
-        raise web.HTTPForbidden(text="the voice from the sky only speaks from the world's own machine")
+    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+        raise web.HTTPForbidden(text="the voice from the sky only speaks from the home network")
     body = await request.json()
     text = " ".join(str(body.get("text", "")).split())[:300]
     if not text:
@@ -186,14 +204,14 @@ async def api_voice(request: web.Request) -> web.Response:
 
 
 async def api_wishes(request: web.Request) -> web.Response:
-    return web.json_response({"can_answer": is_direct_local(request), "wishes": request.app[STATE].wishes.ranked()})
+    return web.json_response({"can_answer": is_home_network(request), "wishes": request.app[STATE].wishes.ranked()})
 
 
 async def api_wish_answer(request: web.Request) -> web.Response:
     """Answer a wish from the sky, grant it, or note it. Only from this machine, or with the join token."""
     st = request.app[STATE]
-    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
-        raise web.HTTPForbidden(text="wishes can only be answered from the world's own machine")
+    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+        raise web.HTTPForbidden(text="wishes can only be answered from the home network")
     try:
         body = await request.json()
         out = st.answer_wish(request.match_info["wid"], reply=str(body.get("reply") or ""), grant=str(body.get("grant") or ""),
@@ -206,10 +224,10 @@ async def api_wish_answer(request: web.Request) -> web.Response:
 
 
 async def api_admin(request: web.Request) -> web.Response:
-    """Steward actions (give, place, remove, move, weather) for testing and managing the world. This machine only."""
+    """Steward actions (give, place, remove, move, weather) for testing and managing the world. Home network only."""
     st = request.app[STATE]
-    if not is_direct_local(request):
-        raise web.HTTPForbidden(text="steward actions only work from the world's own machine")
+    if not is_home_network(request):
+        raise web.HTTPForbidden(text="steward actions only work from the home network")
     try:
         body = await request.json()
         out = st.admin(request.match_info["action"], body if isinstance(body, dict) else {})
@@ -224,8 +242,8 @@ async def api_almanac(request: web.Request) -> web.Response:
     """Everything in the game, this world's discoveries and census, and the roadmap (web/almanac.html). For the
     user, not the creatures; only from this machine, or with the join token."""
     st = request.app[STATE]
-    if not is_direct_local(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
-        raise web.HTTPForbidden(text="the almanac only opens on the world's own machine, or with the join token")
+    if not is_home_network(request) and not (st.token and request.headers.get("X-Swarm-Token") == st.token):
+        raise web.HTTPForbidden(text="the almanac only opens on the home network, or with the join token")
     return web.Response(text=request.app[ALMANAC].text(st), content_type="application/json")
 
 
