@@ -28,8 +28,9 @@ def test_init_carries_biomes_and_flow():
     w = generate_world(7)
     init = w.to_init()
     land = init["nature"]
-    assert len(land["biomes"]) == w.height and all(len(r) == w.width for r in land["biomes"])
-    assert len(land["flow"]) == w.height and all(len(r) == w.width for r in land["flow"])
+    _, y0, _, y1 = w.region_bounds("surface")  # one row per row of the surface (the deep has neither)
+    assert len(land["biomes"]) == y1 - y0 and all(len(r) == w.width for r in land["biomes"])
+    assert len(land["flow"]) == y1 - y0 and all(len(r) == w.width for r in land["flow"])
     assert set("".join(land["biomes"])) <= set(BIOMES)
     assert set("".join(land["flow"])) <= set(".01234567") and set("".join(land["flow"])) != {"."}  # rivers flow
     json.dumps(init)  # it goes over the socket

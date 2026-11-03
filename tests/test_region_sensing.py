@@ -123,9 +123,9 @@ def test_terminal_scan_and_find_stay_in_region(pair):
 
 def test_voice_with_a_radius_stays_in_its_region():
     from swarmworld.server.state import ServerState
+    from swarmworld.world.terrain import generate_world
     st = ServerState(seed=7)
-    w = st.world
-    w.creatures.clear()
+    w = st.world = st.sim.world = generate_world(7, deep=False)  # a surface alone, for a deep right below it
     w.add_region("deep", -1, [["c"] * w.width for _ in range(w.height)], sky=False, weather=False, gap=0)
     top = person(w, "Top", 60, 126)
     low = person(w, "Low", 60, 130)

@@ -15,7 +15,7 @@ from swarmworld.world.model import DAY_TICKS, Creature, World
 from swarmworld.world.packs import nature
 from swarmworld.world.perception import DAY_SIGHT, FIRE_SIGHT, NIGHT_SIGHT, perceive, sight_range
 from swarmworld.world.simulation import Simulation
-from swarmworld.world.terrain import BIOMES, FLOW_STEP, biome_at, flow_at, generate_world
+from swarmworld.world.terrain import BIOMES, FLOW_STEP, biome_at, flow_at, generate_world, surface_rows
 
 NIGHT = DAY_TICKS * 2 + int(DAY_TICKS * 0.8)
 DAY = DAY_TICKS * 2 + int(DAY_TICKS * 0.3)
@@ -61,9 +61,9 @@ def test_fresh_world_has_all_biomes(seed):
     t = time.perf_counter()
     w = fresh(seed)
     took = time.perf_counter() - t
-    assert (w.width, w.height) == (128, 128)
+    assert w.region_bounds("surface") == (0, 0, 128, 128)  # the deep lies below, past a band of rock
     assert took < 10.0, took  # about a second here; loose, so a busy machine doesn't fail it
-    land = Counter(biome_at(w, x, y) for y in range(w.height) for x in range(w.width) if w.tile(x, y) not in "wW")
+    land = Counter(biome_at(w, x, y) for y in surface_rows(w) for x in range(w.width) if w.tile(x, y) not in "wW")
     assert set(BIOMES.values()) == {"meadow", "oak forest", "pine forest", "marsh", "rocky hills", "beach"}
     for name in BIOMES.values():
         assert land[name] >= 60, (name, land)
@@ -78,10 +78,10 @@ def test_fresh_world_has_all_biomes(seed):
     assert hills["rock"] >= 20 and hills["copper_vein"] + hills["iron_vein"] >= 3 and hills["flint_outcrop"] >= 2
     assert kinds_in("marsh")["reed_bed"] >= 5 and kinds_in("meadow")["flower_patch"] >= 20
     assert kinds_in("beach")["shell_bed"] >= 2
-    beach = [(x, y) for y in range(w.height) for x in range(w.width)
+    beach = [(x, y) for y in surface_rows(w) for x in range(w.width)
              if biome_at(w, x, y) == "beach" and w.tile(x, y) not in "wW"]
     assert sum(w.tile(x, y) == "s" for x, y in beach) >= 0.8 * len(beach)
-    hilly = [(x, y) for y in range(w.height) for x in range(w.width)
+    hilly = [(x, y) for y in surface_rows(w) for x in range(w.width)
              if biome_at(w, x, y) == "rocky hills" and w.tile(x, y) not in "wW"]
     assert sum(w.tile(x, y) == "r" for x, y in hilly) >= 0.8 * len(hilly)
     k = Counter(o.kind for o in w.objects.values())
@@ -109,7 +109,7 @@ def test_generation_is_deterministic_and_saves_the_land(tmp_path):
 # ----------------------------------------------------------------------------------------------- rivers
 def test_rivers_flow_and_drift():
     w = fresh()
-    river = [(x, y) for y in range(w.height) for x in range(w.width) if flow_at(w, x, y)]
+    river = [(x, y) for y in surface_rows(w) for x in range(w.width) if flow_at(w, x, y)]
     assert len(river) >= 80
     assert all(w.tile(x, y) == "w" for x, y in river)  # rivers are shallow: you can wade across
     assert flow_at(w, *w.center) is None
@@ -266,14 +266,14 @@ def test_biome_line_only_on_change():
         assert meadow in perceive(w, c)
         c.wake_reason = None
         assert meadow not in perceive(w, c)  # not every turn
-        x, y = next((x, y) for y in range(w.height) for x in range(w.width) if w.walkable(x, y)
+        x, y = next((x, y) for y in surface_rows(w) for x in range(w.width) if w.walkable(x, y)
                     and all(biome_at(w, x + dx, y + dy) == "oak forest" for dx in range(-2, 3) for dy in range(-2, 3)))
         c.x, c.y = x, y
         oak = nature.BIOME_LINES["o"]
         assert oak in perceive(w, c)
         c.wake_reason = "idle"
         assert oak not in perceive(w, c) and meadow not in perceive(w, c)
-        edge = next((x, y) for y in range(w.height) for x in range(w.width) if w.walkable(x, y)
+        edge = next((x, y) for y in surface_rows(w) for x in range(w.width) if w.walkable(x, y)
                     and biome_at(w, x, y) == "meadow" and Counter(biome_at(w, x + dx, y + dy) for dx in range(-2, 3)
                                                                   for dy in range(-2, 3))["oak forest"] >= 12)
         c.x, c.y = edge  # a step out of the trees onto a ragged edge: still the forest, mostly
@@ -292,7 +292,7 @@ def test_nature_old_save_loads(prepack_save):
     st = ServerState(seed=1)
     restore(st, prepack_save)
     w = st.world
-    assert (w.width, w.height) == (64, 64)
+    assert w.region_bounds("surface") == (0, 0, 64, 64)
     mine = w.ext["nature"]
     assert len(mine["biomes"]) == 64 and all(len(r) == 64 for r in mine["biomes"])
     assert biome_at(w, 32, 32) == "meadow" and biome_at(w, 0, 0) in ("oak forest", "pine forest")

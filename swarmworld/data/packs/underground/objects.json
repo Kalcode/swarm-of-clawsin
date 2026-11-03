@@ -1,0 +1,10 @@
+{
+  "cave_mouth": {"name": "cave mouth", "aliases": ["cave", "cave mouth", "cave entrance", "way down"],
+                 "look": "cave_mouth", "glyph": {"char": "∩", "color": "#8c7b66"}},
+  "cave_exit": {"name": "cave exit", "aliases": ["exit", "way up", "way out"],
+                "look": "cave_exit", "glyph": {"char": "∧", "color": "#d8ccb0"}},
+  "mine_shaft": {"name": "mine shaft", "aliases": ["shaft", "mine shaft", "way down"],
+                 "look": "mine_shaft", "glyph": {"char": "▼", "color": "#a8714a"}},
+  "ladder": {"name": "ladder", "aliases": ["ladder", "way up"],
+             "look": "ladder", "glyph": {"char": "H", "color": "#c8a070"}}
+}
