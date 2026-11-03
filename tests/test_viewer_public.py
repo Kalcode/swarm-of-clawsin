@@ -1,7 +1,10 @@
 """The public viewer's snapshot feed (web/public.js): polls /public/live.json, fetches static.json on a version change and
-replays each snapshot's per-tick paths and events as socket-shaped messages. Runs in node with a fake fetch and clock."""
+replays each snapshot's per-tick paths and events as socket-shaped messages. Runs in node with a fake fetch and clock.
+Then the viewer's public mode (web/viewer.js, index.html): it reads that feed instead of the socket, hides every steward
+control and shows the banner and the About panel."""
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -449,3 +452,352 @@ def test_sockets_opened_and_closed_in_a_row_leave_one_timer(tmp_path):
 @needs_node
 def test_a_malformed_creature_id_rejects_instead_of_throwing(tmp_path):
     assert run_public(tmp_path, "bad_id") == {"threw": False, "msg": "HTTP 404"}
+
+
+# ------------------------------------------------------------------ the viewer's public mode (viewer.js, index.html)
+
+BANNER = "Live from a world running on one Mac: AI creatures think with local models. Updates every few seconds."
+
+
+def function_body(src: str, name: str) -> str:
+    """The text between the braces of `function name(...) { ... }` in a script (braces counted, as the viewer's
+    functions keep any braces in their strings balanced)."""
+    m = re.search(rf"\bfunction\s+{re.escape(name)}\s*\(", src)
+    assert m, f"no function {name}"
+    depth, i = 1, m.end()
+    while depth:                                       # past the parameter list
+        depth += {"(": 1, ")": -1}.get(src[i], 0)
+        i += 1
+    start = src.index("{", i) + 1
+    depth, i = 1, start
+    while depth:
+        depth += {"{": 1, "}": -1}.get(src[i], 0)
+        i += 1
+    return src[start:i - 1]
+
+
+def test_the_viewer_reads_snapshots_in_public_mode():
+    src = (WEB / "viewer.js").read_text()
+    assert "window.SwarmPublic.createSocket()" in src
+    assert "window.SwarmPublic.api(path)" in src and "window.SwarmPublic.post(path, body)" in src
+    assert "document.documentElement.dataset.public === '1'" in src and "params.has('public')" in src
+    assert "PUBLIC ? 3000 : 1000" in src
+
+
+def test_public_mode_hides_every_steward_control():
+    src = (WEB / "viewer.js").read_text()
+    body = function_body(src, "enterPublicMode")
+    assert "S.voice.disabled = true" in body and ".voice" in body and "public-banner" in body
+    assert "enterPublicMode()" in function_body(src, "boot")
+    assert function_body(src, "boot").index("enterPublicMode()") < function_body(src, "boot").index("connect()")
+    assert "PUBLIC" in function_body(src, "renderWishes")
+
+
+def test_the_banner_and_about():
+    html = (WEB / "index.html").read_text()
+    assert BANNER in html and re.search(r'id="public-banner"[^>]*\bhidden\b', html)
+    assert re.search(r'<dialog[^>]*id="about"', html) and "What you’re watching" in html and 'id="about-link"' in html
+    assert html.index('src="layers.js"') < html.index('src="public.js"') < html.index('src="viewer.js"')
+
+
+ABOUT = [
+    ("Every creature here is a small AI model running on a computer at home. Each turn it reads what it senses as plain "
+     "text, then decides what to do and says why. Nothing is scripted: what they make, say and build comes from those turns."),
+    ("<b>Models.</b> The badge on a creature names the model thinking for it. Different models share the world, and the "
+     "Swarm tab counts what each one does."),
+    ("<b>The harness.</b> Some creatures get extra help, chosen at random: a plan they keep, tips that appear when they "
+     "fit, and memories that come back when they matter. The tags on a creature’s card say which."),
+    ("<b>Wishes.</b> When a creature wishes for something the world doesn’t have, the Wishes tab collects it. The people "
+     "running the world read them and sometimes answer from the sky. You can read them, not answer them."),
+    ("<b>The deep.</b> Under the meadow lie dark caves with ore, coal and crystal. Creatures climb down at cave mouths and "
+     "see only by torchlight. Switch to Underground at the top to look."),
+    "What you see is a few seconds behind the world.",
+]
+
+
+def test_the_banner_and_about_read_as_written():
+    html = (WEB / "index.html").read_text()
+    banner = re.search(r'<p class="public-banner" id="public-banner" hidden>.*?</p>', html, re.S)
+    assert banner and banner.group(0) == (
+        f'<p class="public-banner" id="public-banner" hidden><span class="pb-long">{BANNER}</span>'
+        '<span class="pb-short" aria-hidden="true">Live from one Mac</span> '
+        '<button type="button" class="pill-btn" id="about-btn" aria-haspopup="dialog">About</button></p>')
+    assert html.index('class="hstats"') < banner.start() < html.index('id="layer-switch"')   # in the top bar, after the stats
+    about = re.search(r'<dialog class="about" id="about" aria-labelledby="about-title">(.*?)</dialog>', html, re.S)
+    assert about and html.index("</dialog>") < html.index("</body>") and about.start() > html.index("</main>")
+    paras = re.findall(r"<p>(.*?)</p>", about.group(1), re.S)
+    assert '<h2 id="about-title">What you’re watching</h2>' in about.group(1) and paras == ABOUT
+    tail = about.group(1)[about.group(1).index(ABOUT[-1]):]
+    assert re.search(r'<p id="about-more" hidden><a id="about-link" target="_blank" rel="noopener">More about this project</a></p>'
+                     r'\s*<form method="dialog"><button class="pill-btn" id="about-close">Close</button></form>', tail)
+
+
+def test_the_short_banner_takes_over_at_900px():
+    css = (WEB / "style.css").read_text()
+    narrow = re.search(r"@media \(max-width: 900px\) \{(.*?)\n\}", css, re.S).group(1)
+    # the long form is only hidden from sight (the short one is aria-hidden), so a screen reader still reads it
+    assert re.search(r"\.pb-long\s*\{[^}]*position:\s*absolute;[^}]*clip:", narrow) and re.search(r"\.pb-short\s*\{[^}]*display:\s*(inline|block)", narrow)
+    assert not re.search(r"\.pb-long\s*\{[^}]*display:\s*none", css)
+    assert re.search(r"\.pb-short\s*\{[^}]*display:\s*none", css[:css.index("@media (max-width: 900px)")])
+    assert re.search(r"\.about::backdrop\s*\{", css)
+
+
+VIEWER_HARNESS = r"""
+const fs = require('fs');
+global.window = global;
+const D = JSON.parse(fs.readFileSync(0, 'utf8'));
+const t = { now: 0, timers: [], fetches: [], msgs: [], ws: [], serve: () => Promise.reject(new Error('net')) };
+let hid = 0;
+global.setTimeout = (fn, ms) => { const h = ++hid; t.timers.push({ h, at: t.now + (ms || 0), fn }); return h; };
+global.clearTimeout = (h) => { t.timers = t.timers.filter((x) => x.h !== h); };
+Object.defineProperty(globalThis, 'performance', { value: { now: () => t.now }, configurable: true, writable: true });
+Math.random = () => 0.5;
+const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); };
+async function advance(ms) {
+  const end = t.now + ms;
+  for (;;) {
+    await flush();
+    const due = t.timers.filter((x) => x.at <= end).sort((a, b) => a.at - b.at || a.h - b.h)[0];
+    if (!due) break;
+    t.timers = t.timers.filter((x) => x !== due);
+    t.now = due.at;
+    due.fn();
+  }
+  t.now = end;
+  await flush();
+}
+const ok = (body) => Promise.resolve({ ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) });
+global.fetch = (url, init) => { t.fetches.push([t.now, String(url)]); return t.serve(String(url), init); };
+global.WebSocket = function (url) { const s = { url }; t.ws.push(s); return s; };
+global.location = { search: D.search || '', host: 'example.org', protocol: 'https:', reload() {} };
+
+const els = new Map();
+function el(id) {
+  if (!els.has(id)) {
+    const cls = new Set();
+    els.set(id, {
+      id, hidden: id === 'public-banner' || id === 'about-more', dataset: {}, style: {}, textContent: '', innerHTML: '',
+      title: '', href: id === 'almanac-link' ? 'almanac.html' : '', listeners: {}, opened: 0,
+      classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) },
+      addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
+      setAttribute(k, v) { this['@' + k] = String(v); },
+      showModal() { this.opened++; },
+    });
+  }
+  return els.get(id);
+}
+const meta = D.link == null ? null : { content: D.link, getAttribute: (k) => (k === 'content' ? D.link : null) };
+global.document = {
+  hidden: false, documentElement: el('html'), addEventListener() {}, removeEventListener() {},
+  getElementById: el,
+  querySelector: (sel) => (sel === '.voice' ? el('.voice') : sel === 'meta[name="swarm-public-link"]' ? meta : null),
+  querySelectorAll: () => [],
+};
+if (D.dataset) el('html').dataset.public = '1';
+const $ = el;
+const S = { loaded: false, voice: { disabled: false }, selected: null, detail: null, detailAt: 0, detailErr: null };
+const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ESC[c]);
+function setText(e, text) { const s = text == null ? '' : String(text); if (e.textContent !== s) e.textContent = s; }
+eval(fs.readFileSync(process.argv[2], 'utf8'));   // public.js
+const out = {};
+(async () => {
+/*VIEWER*/
+function onMessage(msg) {   // the viewer's, cut down: the clock of the last message and the first init
+  lastMsgAt = performance.now();
+  if (connState === 'connecting') setConn(DEMO ? 'demo' : 'live');
+  t.msgs.push(msg.type);
+  if (msg.type === 'init') { S.loaded = true; renderVeil(); }
+}
+const conn = () => ({ state: $('conn').dataset.state, label: $('conn-label').textContent, title: $('conn').title });
+const veil = () => ({ title: $('veil-title').textContent, sub: $('veil-sub').textContent || $('veil-sub').innerHTML });
+const lives = () => t.fetches.filter(([, u]) => u.startsWith('/public/live.json')).map(([at]) => at);
+/*SCENARIO*/
+  process.stdout.write(JSON.stringify(out));
+})().catch((e) => { console.error(e); process.exit(1); });
+"""
+
+VIEWER_SCENARIOS = {
+    "flag": "out.v = { PUBLIC, DEMO, poll: DETAIL_POLL_MS };",
+    "down": """
+      connect();
+      out.connecting = { conn: conn(), veil: veil() };
+      await advance(1200);                          // the feed gave up at 1 s (two failed opens)
+      out.offline = { conn: conn(), veil: veil() };
+      await advance(60000 - 1200);
+      out.v = { lives: lives(), ws: t.ws.length, all_public: t.fetches.every(([, u]) => u.startsWith('/public/')) };""",
+    "drops": """
+      t.serve = (url) => (t.now >= 5000 ? Promise.reject(new Error('net'))
+        : url.startsWith('/public/live.json') ? ok(D.LIVE1) : url.startsWith('/public/static.json') ? ok(D.STATIC) : ok({}));
+      connect();
+      await advance(100);
+      out.live = conn();
+      out.loaded = S.loaded;
+      out.wishes = await api('/api/wishes');
+      try { await apiPost('/api/voice', { text: 'hello' }); out.post = 'sent'; } catch (e) { out.post = e.status; }
+      await advance(40000 - 100);
+      out.v = { lives: lives(), inits: t.msgs.filter((m) => m === 'init').length, ws: t.ws.length,
+                all_public: t.fetches.every(([, u]) => u.startsWith('/public/')) };""",
+    "quiet": """
+      t.serve = (url) => url.startsWith('/public/live.json') ? ok(D.LIVE1) : ok(D.STATIC);   // the same snapshot forever
+      connect();
+      await advance(10000);
+      renderConn();
+      out.at10 = conn();
+      await advance(6000);
+      renderConn();
+      out.at16 = conn();""",
+    "private": """
+      connect();
+      out.ws = t.ws.map((s) => s.url);
+      out.connecting = { conn: conn(), veil: veil() };
+      t.ws[0].onopen();
+      out.live = conn();
+      await advance(6000);
+      renderConn();
+      out.at6 = conn();
+      t.ws[0].onclose();
+      out.offline = { conn: conn(), veil: veil() };
+      out.fetches = t.fetches.length;""",
+    "enter": """
+      enterPublicMode();
+      const about = $('about-btn').listeners.click || [];
+      about.forEach((f) => f({}));
+      out.v = { is_public: $('html').classList.contains('is-public'), voice_hidden: $('.voice').hidden,
+                voice_disabled: S.voice.disabled, banner_shown: !$('public-banner').hidden, about_opened: $('about').opened,
+                more_shown: !$('about-more').hidden, link: $('about-link').href,
+                almanac: { href: $('almanac-link').href, title: $('almanac-link').title } };""",
+    "foot": """
+      const txt = () => $('cre-foot').textContent;
+      S.selected = 'c1';
+      S.detailErr = 'HTTP 503'; renderDetailFoot(); const err = txt();
+      S.detailErr = null; S.detailAt = 0; renderDetailFoot(); const loading = txt();
+      S.detailAt = Date.now() - 2600; renderDetailFoot(); const fresh = txt();
+      S.detailAt = Date.now() - 5200; renderDetailFoot(); const old = txt();
+      S.detailAt = Date.now() - 1200; renderDetailFoot(); const one = txt();
+      out.v = { err, loading, fresh, old, one, poll: DETAIL_POLL_MS };""",
+}
+
+
+def viewer_code() -> str:
+    """The viewer's own code for the harness: its flags, the whole connection section, enterPublicMode and
+    renderDetailFoot, cut from viewer.js as they are."""
+    src = (WEB / "viewer.js").read_text()
+    flags = [re.search(rf"^ *const {n} = [^;]*;", src, re.M).group(0) for n in ("params", "DEMO", "PUBLIC", "DETAIL_POLL_MS")]
+    a = src.index("/* ============================================================ connection */")
+    b = src.index("/* ============================================================== messages */")
+    funcs = [f"function {n}() {{{function_body(src, n)}}}" for n in ("enterPublicMode", "renderDetailFoot")]
+    return "\n".join(flags + [src[a:b]] + funcs)
+
+
+def run_viewer(tmp_path, scenario: str, **data):
+    harness = tmp_path / "viewer_harness.js"
+    harness.write_text(VIEWER_HARNESS.replace("/*VIEWER*/", viewer_code()).replace("/*SCENARIO*/", VIEWER_SCENARIOS[scenario]))
+    data = {"STATIC": STATIC, "LIVE1": LIVE1, "dataset": True, **data}
+    r = subprocess.run([NODE, str(harness), str(WEB / "public.js")], input=json.dumps(data), capture_output=True,
+                       text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+@needs_node
+@pytest.mark.parametrize("search,dataset,public", [
+    ("", True, True),               # /public/app/: the server marks the page
+    ("?public", False, True),       # the local preview of the private page
+    ("?public=1&skin=ascii", False, True),
+    ("", False, False),             # the private viewer
+    ("?demo=1&public", False, False),
+    ("?demo=1", True, False),       # the demo world never reads the feed
+])
+def test_public_mode_is_on_for_the_public_page_and_the_preview_only(tmp_path, search, dataset, public):
+    v = run_viewer(tmp_path, "flag", search=search, dataset=dataset)["v"]
+    assert v["PUBLIC"] is public and v["poll"] == (3000 if public else 1000)
+
+
+@needs_node
+def test_with_the_world_down_the_viewer_backs_off_and_says_so(tmp_path):
+    out = run_viewer(tmp_path, "down")
+    assert out["connecting"]["veil"] == {"title": "Connecting to the world…", "sub": "Fetching the latest snapshot."}
+    assert out["offline"]["conn"]["state"] == "offline" and out["offline"]["conn"]["label"] == "Offline · retrying in 1s"
+    assert out["offline"]["veil"] == {"title": "Can’t reach the world right now",
+                                      "sub": "It runs on one Mac at home and may be restarting. Retrying in 1s."}
+    # each attempt is the feed's open and its one retry a second later; between attempts the viewer's backoff
+    expected, at = [], 0
+    for gap in (500, 1000, 2000, 4000, 8000) + (15000,) * 3:
+        expected += [at, at + 1000]
+        at += 1000 + gap
+    assert out["v"]["lives"] == [x for x in expected if x <= 60000]
+    assert out["v"]["ws"] == 0 and out["v"]["all_public"]
+
+
+@needs_node
+def test_a_feed_that_drops_after_opening_gets_the_backoff_too(tmp_path):
+    out = run_viewer(tmp_path, "drops")
+    assert out["live"] == {"state": "live", "label": "Live, a few seconds behind",
+                           "title": "Snapshots of the world, refreshed every few seconds"}
+    assert out["loaded"] and out["wishes"] == {"can_answer": False, "wishes": LIVE1["wishes"]} and out["post"] == 403
+    # opened at 0; polls at 3 s and 4 s (the same snapshot); the drop at 5 s: two failed polls close the feed at 6 s
+    assert out["v"]["lives"] == [0, 3000, 4000, 5000, 6000, 6500, 7500, 8500, 9500, 11500, 12500, 16500, 17500,
+                                 25500, 26500]
+    assert out["v"]["inits"] == 1 and out["v"]["ws"] == 0 and out["v"]["all_public"]
+
+
+@needs_node
+def test_a_quiet_feed_is_stalled_after_15_seconds_not_5(tmp_path):
+    out = run_viewer(tmp_path, "quiet")
+    assert out["at10"]["state"] == "live" and out["at10"]["label"] == "Live, a few seconds behind"
+    assert out["at16"] == {"state": "stalled", "label": "No ticks for 16s",
+                           "title": "Snapshots of the world, refreshed every few seconds"}
+
+
+@needs_node
+def test_the_private_viewer_still_uses_the_socket_and_its_own_words(tmp_path):
+    out = run_viewer(tmp_path, "private", dataset=False)
+    assert out["ws"] == ["wss://example.org/ws/view"] and out["fetches"] == 0
+    assert out["connecting"]["veil"]["title"] == "Connecting to the world…"
+    assert "Waiting for the world server at" in out["connecting"]["veil"]["sub"]
+    assert out["live"] == {"state": "live", "label": "Live", "title": "wss://example.org/ws/view"}
+    assert out["at6"]["state"] == "stalled" and out["at6"]["label"] == "No ticks for 6s"
+    assert out["offline"]["veil"]["title"] == "Can’t reach the world server"
+    assert "python -m swarmworld.server" in out["offline"]["veil"]["sub"] and "?demo=1" in out["offline"]["veil"]["sub"]
+
+
+@needs_node
+def test_entering_public_mode_hides_the_voice_and_shows_the_banner(tmp_path):
+    v = run_viewer(tmp_path, "enter", link="https://example.com/swarm?from=public&x=1")["v"]
+    assert v == {"is_public": True, "voice_hidden": True, "voice_disabled": True, "banner_shown": True, "about_opened": 1,
+                 "more_shown": True, "link": "https://example.com/swarm?from=public&x=1",
+                 "almanac": {"href": "/public/app/almanac.html",
+                             "title": "Almanac: the tech tree, every kind of thing and verb, and the census (opens in a new tab)"}}
+
+
+@needs_node
+@pytest.mark.parametrize("link", [None, "", "javascript:alert(1)", "data:text/html,hi", "/relative"])
+def test_without_a_web_link_the_about_panel_keeps_its_more_line_hidden(tmp_path, link):
+    v = run_viewer(tmp_path, "enter", link=link)["v"]
+    assert v["more_shown"] is False and v["link"] == "" and v["banner_shown"] and v["voice_disabled"]
+
+
+@needs_node
+def test_the_detail_footer_speaks_of_a_few_seconds_in_public_mode(tmp_path):
+    v = run_viewer(tmp_path, "foot")["v"]
+    assert v == {"err": "Couldn’t load details (HTTP 503). Retrying every few seconds.", "loading": "Loading details…",
+                 "fresh": "Details refresh every few seconds.", "old": "Details last updated 5s ago.",
+                 "one": "Details refresh every few seconds.", "poll": 3000}
+    private = run_viewer(tmp_path, "foot", dataset=False)["v"]
+    assert private == {"err": "Couldn’t load details (HTTP 503). Retrying every second.", "loading": "Loading details…",
+                       "fresh": "Details last updated 3s ago.", "old": "Details last updated 5s ago.",
+                       "one": "Details refresh every second.", "poll": 1000}
+
+
+def test_the_token_never_rewrites_the_public_almanac_link():
+    html = (WEB / "index.html").read_text()
+    inline = re.search(r"<script>\(function \(\) \{(.*?)\}\)\(\);</script>", html, re.S).group(1)
+    assert "is-public" in inline and "almanac.html?token=" in inline
+
+
+def test_keys_typed_in_a_dialog_stay_in_it():
+    src = (WEB / "viewer.js").read_text()
+    keydown = src[src.index("window.addEventListener('keydown', (e) => {"):]
+    first = keydown[:keydown.index("if (e.metaKey || e.ctrlKey) return;")]
+    assert "closest('dialog')" in first

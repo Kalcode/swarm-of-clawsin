@@ -267,7 +267,9 @@ async def test_routes_and_cache_headers(aiohttp_client):
     c = await aiohttp_client(create_app(seed=7, tick_seconds=0.02, public_every=3600))
     page = await c.get("/public/app/")
     v = c.app[PUBLIC_APP].version
-    assert page.headers["Cache-Control"] == "public, max-age=60" and f'viewer.js?v={v}' in await page.text()  # public.js?v= from Task 6
+    html = await page.text()
+    assert page.headers["Cache-Control"] == "public, max-age=60" and f'src="public.js?v={v}"' in html
+    assert html.index(f'src="public.js?v={v}"') < html.index(f'src="viewer.js?v={v}"')
     js = await c.get(f"/public/app/viewer.js?v={v}")
     assert js.headers["Cache-Control"] == "public, max-age=31536000, immutable" and js.headers["Content-Type"].startswith("text/javascript")
     assert (await c.get("/public/app/viewer.js?v=old")).headers["Cache-Control"] == "public, max-age=60"

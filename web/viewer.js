@@ -3,7 +3,9 @@
  * Connects to the spectator stream (ws(s)://<host>/ws/view), keeps a local copy
  * of the world, renders it on a Canvas 2D map and fills the side panel from the
  * stream plus REST (/api/creature/{id}, /api/metrics). With ?demo=1 it loads
- * demo.js, which fakes both the socket and the REST calls in the browser.
+ * demo.js, which fakes both the socket and the REST calls in the browser. In public
+ * mode (the page /public/app/ serves, or ?public here) public.js stands in for both
+ * with the edge-cached snapshots under /public/, and every steward control is hidden.
  */
 (function () {
   'use strict';
@@ -19,6 +21,7 @@
   const isSkin = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(SKINS, k);
   const params = new URLSearchParams(location.search);
   const DEMO = params.get('demo') === '1';
+  const PUBLIC = !DEMO && (params.has('public') || document.documentElement.dataset.public === '1');
 
   const EVENT_KINDS = ['say', 'voice', 'wish', 'grant', 'steward', 'invent', 'learn', 'weather', 'store', 'take', 'tend', 'discover', 'craft', 'gather', 'plant', 'tame', 'eat', 'place', 'write', 'program', 'chronicle', 'fail', 'collapse', 'join', 'sleep'];
   const KIND_LABEL = {
@@ -35,7 +38,7 @@
   };
   const EVENT_CAP = 300;
   const ZOOMS = [1, 1.5, 2, 2.5, 3, 4, 5];
-  const DETAIL_POLL_MS = 1000;
+  const DETAIL_POLL_MS = PUBLIC ? 3000 : 1000;   // public: the creature documents are rebuilt every few seconds
   const SANS = getComputedStyle(document.documentElement).getPropertyValue('--sans') || 'sans-serif';
   const SERIF = getComputedStyle(document.documentElement).getPropertyValue('--serif') || 'serif';
 
@@ -134,7 +137,7 @@
     setConn('connecting');
     let sock;
     try {
-      sock = DEMO ? window.SwarmDemo.createSocket() : new WebSocket(wsUrl());
+      sock = DEMO ? window.SwarmDemo.createSocket() : PUBLIC ? window.SwarmPublic.createSocket() : new WebSocket(wsUrl());
     } catch (err) {
       console.warn('[viewer] cannot open socket', err);
       scheduleReconnect();
@@ -190,8 +193,8 @@
     let label;
     if (state === 'live' || state === 'demo') {
       const quiet = now - lastMsgAt;
-      if (quiet > 5000) { state = 'stalled'; label = `No ticks for ${Math.round(quiet / 1000)}s`; }
-      else label = state === 'demo' ? 'Demo world' : 'Live';
+      if (quiet > (PUBLIC ? 15000 : 5000)) { state = 'stalled'; label = `No ticks for ${Math.round(quiet / 1000)}s`; }
+      else label = state === 'demo' ? 'Demo world' : PUBLIC ? 'Live, a few seconds behind' : 'Live';
     } else if (state === 'connecting') {
       label = 'Connecting…';
     } else {
@@ -199,7 +202,8 @@
       label = s > 0 ? `Offline · retrying in ${s}s` : 'Offline · retrying…';
     }
     el.dataset.state = state;
-    el.title = state === 'offline' ? 'Click to retry now' : (DEMO ? 'Fake world generated in the browser' : wsUrl());
+    el.title = state === 'offline' ? 'Click to retry now'
+      : DEMO ? 'Fake world generated in the browser' : PUBLIC ? 'Snapshots of the world, refreshed every few seconds' : wsUrl();
     el.style.cursor = state === 'offline' ? 'pointer' : '';
     setText($('conn-label'), label);
     renderVeil();
@@ -209,7 +213,11 @@
     const veil = $('veil');
     if (S.loaded) { veil.classList.add('is-gone'); return; }
     veil.classList.remove('is-gone');
-    if (connState === 'offline') {
+    if (connState === 'offline' && PUBLIC) {
+      const s = Math.max(0, Math.ceil((retryAt - performance.now()) / 1000));
+      setText($('veil-title'), 'Can’t reach the world right now');
+      setText($('veil-sub'), `It runs on one Mac at home and may be restarting. Retrying in ${s}s.`);
+    } else if (connState === 'offline') {
       const s = Math.max(0, Math.ceil((retryAt - performance.now()) / 1000));
       setText($('veil-title'), 'Can’t reach the world server');
       $('veil-sub').innerHTML = `Is it running? Start it with <span class="mono">python -m swarmworld.server</span>. ` +
@@ -217,12 +225,14 @@
     } else {
       setText($('veil-title'), DEMO ? 'Building a demo world…' : 'Connecting to the world…');
       $('veil-sub').innerHTML = DEMO ? 'Everything here is generated in your browser.'
+        : PUBLIC ? 'Fetching the latest snapshot.'
         : `Waiting for the world server at <span class="mono">${esc(location.host || 'this page’s host')}</span>`;
     }
   }
 
   async function apiPost(path, body) {
     if (DEMO) return window.SwarmDemo.post(path, body);
+    if (PUBLIC) return window.SwarmPublic.post(path, body);   // always refused: nothing public changes the world
     const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) {
       const err = new Error(`HTTP ${r.status}`);
@@ -235,6 +245,7 @@
 
   async function api(path) {
     if (DEMO) return window.SwarmDemo.api(path);
+    if (PUBLIC) return window.SwarmPublic.api(path);
     const r = await fetch(path, { cache: 'no-store', headers: { Accept: 'application/json' } });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
@@ -763,14 +774,14 @@
     if (!S.selected) return;
     if (S.detailErr) {
       foot.classList.add('is-error');
-      setText(foot, `Couldn’t load details (${S.detailErr}). Retrying every second.`);
+      setText(foot, `Couldn’t load details (${S.detailErr}). Retrying every ${PUBLIC ? 'few seconds' : 'second'}.`);
     } else if (!S.detailAt) {
       foot.classList.remove('is-error');
       setText(foot, 'Loading details…');
     } else {
       foot.classList.remove('is-error');
       const s = Math.round((Date.now() - S.detailAt) / 1000);
-      setText(foot, s <= 1 ? 'Details refresh every second.' : `Details last updated ${s}s ago.`);
+      setText(foot, s <= DETAIL_POLL_MS / 1000 ? `Details refresh every ${PUBLIC ? 'few seconds' : 'second'}.` : `Details last updated ${s}s ago.`);
     }
   }
 
@@ -1891,7 +1902,7 @@
   function renderWishes(force, focusKey) {
     const box = $('wish-list');
     const can = wish.canAnswer && !wish.blocked;
-    $('wish-note').hidden = !wish.loaded || !!wish.err || can;
+    $('wish-note').hidden = PUBLIC || !wish.loaded || !!wish.err || can;   // public: the About panel says it
     $('wish-empty').hidden = wish.list.length > 0;
     setText($('wish-empty-text'), wish.err
       ? `Wishes aren’t available (${wish.err}). They appear once the server starts collecting them.`
@@ -3039,6 +3050,7 @@
 
     window.addEventListener('keydown', (e) => {
       if (e.target && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
+      if (e.target && e.target.closest && e.target.closest('dialog')) return;   // the About panel keeps its keys
       if (e.metaKey || e.ctrlKey) return;
       if (e.key === 'Escape' && S.voice.open) {
         openVoice(false);
@@ -3180,7 +3192,26 @@
     });
   }
 
+  /** The public page (or ?public): no steward controls, a banner saying what this is, and the About panel. */
+  function enterPublicMode() {
+    document.documentElement.classList.add('is-public');
+    document.querySelector('.voice').hidden = true;   // the Speak button and its popover
+    S.voice.disabled = true;                          // and with it V and Alt-click
+    $('public-banner').hidden = false;
+    $('about-btn').addEventListener('click', () => $('about').showModal());
+    const meta = document.querySelector('meta[name="swarm-public-link"]');
+    const link = meta ? String(meta.content || '') : '';
+    if (/^https?:\/\/[^/]/i.test(link)) {
+      $('about-link').href = link;
+      $('about-more').hidden = false;
+    }
+    const alm = $('almanac-link');
+    alm.href = '/public/app/almanac.html';
+    alm.title = 'Almanac: the tech tree, every kind of thing and verb, and the census (opens in a new tab)';
+  }
+
   async function boot() {
+    if (PUBLIC) enterPublicMode();
     buildFilters();
     bindUI();
     bindSociety();

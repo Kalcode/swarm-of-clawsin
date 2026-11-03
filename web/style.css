@@ -203,6 +203,53 @@ html:not(.sprites-ok) .brand-fallback { display: inline; }
   font: 600 10.5px/1 var(--mono);
 }
 
+/* public mode (viewer.js enterPublicMode): a line in the top bar saying what this is, and the About panel behind it.
+   The line takes the room the stats leave: its long form in two lines when they fit, else its short form (always at
+   900 px and below). Where room is short, the public page gives up first what the banner already says (the
+   connection label while it only says "live"), then the wordmark and the short form (see the end of "responsive"). */
+.public-banner {
+  flex: 1 1 0; min-width: 14em;
+  container-type: inline-size;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0;
+  font-size: 12px; line-height: 15px;
+  color: var(--text-2);
+}
+.pb-long {
+  min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden;
+  text-wrap: balance;
+}
+.pb-short { display: none; white-space: nowrap; }
+.public-banner .pill-btn { flex: none; padding: 0 10px; }
+@container (max-width: 364px) {   /* two lines of the long form need about 300 px; it is still read out */
+  .pb-long { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .pb-short { display: inline; }
+}
+@container (max-width: 169px) {   /* and the short form takes two lines when one doesn't fit */
+  .pb-short { white-space: normal; max-width: 6em; text-wrap: balance; }
+}
+
+.about {
+  width: min(500px, calc(100vw - 24px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--ink-2); color: var(--text-2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  font-size: 13.5px; line-height: 1.55;
+  overflow: auto;
+}
+.about::backdrop { background: rgba(8, 6, 10, 0.62); }
+.about h2 { margin: 0 0 12px; font-size: 17px; line-height: 1.3; font-weight: 650; color: var(--text); }
+.about p { margin: 0 0 10px; text-wrap: pretty; }
+.about p b { color: var(--text); }
+.about a { color: var(--gold); text-underline-offset: 2px; }
+.about form { display: flex; justify-content: flex-end; margin: 16px 0 0; }
+.about .pill-btn { height: 28px; padding: 0 14px; }
+
 /* voice from the sky */
 .voice { position: relative; }
 .voice-btn {
@@ -1125,6 +1172,8 @@ button.wwho:hover { text-decoration-color: currentColor; }
   .panel > * { width: min(var(--panel-w), 100vw); }
   .topbar { gap: 16px; padding-left: 12px; }
   .hstat { padding: 0 12px; }
+  .pb-long { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .pb-short { display: inline; }
 }
 @media (max-width: 640px) {
   .voice-btn span:last-child { display: none; }
@@ -1143,6 +1192,34 @@ button.wwho:hover { text-decoration-color: currentColor; }
   .brand { width: 24px; overflow: hidden; }
   html:not(.sprites-ok) .brand-fallback { font-size: 0; letter-spacing: 0; }
   html:not(.sprites-ok) .brand-fallback::before { content: "SW"; font-size: 12px; letter-spacing: 0.04em; }
+}
+
+/* public mode, narrower: the banner trades Speak's room for its own, so it gives up more, and sooner */
+@media (max-width: 1699px) {
+  html.is-public .conn[data-state="live"] .conn-label {   /* still read out: the status keeps its words */
+    position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  html.is-public .conn[data-state="live"] { padding: 0 9px; }
+  html.is-public .hstat-sub { display: none; }
+  html.is-public .hstat .ico { grid-row: auto; }
+}
+@media (min-width: 901px) and (max-width: 1699px) {
+  html.is-public .topbar { gap: 20px; }
+}
+@media (max-width: 1100px) {
+  .public-banner { min-width: 11.5em; }
+}
+@media (max-width: 720px) {
+  html.is-public .brand { width: 24px; overflow: hidden; }
+  html.is-public:not(.sprites-ok) .brand-fallback { font-size: 0; letter-spacing: 0; }
+  html.is-public:not(.sprites-ok) .brand-fallback::before { content: "SW"; font-size: 12px; letter-spacing: 0.04em; }
+}
+@media (max-width: 520px) {
+  .public-banner { flex: none; min-width: 0; container-type: normal; }
+  .pb-short { display: none; }
+}
+@media (max-width: 440px) {
+  html.is-public .topbar, html.is-public .topbar-end { gap: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
