@@ -216,12 +216,18 @@ def register_kinds(kinds: dict[str, dict], source: str | None = None) -> None:
 Handler = Callable[["World", "Creature", "Intention"], "ActionResult"]
 VERBS: list[str] = []  # every action a mind may choose, in schema order: the core verbs, then the packs'
 VERB_ALIASES: dict[str, str] = {}  # other words minds use -> the verb
+ALIAS_TARGETS: dict[str, str] = {}  # an alias that also says where ("dig_down" -> "down"): the target it means
 HANDLERS: dict[str, Handler] = {}
 VERB_WORD = re.compile(r"[a-z][a-z0-9_]*")
 
 
-def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source: str, replaces_alias: bool) -> None:
+def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source: str, replaces_alias: bool,
+                   alias_targets: dict[str, str] | None = None) -> None:
     aliases = (aliases,) if isinstance(aliases, str) else tuple(aliases)
+    alias_targets = dict(alias_targets or {})
+    if set(alias_targets) - set(aliases):
+        raise ValueError(f"verb '{name}' from {source}: alias_targets names words that aren't its aliases: "
+                         f"{sorted(set(alias_targets) - set(aliases))}")
     for word in (name, *aliases):
         if not VERB_WORD.fullmatch(word):
             raise ValueError(f"'{word}' (from {source}) isn't a verb word: lower_snake_case, like 'go_fishing'")
@@ -245,14 +251,17 @@ def _register_verb(name: str, handler: Handler, aliases: tuple[str, ...], source
     VERBS.append(name)
     HANDLERS[name] = handler
     VERB_ALIASES.update({a: name for a in aliases})
+    ALIAS_TARGETS.update(alias_targets)
 
 
-def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = (), *, replaces_alias: bool = False) -> None:
+def register_verb(name: str, handler: Handler, aliases: tuple[str, ...] = (), *, replaces_alias: bool = False,
+                  alias_targets: dict[str, str] | None = None) -> None:
     """A new action, valid in every intention (it joins the schema's enum). Disclose it with a Technique: the system
     prompts only describe the core verbs. A name that is an alias of a core verb ("build" -> craft) needs
     replaces_alias=True; the word then means this verb, so hand the cases it doesn't cover to the core verb
-    (HANDLERS["craft"])."""
-    _register_verb(name, handler, aliases, _caller(), replaces_alias)
+    (HANDLERS["craft"]). alias_targets: aliases that also say where, {"dig_down": "down"}; an intention for one that
+    names no target gets that one."""
+    _register_verb(name, handler, aliases, _caller(), replaces_alias, alias_targets)
 
 
 def pack_verbs() -> list[str]:
@@ -424,8 +433,8 @@ def import_modules(paths: Iterable[Path | str], package: str) -> list[str]:
 @contextmanager
 def sandbox():
     """Everything registered inside the block is undone when it ends (for tests)."""
-    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE, LANDMARK_SOURCES,
-            HANDOFFS)
+    live = (_OWNERS, KINDS, VERBS, VERB_ALIASES, ALIAS_TARGETS, HANDLERS, TECHNIQUES, SYSTEMS, PERCEPTIONS, POPULATE,
+            LANDMARK_SOURCES, HANDOFFS)
     saved = [list(x) if isinstance(x, list) else dict(x) for x in live]
     try:
         yield

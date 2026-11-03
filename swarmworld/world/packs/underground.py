@@ -54,7 +54,7 @@ MOUTH_AWAY = 20  # cave mouths lie this far from the meadow's middle (a quarter 
 MOUTH_APART = 12
 MOUTH_CLEAR = 3  # steps kept between a cave mouth and anything a creature built or planted
 ORDINALS = ("second", "third", "fourth", "fifth")
-PORTAL_OBJECTS = {"cave": ("cave_mouth", "cave_exit"), "shaft": ("mine_shaft", "ladder"), "pit": (None, "ladder")}
+PORTAL_OBJECTS = {"cave": ("cave_mouth", "cave_exit"), "shaft": ("mine_shaft", "ladder"), "pit": ("open_pit", "ladder")}
 
 
 def _mine(world: World) -> dict:

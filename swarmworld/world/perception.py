@@ -17,6 +17,8 @@ GLOW_SIGHT = 8  # how far a fire's glow can be seen at night
 FAR_GLOWS = 3  # of each kind of soft glow beyond sight (fireflies), only the nearest this many are seen
 SOFT_SIGHT = 3  # at night beside a soft glow (a kind with "glow" in its data, like fireflies): a step more than dark
 LANDMARK_RANGE = 14
+# a tile -> how "Around you" names it (the nearest of each name in sight); packs add their own tiles' names
+FEATURES = {"w": "water", "W": "water", "u": "water", "r": "rocky ground", "f": "forest", "s": "sand"}
 
 DIRS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]
 SOUND_PREFIX = "You hear "  # a heard line that is a sound (World.sound), not words
@@ -293,7 +295,7 @@ def _far_features(world: World, c: Creature, r: int) -> str:
             if not world.in_bounds(x, y) or (x == c.x and y == c.y):
                 continue
             t = world.tile(x, y)
-            key = {"w": "water", "W": "water", "u": "water", "r": "rocky ground", "f": "forest", "s": "sand"}.get(t)
+            key = FEATURES.get(t)
             if not key:
                 continue
             d = dist(c.x, c.y, x, y)

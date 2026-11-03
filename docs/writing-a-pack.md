@@ -10,7 +10,7 @@ The registry's docstring (`swarmworld/world/registry.py`) is the reference.
 |---|---|
 | items, recipes | `items.json`, `recipes.json` (merged after the base files) |
 | object kinds | `objects.json`: `name, aliases, blocking, animal, gatherable, carvable, store, gives, yields, look`; `glow` (steps) makes a soft night light, like fireflies; `glyph` (`{"char": "⌂", "color": "#c8a070"}`) is how the ASCII skin, and any skin without art for the kind, draws it (else `web/tiles.js` GLYPHS, else the name's first letter) |
-| a verb | `register_verb(name, handler, aliases=(), *, replaces_alias=False)` |
+| a verb | `register_verb(name, handler, aliases=(), *, replaces_alias=False, alias_targets=None)`; `alias_targets={"dig_down": "down"}` gives an alias that also says where its target, when the intention names none |
 | its disclosure | `register_technique(Technique(name, line, trigger))`, shown to every creature when the trigger fits |
 | world behaviour | `register_system(name, every, fn(sim, tick))` |
 | a perception line | `register_perception(fn(world, c) -> str or None, priority=50)` |

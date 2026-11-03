@@ -7,6 +7,8 @@
                  "look": "mine_shaft", "glyph": {"char": "▼", "color": "#a8714a"}},
   "ladder": {"name": "ladder", "aliases": ["ladder", "way up"],
              "look": "ladder", "glyph": {"char": "H", "color": "#c8a070"}},
+  "open_pit": {"name": "open pit", "aliases": ["pit", "open pit", "hole", "way down"],
+               "look": "open_pit", "glyph": {"char": "◎", "color": "#4a3b30"}},
   "coal_seam": {"name": "coal seam", "aliases": ["coal", "seam", "coal seam"], "blocking": true,
                 "look": "coal_seam", "glyph": {"char": "%", "color": "#2b2b2f"},
                 "yields": {"items": {"coal": [1, 2]}, "tool": "pickaxe", "uses": 6}},

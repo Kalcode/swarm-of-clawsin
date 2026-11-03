@@ -15,8 +15,8 @@ from .model import ANIMALS, BLOCKING, OBJECT_ALIASES, OBJECT_NAMES, WATER_TILES,
 from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
-from .registry import (CARVABLE, DEPLETED, GATHERABLE, HANDLERS, HANDOFFS, ITEM_SOURCES, KINDS, SOURCE_PRODUCTS, STORES,
-                       VERB_ALIASES, VERBS, YIELDS, call_safely, register_verb)
+from .registry import (ALIAS_TARGETS, CARVABLE, DEPLETED, GATHERABLE, HANDLERS, HANDOFFS, ITEM_SOURCES, KINDS,
+                       SOURCE_PRODUCTS, STORES, VERB_ALIASES, VERBS, YIELDS, call_safely, register_verb)
 
 _CORE_ALIASES = {  # other words minds use for the core verbs (registered with them below)
     "pray": "wish", "wish_for": "wish", "make_wish": "wish", "make_a_wish": "wish",
@@ -150,8 +150,8 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
             return None
     if not isinstance(raw, dict):
         return None
-    action = str(raw.get("action") or "").strip().lower().replace(" ", "_").replace("-", "_")
-    action = VERB_ALIASES.get(action, action)
+    said = str(raw.get("action") or "").strip().lower().replace(" ", "_").replace("-", "_")
+    action = VERB_ALIASES.get(said, said)
     if action not in VERBS:
         return None
     items = raw.get("items") or []
@@ -169,7 +169,7 @@ def parse_intention(raw: dict | str | None) -> Intention | None:
     plan = [s for s in plan if s][:5]
     return Intention(
         action=action,
-        target=str(raw.get("target") or "").strip()[:80],
+        target=str(raw.get("target") or "").strip()[:80] or ALIAS_TARGETS.get(said, ""),  # "dig_down": dig "down"
         items=items,
         text=str(raw.get("text") or "").strip()[:2000],
         count=max(1, min(5, count)),
