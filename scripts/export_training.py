@@ -212,11 +212,16 @@ def teacher_gate(model: str, meta: dict, allow_mock: bool) -> str | None:
     return None if TEACHERS.search(model) else "teacher not allowed"
 
 
+def utf8(text: str) -> str:
+    """The text with anything UTF-8 can't hold (a lone surrogate: half an emoji a model wrote as an escape) as '?'."""
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
 def _prompt(t: dict) -> list[dict] | None:
     msgs = t.get("messages")
     if (isinstance(msgs, list) and len(msgs) == 2 and [m.get("role") for m in msgs] == ["system", "user"]
             and all(isinstance(m.get("content"), str) and m["content"] for m in msgs)):
-        return [{"role": m["role"], "content": m["content"]} for m in msgs]
+        return [{"role": m["role"], "content": utf8(m["content"])} for m in msgs]
     return None
 
 
@@ -253,7 +258,7 @@ def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Coun
                 reason = "off-schema answer"
             else:
                 completed["n"] += filled
-                d.answer = json.dumps(ans, ensure_ascii=False)
+                d.answer = utf8(json.dumps(ans, ensure_ascii=False))
         if reason:
             skipped[reason] += 1
             continue

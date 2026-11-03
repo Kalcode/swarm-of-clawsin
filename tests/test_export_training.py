@@ -261,3 +261,17 @@ def test_a_missing_or_empty_run_folder_is_reported(tmp_path):
     assert any("empty" in x and "no episodes" in x for x in said)
     with pytest.raises(SystemExit, match="none of the run folders exist"):
         export([tmp_path / "nope", tmp_path / "gone"], tmp_path / "out2")
+
+
+def test_half_an_emoji_in_a_prompt_or_answer_never_stops_the_export(tmp_path):
+    # json.loads accepts a lone surrogate ("\ud83c", half of an escaped emoji), which strict UTF-8 can't encode
+    half = "\ud83c"
+    thinks = [act(1, output=answer(speech=f"look {half}!")), act(5, "c2")]
+    thinks[1]["messages"][1]["content"] += f" Ann said: 'hi {half}'"
+    s = export([run(tmp_path, "r1", thinks)], tmp_path / "out")
+    lines = all_lines(tmp_path / "out")
+    assert s["examples"] == 2 and len(lines) == 2
+    text = (tmp_path / "out" / "train.jsonl").read_bytes().decode("utf-8") + (tmp_path / "out" / "valid.jsonl").read_bytes().decode("utf-8")
+    assert half not in text and "\\ud83c" not in text
+    assert any("look ?!" in json.loads(x["messages"][2]["content"])["speech"] for x in lines)
+    assert any("hi ?" in user_of(x) for x in lines)
