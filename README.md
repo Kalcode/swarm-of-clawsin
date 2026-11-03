@@ -32,13 +32,13 @@ The minds are gpt-oss on the gaming PC (Ollama), the distilled student on this M
 # oMLX with grammar-constrained output (the Homebrew build needs current Command Line Tools)
 uv tool install --python 3.13 "omlx[grammar] @ https://github.com/jundot/omlx/releases/download/v0.7.3/omlx-0.7.3-cp313-cp313-macosx_15_0_universal2.whl"
 # Models (already downloaded on this Mac in ~/models)
-for m in gemma-4-e4b-it-4bit Qwen3.5-4B-MLX-4bit Qwen3.5-9B-MLX-4bit; do uvx --from huggingface_hub hf download mlx-community/$m --local-dir ~/models/$m; done
+for m in Qwen3.5-4B-MLX-4bit Qwen3.5-9B-MLX-4bit; do uvx --from huggingface_hub hf download mlx-community/$m --local-dir ~/models/$m; done
 ```
 
 ## Quick start (this Mac)
 
 ```bash
-./start-world.sh                      # oMLX + world + 12 Gemma 4 E4B and 8 Qwen3.5 4B creatures, opens the viewer (the script's defaults; Gemma loops, so pick MODEL yourself)
+./start-world.sh                      # oMLX + world + 12 creatures on the newest ~/models/swarm-student-* with HARNESS_ALL=plan,disclose,recall (or Qwen3.5 9B alone when there is no student), opens the viewer
 MODEL=Qwen3.5-9B-MLX-4bit CREATURES=10 MODEL2= ./start-world.sh   # fewer, smarter creatures
 ```
 
@@ -49,7 +49,7 @@ Or by hand, in three terminals:
 ```bash
 omlx serve --model-dir ~/models --max-concurrent-requests 16 --memory-guard-gb 20 --paged-ssd-cache-dir ~/.omlx/cache --paged-ssd-cache-max-size 10GB
 uv run python -m swarmworld.server                      # world on http://127.0.0.1:7777
-uv run python -m swarmworld.node --model gemma-4-e4b-it-4bit:12 --model Qwen3.5-4B-MLX-4bit:8 --slots 12
+uv run python -m swarmworld.node --model Qwen3.5-9B-MLX-4bit:10 --slots 12
 ```
 
 No model handy? `uv run python -m swarmworld.node --mock 12` runs rule-based creatures so you can watch the world work.
@@ -71,7 +71,6 @@ Measured on the M1 Max (32-core GPU, 32 GB) with oMLX 0.7.3 (details in [bench/R
 
 | Model | Thinks per second (saturated) | Creatures at one thought every 20 s | Character in the world so far |
 |---|---|---|---|
-| Gemma 4 E4B | 1.37 | about 25 | Sociable: lots of talk, little building |
 | Qwen3.5 4B | 1.25 | about 25 | Practical: gathers, builds fires, made the first invention |
 | Qwen3.5 9B | 0.78 | about 15 | Most thoughtful, slowest |
 
