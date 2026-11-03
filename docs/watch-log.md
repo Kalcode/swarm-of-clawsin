@@ -232,3 +232,25 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   emergent inequality. A "share" tip, or a gentle need to carry less (inventory weight), could be future content; for
   now it's a story.
 - **mod (watching), eat-grass:** 20 refused meals this stretch, all from the student.
+
+### 14:37 watch (tick 14,181)
+- **admin:** healthy: 24 awake, two nodes, tunnel up, no errors, no public watchers.
+- **Minds since tick 12,387:** both improved after the day's fixes.
+
+  | Model | Acts | Success | Before | p50 |
+  |---|---|---|---|---|
+  | gpt-oss | 843 | 86% | 78% | 9.1 s |
+  | Student | 993 | 81% | 76% | 13.3 s |
+
+  No failure streaks. The walled-in rule hasn't had to refuse anything yet.
+- **tweak (done 14:40), cooking:** gpt-oss creatures who carry an unplaced campfire combined ["fish", "campfire"]
+  beside a burning one: 25 failures, and only 2 fish cooked all day. A station named among ingredients now counts as
+  the place you work.
+- **mod (done 14:41), Mirth's prayers:** the flint gift taught Mirth that praying works: six more flint prayers in
+  150 ticks. I answered once without a gift. Lesson for stewarding: a grant for an explicit, repeated prayer is a sweet
+  moment, but repeat grants turn the sky into a vending machine. Grant once, then point to the source.
+- **tweak (server):** POST /api/voice with malformed JSON returns 500 with a traceback. It should be 400, like the
+  other steward endpoints. My own bad request found it (empty coordinates during a restart).
+- **mod (watching), eat-grass:** 35 refused meals, all from the student, though the hint now names food 4 steps away.
+  Round-2 data.
+- **mod, the rope stone:** 69 actions. The fad has settled into a background habit.
