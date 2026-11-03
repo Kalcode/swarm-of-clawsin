@@ -106,6 +106,7 @@ def restore(st: "ServerState", path: Path) -> None:
         obj = WorldObject(o["id"], o["kind"], o["x"], o["y"], o["data"])
         w.objects[obj.id] = obj
         w.grid[(obj.x, obj.y)] = obj.id
+    w.reindex()
     for g in wd["ground"]:
         w.ground[(g["x"], g["y"])] = Counter(g["items"])
     for cd in wd["creatures"]:

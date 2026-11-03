@@ -223,3 +223,49 @@ def test_night_sleepers_are_not_counted_awake():
     w.creatures.update({a.id: a, b.id: b})
     assert not a.sleeping and b.sleeping and w.cre_dict(b)["sleeping"] is True
     assert Metrics().snapshot(w, 0)["models"]["m"]["awake"] == 1
+
+
+def test_the_lake_is_found_once_and_again_only_when_the_land_changes(world, monkeypatch):
+    for y in range(5, 10):
+        for x in range(30, 36):
+            world.tiles[y][x] = "W"
+    sim = Simulation(world)
+    sim._landmarks()
+    lake = next(lm for lm in world.landmarks if lm["kind"] == "lake")
+    assert (lake["x"], lake["y"]) == (32, 7)
+    looked = []
+    real = World.tile
+    monkeypatch.setattr(World, "tile", lambda self, x, y: looked.append(1) or real(self, x, y))
+    sim._landmarks()
+    assert len(looked) < 100  # not every tile of the map again
+    for y in range(5, 10):
+        world.set_tile(36, y, "W")
+        world.set_tile(37, y, "W")
+    sim._landmarks()
+    lake = next(lm for lm in world.landmarks if lm["kind"] == "lake")
+    assert (lake["x"], lake["y"]) == (33, 7)  # the lake grew east
+
+
+def test_terminals_run_from_an_index_kept_with_the_objects(world, tmp_path):
+    from swarmworld.server.persistence import restore, save
+    from swarmworld.server.state import ServerState
+    ran = []
+    sim = Simulation(world, terminal_runner=lambda w, o: ran.append((w.tick, o.id)))
+    a = world.add_object("terminal", 5, 5, code="say('a')", screen=[], memory={})
+    world.add_object("terminal", 7, 5, code="", screen=[], memory={})  # no program: never runs
+    for _ in range(25):
+        sim.tick()
+    assert [oid for _, oid in ran] == [a.id, a.id]
+    b = world.add_object("terminal", 9, 5, code="say('b')", screen=[], memory={})
+    world.remove_object(a.id)
+    ran.clear()
+    for _ in range(20):
+        sim.tick()
+    assert [oid for _, oid in ran] == [b.id]
+    st = ServerState(seed=1)
+    st.world = st.sim.world = world
+    save(st, tmp_path / "w.json")
+    st2 = ServerState(seed=2)
+    restore(st2, tmp_path / "w.json")
+    assert list(st2.world.terminals) == [o.id for o in st2.world.objects.values() if o.kind == "terminal"]
+    assert b.id in st2.world.terminals

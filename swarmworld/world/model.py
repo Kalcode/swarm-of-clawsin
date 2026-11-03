@@ -104,6 +104,8 @@ class World:
         self.recall_hook: Callable[[Creature, str], list[tuple[str, str]]] | None = None  # set by the server: (creature, query) -> [(kind, text)]
         self.ext: dict = {}  # packs' world state, by pack name: ext["nature"]["rivers"] (JSON-able; saved)
         self.buildings_changed = False  # a building went up or came down since the last tick message (viewer)
+        self.tiles_version = 0  # bumped by set_tile, so what is worked out from the land can be kept until it changes
+        self.terminals: dict[str, None] = {}  # ids of the terminal objects, in the order they came (Simulation)
 
     # --- ids / objects -------------------------------------------------
     def new_id(self, prefix: str) -> str:
@@ -116,6 +118,11 @@ class World:
     def tile(self, x: int, y: int) -> str:
         return self.tiles[y][x] if self.in_bounds(x, y) else "W"
 
+    def set_tile(self, x: int, y: int, t: str) -> None:
+        """Change the land at (x, y): use this rather than writing self.tiles, so cached views of the land update."""
+        self.tiles[y][x] = t
+        self.tiles_version += 1
+
     def object_at(self, x: int, y: int) -> WorldObject | None:
         oid = self.grid.get((x, y))
         return self.objects.get(oid) if oid else None
@@ -126,11 +133,25 @@ class World:
         obj = WorldObject(self.new_id("o"), kind, x, y, dict(data))
         self.objects[obj.id] = obj
         self.grid[(x, y)] = obj.id
+        self._index(obj)
         self.changed_objects.add(obj.id)
         return obj
 
+    def _index(self, obj: WorldObject) -> None:
+        if obj.kind == "terminal":
+            self.terminals[obj.id] = None
+        else:
+            self.terminals.pop(obj.id, None)
+
+    def reindex(self) -> None:
+        """Rebuild the object indexes after objects were put in self.objects directly (a restored save)."""
+        self.terminals = {}
+        for obj in self.objects.values():
+            self._index(obj)
+
     def change_kind(self, obj: WorldObject, kind: str) -> None:
         obj.kind = kind
+        self._index(obj)
         self.changed_objects.add(obj.id)
 
     def move_object(self, obj: WorldObject, x: int, y: int) -> bool:
@@ -146,6 +167,7 @@ class World:
         obj = self.objects.pop(oid, None)
         if obj:
             self.grid.pop((obj.x, obj.y), None)
+            self.terminals.pop(oid, None)
             self.removed_objects.add(oid)
             self.changed_objects.discard(oid)
 

@@ -52,6 +52,7 @@ class Simulation:
         self._returned_cursor = len(world.events)   # events already handed back to the caller of tick()
         self.on_result: Callable[[Creature, ActionResult], None] | None = None
         self.inspiration = True  # occasional vague hunches for curious minds; off = purely unassisted
+        self._lake_cache: tuple[tuple[int, int], tuple[int, int] | None] | None = None  # see _lake
 
     # ------------------------------------------------------------------
     def wake(self, c: Creature, reason: str, addressed: bool = False) -> None:
@@ -444,13 +445,21 @@ class Simulation:
         cx, cy = w.center
         fixed = [{"name": f"the {direction(o.x - cx, o.y - cy)} terminal", "x": o.x, "y": o.y, "kind": "terminal", "size": 1}
                  for o in w.objects.values() if o.kind == "terminal" and o.data.get("builder") is None]
-        water = [(x, y) for y in range(w.height) for x in range(w.width) if w.tile(x, y) == "W"]
-        if water:
-            lx = sum(x for x, _ in water) // len(water)
-            ly = sum(y for _, y in water) // len(water)
-            fixed.append({"name": "the lake", "x": lx, "y": ly, "kind": "lake", "size": 1})
+        lake = self._lake()
+        if lake:
+            fixed.append({"name": "the lake", "x": lake[0], "y": lake[1], "kind": "lake", "size": 1})
         fixed.append({"name": "the meadow", "x": cx, "y": cy, "kind": "meadow", "size": 1})
         w.landmarks = camps + fixed
+
+    def _lake(self) -> tuple[int, int] | None:
+        """The middle of all deep water, worked out again only when the land changes (World.set_tile)."""
+        w = self.world
+        key = (id(w.tiles), w.tiles_version)
+        if self._lake_cache is None or self._lake_cache[0] != key:
+            water = [(x, y) for y, row in enumerate(w.tiles) for x, t in enumerate(row) if t == "W"]
+            at = (sum(x for x, _ in water) // len(water), sum(y for _, y in water) // len(water)) if water else None
+            self._lake_cache = (key, at)
+        return self._lake_cache[1]
 
     def exposure(self, c: Creature) -> str | None:
         """What the weather is doing to you right now, if you're out in it."""
@@ -608,7 +617,9 @@ class Simulation:
     def _terminals(self, t: int) -> None:
         if not self.terminal_runner:
             return
-        for o in list(self.world.objects.values()):
-            if o.kind == "terminal" and o.data.get("code") and t >= o.data.get("next_run", 0):
+        w = self.world
+        for oid in list(w.terminals):  # World keeps the index as terminals come and go
+            o = w.objects.get(oid)
+            if o and o.kind == "terminal" and o.data.get("code") and t >= o.data.get("next_run", 0):
                 o.data["next_run"] = t + TERMINAL_EVERY
-                self.terminal_runner(self.world, o)
+                self.terminal_runner(w, o)
