@@ -475,6 +475,7 @@ class Simulation:
         cx, cy = w.center
         fixed = [{"name": f"the {direction(o.x - cx, o.y - cy)} terminal", "x": o.x, "y": o.y, "kind": "terminal", "size": 1}
                  for o in w.objects.values() if o.kind == "terminal" and o.data.get("builder") is None
+                 and not o.data.get("ruin")  # a ruin's terminal is named by its land (the frontier pack)
                  and (w.region_at(o.x, o.y) or w.regions[0]).name == "surface"]
         lake = self._lake()
         if lake:

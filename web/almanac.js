@@ -1063,6 +1063,10 @@
         crops.map(([c, n]) => `<span class="alm-item ghost">${icon(c, 20)}<span>${fmt(n)} ${esc(c)} growing</span></span>`).join('') + '</div>';
     }
 
+    if (w.lands && w.lands.count) {
+      html += `<p class="alm-note">New lands: ${fmt(w.lands.count)} (${fmt(w.lands.found.length)} found)</p>`;
+    }
+
     html += '<h2 class="alm-h2">Discoveries<small>first makes and inventions, in order</small></h2>';
     if (!w.discoveries.length) {
       html += '<p class="alm-empty">Nothing discovered yet. When a creature combines its way to something new, it appears here, with who and when.</p>';

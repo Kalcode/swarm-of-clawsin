@@ -282,14 +282,16 @@ def test_a_failing_shift_hook_leaves_the_world_as_it_was(caplog):
         registry.register_shift_hook("boom", boom)  # the last hook: the others have moved their state by then
         with caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
             assert grow(w, "west") == []
+    assert w.ext.pop("frontier") == {"origin_x": 0, "home_width": w.width, "failed": w.tick}  # only the mark
     assert _plain(st) == before
     assert len(w.events) == events and not any(e.kind == "frontier" for e in w.events) and w.growths == []
     assert w.creatures["c1"] is ada and ada.activity["path"] == path and w.changed_tiles == changed
-    assert "frontier" not in w.ext and w.origin_x == 0
+    assert w.origin_x == 0
     lines = [r for r in caplog.records if "shift boom" in r.getMessage()]
     assert len(lines) == 1 and "\n" not in lines[0].getMessage() and lines[0].exc_info is None
     assert re.search(r"at \w+\.py:\d+ in boom\)$", lines[0].getMessage())  # names the raising frame
     assert grow(w, "west") and (ada.x, w.origin_x) == (x + 32, 32)  # with the hook gone, the strip goes in
+    # (pace=0: a failure holds nothing back)
 
 
 def test_an_east_strip_that_fails_half_way_is_taken_back(monkeypatch):
@@ -300,6 +302,7 @@ def test_an_east_strip_that_fails_half_way_is_taken_back(monkeypatch):
         raise RuntimeError("populate boom")
     monkeypatch.setattr(frontier, "run_populate_land", boom)
     assert grow(st.world, "east") == []
+    assert st.world.ext.pop("frontier")["failed"] == st.world.tick  # only the mark of the failure stays
     assert _plain(st) == before and st.world.width == 128 and st.world.growths == []
 
 
