@@ -189,6 +189,15 @@ def test_gather_from_a_basket_takes_from_it(world):
     assert act(world, c, action="gather", target="basket", items=["stick"]).ok and c.inventory["stick"] > 0
 
 
+def test_give_to_a_basket_stores_in_it(world):
+    # Mirth, beside a basket, tried "give basket [rope]" 19 times: "You don't see 'basket' here to give anything to."
+    c = creature(world)
+    c.inventory["rope"] = 2
+    box = world.add_object("basket", 11, 10)
+    res = act(world, c, action="give", target="basket", items=["rope"])
+    assert res.ok and box.data["items"] == {"rope": 2} and "rope" not in c.inventory  # store's own rule: all of it
+
+
 def test_place_uses_the_structure_named_in_items(world):
     c = creature(world)
     c.inventory.update({"campfire": 1, "plant_fiber": 3})

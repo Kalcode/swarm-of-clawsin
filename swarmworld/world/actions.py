@@ -1327,6 +1327,8 @@ def _give(world: World, c: Creature, it: Intention) -> ActionResult:
         animal = find_object(world, c, it.target, kinds=ANIMALS) if it.target else None
         if animal:
             return _feed_animal(world, c, animal, it)
+        if it.target and find_object(world, c, it.target, kinds=STORES):  # "give rope to the basket" means store it
+            return _store(world, c, it)
         return ActionResult(False, f"You don't see '{it.target}' here to give anything to.")
     if dist(c.x, c.y, other.x, other.y) > 1:
         res = start_walk(world, c, _adjacent_goals(world, other.x, other.y), f"walking to {other.name}", f"You reach {other.name}.")
