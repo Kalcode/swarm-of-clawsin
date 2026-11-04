@@ -194,3 +194,82 @@ async def test_labels_ask_the_teacher_for_its_best_move_at_a_low_temperature(aio
     await dl.run_labeling([d], url, "gpt-oss:20b", tmp_path / "o2", student_prefix=STUDENT, since_run=LIVE_OK, temperature=0.9,
                           log=lambda *_: None)
     assert t.bodies[-1]["temperature"] == 0.9
+
+
+# ------------------------------------------------------------------ fix round 1
+def test_raw_text_with_gemini_or_google_refuses_even_on_an_unparsable_line(tmp_path):
+    for word in ("Gemini", "google"):
+        d = tmp_path / f"{LATER}"
+        d.mkdir(exist_ok=True)
+        (d / "thinks.jsonl").write_text(json.dumps(row(1)) + f'\n{{"tick": 2, "memo": "said {word}')  # cut off
+        with pytest.raises(SystemExit) as e:
+            dl.check_runs([d], LIVE_OK)
+        assert e.value.code == 1
+        (d / "thinks.jsonl").unlink()
+
+
+def test_the_since_run_floor_cannot_be_lowered_and_stamps_are_exact(tmp_path):
+    d = live(tmp_path, LATER, [row(1)])
+    with pytest.raises(SystemExit):
+        dl.check_runs([d], "20261101-000000")
+    for name in (LIVE_OK + ".bak", LATER + "-old"):
+        with pytest.raises(SystemExit):
+            dl.check_runs([live(tmp_path, name, [row(1)])], LIVE_OK)
+
+
+async def test_labels_are_appended_as_they_complete_and_done_comes_last(aiohttp_server, tmp_path):
+    seen = {}
+    t = Teacher()
+    orig = t.handle
+
+    async def handle(request):
+        ep = tmp_path / "o" / f"{LATER}-dagger" / "thinks.jsonl"
+        seen[len(t.bodies)] = len(ep.read_text().splitlines()) if ep.exists() else 0
+        return await orig(request)
+
+    t.handle = handle
+    url = await serve(aiohttp_server, t)
+    d = live(tmp_path, LATER, [row(i, user=f"u{i}") for i in range(1, 5)])
+    await dl.run_labeling([d], url, "gpt-oss:20b", tmp_path / "o", student_prefix=STUDENT, since_run=LIVE_OK,
+                          concurrency=1, log=lambda *_: None)
+    assert [seen[i] for i in sorted(seen)] == [0, 1, 2, 3]  # each earlier label was already on disk
+    assert (tmp_path / "o" / f"{LATER}-dagger" / "done").exists()
+
+
+async def test_a_crash_leaves_no_done_and_resume_continues(aiohttp_server, tmp_path, monkeypatch):
+    t = Teacher()
+    url = await serve(aiohttp_server, t)
+    d = live(tmp_path, LATER, [row(i, user=f"u{i}") for i in range(1, 5)])
+    out = tmp_path / "o"
+    real_ask, n = dl.ask, {"n": 0}
+
+    async def crashing(brain, r):
+        n["n"] += 1
+        if n["n"] == 3:
+            raise RuntimeError("PC dropped")
+        return await real_ask(brain, r)
+
+    monkeypatch.setattr(dl, "ask", crashing)
+    with pytest.raises(RuntimeError):
+        await dl.run_labeling([d], url, "gpt-oss:20b", out, student_prefix=STUDENT, since_run=LIVE_OK, concurrency=1,
+                              log=lambda *_: None)
+    ep = out / f"{LATER}-dagger"
+    assert len(read(ep / "thinks.jsonl")) == 2 and not (ep / "done").exists() and not (ep / "meta.json").exists()
+    with ep.joinpath("thinks.jsonl").open("a") as fh:
+        fh.write('{"tick": 9, "cut')  # a line cut off by the crash
+    monkeypatch.setattr(dl, "ask", real_ask)
+    t.bodies.clear()
+    s = await dl.run_labeling([d], url, "gpt-oss:20b", out, student_prefix=STUDENT, since_run=LIVE_OK, concurrency=1,
+                              resume=True, log=lambda *_: None)
+    assert len(t.bodies) == 2 and s["labeled"] == 4  # only the two missing prompts were asked
+    assert len(read(ep / "thinks.jsonl")) == 4 and (ep / "done").exists()
+    assert json.loads((ep / "meta.json").read_text())["labelled"] == 4
+
+
+def test_main_refuses_a_non_empty_out_unless_resume(tmp_path):
+    d = live(tmp_path, LATER, [row(1)])
+    (tmp_path / "o").mkdir()
+    (tmp_path / "o" / "x").write_text("1")
+    with pytest.raises(SystemExit) as e:
+        dl.main([str(d), "--base-url", "http://127.0.0.1:9/v1", "--model", "gpt-oss:20b", "--out", str(tmp_path / "o")])
+    assert e.value.code == 1

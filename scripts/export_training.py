@@ -64,6 +64,7 @@ HUNGRY = re.compile(r"^You feel (?:a bit hungry|very hungry|starving)\b", re.M)
 UP = {"discovery": 4, "craft": 1.5, "ate hungry": 2, "plan step": 2}
 OUTCOME_EVENTS = {"discover": "discovery", "invent": "discovery", "craft": "craft"}
 REPEAT = (1.0, 0.5, 0.25)  # first, second, third-or-later time in a row
+DAGGER_FLOOR = "20261103-104243"  # the fresh world with no Gemini mind
 LIVE_RUN = "live run: prompts may hold other models' text"
 
 
@@ -239,6 +240,11 @@ def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Coun
     if not (run_dir / "done").exists():
         skipped["unfinished episode"] += acts_here
         return []
+    if meta.get("dagger"):  # defense in depth: every source run must be from the Gemini-free world
+        src = meta.get("source_runs")
+        if not src or any(not re.fullmatch(r"\d{8}-\d{6}", str(x)) or str(x) < DAGGER_FLOOR for x in src):
+            skipped["dagger source run missing or older than the floor"] += acts_here
+            return []
     group = f"seed {meta['seed']}" if meta.get("seed") is not None else f"run {run_dir}"
     skipped["not an act decision"] += sum(1 for t in thinks if t.get("kind") != "act")
     acts = [t for t in thinks if t.get("kind") == "act"]

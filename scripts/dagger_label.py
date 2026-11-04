@@ -33,7 +33,7 @@ from swarmworld.server.state import ACT_TOKENS, ACT_TOKENS_PLAN  # noqa: E402
 
 DEFAULT_SINCE = "20261103-104243"
 GEMINI = re.compile(r"gemini|google", re.I)
-STAMP = re.compile(r"^\d{8}-\d{6}")
+STAMP = re.compile(r"^\d{8}-\d{6}$")
 RETRIES = 2
 
 
@@ -56,14 +56,17 @@ def thinks_of(run: Path) -> list[dict]:
 
 
 def check_runs(runs: list[Path], since_run: str) -> None:
-    """Exit 1 (with a message) for a run older than since_run or holding any Gemini row."""
+    """Exit 1 (with a message) for a run older than since_run, or holding Gemini/Google anywhere in its raw text."""
+    if since_run < DEFAULT_SINCE:
+        raise fail(f"--since-run {since_run} is below the floor {DEFAULT_SINCE}: the floor is the licensing guarantee")
     for run in runs:
         if not STAMP.match(run.name) or run.name < since_run:
             raise fail(f"{run} is older than --since-run {since_run} (or not a live run folder): it may hold Gemini "
                        "outputs, which must never enter training")
-        for r in thinks_of(run):
-            if GEMINI.search(str(r.get("model") or "")):
-                raise fail(f"{run} has a Gemini row (model {r.get('model')!r}): Gemini outputs must never enter training")
+        raw = (run / "thinks.jsonl").read_text(errors="replace") if (run / "thinks.jsonl").exists() else ""
+        hit = GEMINI.search(raw)  # the raw text, before any parsing: cut-off lines and prompt words count too
+        if hit:
+            raise fail(f"{run} mentions {hit.group(0)!r} in thinks.jsonl: Gemini outputs must never enter training")
 
 
 def is_failure(r: dict) -> bool:
@@ -92,6 +95,21 @@ def pick(runs: list[Path], prefix: str, failures_first: bool, limit: int | None,
     return out, sum(1 for r in out if r in bad)
 
 
+def prompt_key(r: dict) -> str:
+    return json.dumps(r["messages"], sort_keys=True)
+
+
+def existing_rows(ep: Path) -> list[dict]:
+    path = ep / "thinks.jsonl"
+    rows = []
+    for line in path.read_text().splitlines() if path.exists() else []:
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
 async def ask(brain: LLMBrain, r: dict) -> dict | None:
     plan = "plan" in (r.get("harness") or [])
     schema, tokens = (INTENTION_SCHEMA_PLAN, ACT_TOKENS_PLAN) if plan else (INTENTION_SCHEMA, ACT_TOKENS)
@@ -104,46 +122,68 @@ async def ask(brain: LLMBrain, r: dict) -> dict | None:
 
 async def run_labeling(runs: list[Path], base_url: str, model: str, out: Path, student_prefix: str = "swarm-student",
                        since_run: str = DEFAULT_SINCE, failures_first: bool = False, limit: int | None = None,
-                       concurrency: int = 8, api_key: str | None = None, temperature: float = 0.4, log=print) -> dict:
+                       concurrency: int = 8, api_key: str | None = None, temperature: float = 0.4, resume: bool = False, log=print) -> dict:
     if GEMINI.search(model) or GEMINI.search(base_url):
         raise fail("Gemini (or any Google model) is never a teacher: its terms forbid training other models on its outputs")
     check_runs(runs, since_run)
     t0 = time.monotonic()
     picked, n_fail = pick(runs, student_prefix, failures_first, limit)
     log(f"Picked {len(picked)} decisions ({n_fail} failures-first) from {len(runs)} run(s)")
-    brain = LLMBrain(base_url, model, api_key, timeout=180.0, temperature=temperature)  # the teacher's best move
+    eps = {run.name: out / f"{run.name}-dagger" for run in runs}
+    counts: dict[str, int] = {}
+    have: set[str] = set()
+    for name, ep in eps.items():
+        if (ep / "done").exists() and resume:
+            raise fail(f"{ep} is already complete (has done)")
+        rows = existing_rows(ep) if resume else []
+        if resume and (ep / "thinks.jsonl").exists():  # drop a line cut off by the crash
+            (ep / "thinks.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows))
+        counts[name] = len(rows)
+        have |= {prompt_key(x) for x in rows}
+    todo = [r for r in picked if prompt_key(r) not in have]
+    if len(todo) < len(picked):
+        log(f"Resuming: {len(picked) - len(todo)} already labelled, {len(todo)} to go")
+    brain = LLMBrain(base_url, model, api_key, timeout=180.0, temperature=temperature)
     sem = asyncio.Semaphore(max(1, concurrency))
-    answers: list[dict | None] = [None] * len(picked)
     done = 0
+    failed = 0
+    out.mkdir(parents=True, exist_ok=True)
 
-    async def one(i: int, r: dict) -> None:
-        nonlocal done
+    async def one(r: dict) -> None:
+        nonlocal done, failed
         async with sem:
-            answers[i] = await ask(brain, r)
+            a = await ask(brain, r)
+        if a is None:
+            failed += 1
+        else:
+            ep = eps[r["run"]]
+            ep.mkdir(exist_ok=True)
+            row = {"tick": r.get("tick"), "creature": r.get("creature"), "name": r.get("name"), "model": model,
+                   "kind": "act", "ok": True, "output": a, "messages": r["messages"], "harness": r.get("harness") or [],
+                   "result": {"ok": True, "noop": False, "message": "dagger label"}}
+            with open(ep / "thinks.jsonl", "a") as fh:  # one line per label as it completes
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                fh.flush()
+            counts[r["run"]] += 1
         done += 1
         if done % 100 == 0:
-            log(f"  {done}/{len(picked)} labelled")
+            log(f"  {done}/{len(todo)} labelled")
 
+    tasks = [asyncio.ensure_future(one(r)) for r in todo]
     try:
-        await asyncio.gather(*(one(i, r) for i, r in enumerate(picked)))
+        await asyncio.gather(*tasks)
     finally:
+        for t in tasks:  # a crash stops the rest at once; what was written stays for --resume
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await brain.close()
-    by_run: dict[str, list[dict]] = {}
-    for r, a in zip(picked, answers):
-        if a is not None:
-            by_run.setdefault(r["run"], []).append(
-                {"tick": r.get("tick"), "creature": r.get("creature"), "name": r.get("name"), "model": model, "kind": "act",
-                 "ok": True, "output": a, "messages": r["messages"], "harness": r.get("harness") or [],
-                 "result": {"ok": True, "noop": False, "message": "dagger label"}})
-    out.mkdir(parents=True, exist_ok=True)
-    for run, rows in by_run.items():
-        ep = out / f"{run}-dagger"
-        ep.mkdir(exist_ok=True)
-        (ep / "thinks.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows))
-        (ep / "meta.json").write_text(json.dumps({"model": model, "dagger": True, "source_runs": [run], "labelled": len(rows)}))
-        (ep / "done").write_text("{}")
-    labeled = sum(len(v) for v in by_run.values())
-    s = {"picked": len(picked), "labeled": labeled, "skipped": len(picked) - labeled, "failures_first": n_fail,
+    for name, ep in eps.items():
+        if counts[name]:
+            (ep / "meta.json").write_text(json.dumps({"model": model, "dagger": True, "source_runs": [name],
+                                                      "labelled": counts[name]}))
+            (ep / "done").write_text("{}")
+    labeled = sum(counts.values())
+    s = {"picked": len(picked), "labeled": labeled, "skipped": failed, "failures_first": n_fail,
          "seconds": round(time.monotonic() - t0, 1)}
     log(f"Summary: picked {s['picked']}, labeled {s['labeled']}, skipped {s['skipped']} (failed after {RETRIES} retries), "
         f"failures-first {s['failures_first']}, {s['seconds']} seconds. Written to {out}")
@@ -163,12 +203,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--temperature", type=float, default=0.4, help="teacher temperature for labels (0.4: its preferred move)")
     ap.add_argument("--api-key", default=None)
+    ap.add_argument("--resume", action="store_true", help="continue an unfinished --out (folders without done)")
     a = ap.parse_args(argv)
     out = Path(a.out)
-    if out.exists() and any(out.iterdir()):
-        raise fail(f"{out} exists and is not empty")
+    if out.exists() and any(out.iterdir()) and not a.resume:
+        raise fail(f"{out} exists and is not empty (--resume continues an unfinished one)")
     asyncio.run(run_labeling([Path(r) for r in a.runs], a.base_url, a.model, out, a.student_prefix, a.since_run,
-                             a.failures_first, a.limit, a.concurrency, a.api_key, a.temperature))
+                             a.failures_first, a.limit, a.concurrency, a.api_key, a.temperature, a.resume))
 
 
 if __name__ == "__main__":

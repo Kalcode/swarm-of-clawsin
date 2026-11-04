@@ -191,10 +191,13 @@ uv run python scripts/dagger_label.py runs/20261103-104243 runs/<later run> \
   then identical prompts are deduped.
 - Each prompt goes to the teacher unchanged, with the same schema the live brain sends. A failed request is retried
   twice, then skipped and counted. Progress prints every 100 labels, with a summary at the end.
-- It writes `runs/dagger-r2/<source run>-dagger/` (`thinks.jsonl`, `meta.json` with `"dagger": true`, `done`).
+- It writes `runs/dagger-r2/<source run>-dagger/`: `thinks.jsonl` grows one line per label as it completes, and
+  `meta.json` (with `"dagger": true`) and `done` come at the end. After a crash the folder has no `done` (the export skips
+  it); rerun the same command with `--resume` to label only what is missing.
 - **Licensing.** Gemini outputs must never enter training. Only runs named at or after `--since-run` (default
-  `20261103-104243`, the fresh world with no Gemini mind) are read, and a run with any Gemini row is refused. Both
-  refusals exit 1 before any request.
+  `20261103-104243`, the fresh world with no Gemini mind) are read, and a run with the word Gemini or Google anywhere in
+  its raw `thinks.jsonl` is refused. `--since-run` cannot go below that default, and the export checks every DAgger
+  folder's `source_runs` against the same floor. Refusals exit 1 before any request.
 
 **Export.** Pass the DAgger folder together with the teacher episodes:
 

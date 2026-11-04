@@ -304,7 +304,7 @@ def test_dagger_episodes_export_with_weight_one_and_never_validate(tmp_path):
             act(7, "d3", output=answer("gather", "grass"))]
     for r in rows:
         r["result"] = {"ok": True, "noop": False, "message": "dagger label"}
-    dag = run(tmp_path, "dag-dagger", rows, meta={"model": "gpt-oss:20b", "dagger": True, "source_runs": ["x"], "labelled": 3})
+    dag = run(tmp_path, "dag-dagger", rows, meta={"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261104-090000"], "labelled": 3})
     for seed in range(8):
         s = export([*real, dag], tmp_path / f"o{seed}", valid_episodes=2, seed=seed)
         assert s["runs"]["dag-dagger"]["split"] == "train"
@@ -315,7 +315,18 @@ def test_dagger_episodes_export_with_weight_one_and_never_validate(tmp_path):
 
 def test_dagger_alone_with_one_real_episode_warns_and_has_no_valid(tmp_path):
     real = run(tmp_path, "real", [act(10)], meta={"model": "gpt-oss:20b", "seed": 1})
-    dag = run(tmp_path, "dag", [act(5, "d1")], meta={"model": "gpt-oss:20b", "dagger": True})
+    dag = run(tmp_path, "dag", [act(5, "d1")], meta={"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261104-090000"]})
     said = []
     s = export([real, dag], tmp_path / "out", log=said.append)
     assert s["valid_lines"] == 0 and s["train_lines"] == 2 and any("only one" in x for x in said)
+
+
+def test_a_dagger_folder_needs_every_source_run_at_or_after_the_floor(tmp_path):
+    good = {"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261103-104243", "20261104-090000"]}
+    runs = [run(tmp_path, "g", [act(1, "c1")], meta=good),
+            run(tmp_path, "old", [act(2, "c2")], meta={**good, "source_runs": ["20261103-104243", "20261102-230000"]}),
+            run(tmp_path, "none", [act(3, "c3")], meta={"model": "gpt-oss:20b", "dagger": True}),
+            run(tmp_path, "bak", [act(4, "c4")], meta={**good, "source_runs": ["20261104-090000.bak"]})]
+    s = export(runs, tmp_path / "out")
+    assert s["examples"] == 1 and list(s["runs"]) == ["g"]
+    assert s["skipped"]["dagger source run missing or older than the floor"] == 3
