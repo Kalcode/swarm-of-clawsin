@@ -563,3 +563,9 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - For round 3: DAgger labels on exactly these failures, failures first, are the lever. The student was trained before
     these hints existed, so it has never seen one followed.
 - **frontier:** 0 strips, and no explore acts.
+
+### 07:43 watch (tick 75,593): steady
+- Both nodes up, no new errors. gpt-oss is at 93% (p50 8.2 s), the student at 81% (p50 14.2 s). No streaks, and the
+  frontier has 0 strips.
+- **invention:** Ira (student) invented the **spindle wheel** ("Let's spin a wheel"), something to place with no effect
+  yet. It's a cousin of Inka's spinning wheel, and both point at the parked spinning-station idea.
