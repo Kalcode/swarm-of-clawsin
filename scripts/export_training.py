@@ -1,7 +1,7 @@
 """Export a student's training data from run folders: the teacher decisions that worked, as mlx-lm chat examples.
 
     uv run python scripts/export_training.py runs/teacher --out data/student/night1          # every finished episode
-    uv run python scripts/export_training.py runs/teacher/2026*-s1?? --out data/student/some --valid-fraction 0.1
+    uv run python scripts/export_training.py runs/teacher/2026*-s1?? --out data/student/some --valid-episodes 2
 
 Writes train.jsonl and valid.jsonl ({"messages": [system, user, assistant]}, the format mlx_lm.lora reads; the
 assistant turn is the intention JSON with every field of the schema the creature was asked with, in the schema's
@@ -22,11 +22,13 @@ summary. A run folder that doesn't exist, or holds no episodes, is warned about;
 
 Weights (the controller's ruling), from what followed each decision until the creature's next one:
     a discovery or invention (a discover or invent event by the creature)   4
-    a craft (a craft event by the creature)                                 3
+    a craft (a craft event by the creature)                                 1.5
     eating while hungry (eat, and "You feel a bit hungry / very hungry /
         starving" in the prompt)                                            2
     finishing a plan step (step_done true)                                  2
     anything else                                                           1
+(Round 1 doubled crafts and combine rose from 18% to 31% of the lines, hence 1.5.) A DAgger row (an episode whose
+meta.json says "dagger": true: the teacher's label for a student's situation, never executed) weighs 1, plain.
 The largest that applies counts. Then repeats are damped: the same action and target as the creature's previous
 decision is x0.5 the second time in a row and x0.25 the third time or later (counted over all its decisions, failed
 ones too). mlx-lm has no per-example weights, so a weight w becomes int(w) copies plus one more with probability
@@ -35,9 +37,9 @@ holds each kept decision once, so validation loss measures plain imitation.
 
 The split is by world seed, never by line: every episode of one seed (two teachers on the same seed, or a seed redone
 into another --out, start from the same world and say near-twin prompts) goes to the same side, and so does each
-episode without a seed in its meta.json on its own. --valid-fraction of those groups (at least one when there are
-two or more), chosen with --seed, go to valid.jsonl. With a single group everything goes to train.jsonl and a warning
-says so (mlx_lm.lora needs a validation set: export two or more seeds)."""
+episode without a seed in its meta.json on its own. --valid-episodes of those groups (default 2), chosen with --seed, go to valid.jsonl; at
+least one group always stays in train. Only real teacher episodes are ever chosen for validation, never DAgger
+episodes. With a single real group everything goes to train.jsonl and a warning says so (mlx_lm.lora needs a validation set: export two or more seeds)."""
 
 from __future__ import annotations
 
@@ -59,9 +61,10 @@ from swarmworld.mind.prompts import INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN  # n
 NEVER = re.compile(r"gemini|google", re.I)
 TEACHERS = re.compile(r"gpt-oss|qwen", re.I)
 HUNGRY = re.compile(r"^You feel (?:a bit hungry|very hungry|starving)\b", re.M)
-UP = {"discovery": 4, "craft": 3, "ate hungry": 2, "plan step": 2}
+UP = {"discovery": 4, "craft": 1.5, "ate hungry": 2, "plan step": 2}
 OUTCOME_EVENTS = {"discover": "discovery", "invent": "discovery", "craft": "craft"}
 REPEAT = (1.0, 0.5, 0.25)  # first, second, third-or-later time in a row
+DAGGER_FLOOR = "20261103-104243"  # the fresh world with no Gemini mind
 LIVE_RUN = "live run: prompts may hold other models' text"
 
 
@@ -76,6 +79,7 @@ class Decision:
     answer: str
     weight: float = 1.0
     why: str = ""
+    dagger: bool = False  # a teacher label for a student's prompt: weight 1, never validation
     group: str = ""  # the split's unit: the episode's world seed, or the run folder when it has none
 
 
@@ -236,6 +240,11 @@ def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Coun
     if not (run_dir / "done").exists():
         skipped["unfinished episode"] += acts_here
         return []
+    if meta.get("dagger"):  # defense in depth: every source run must be from the Gemini-free world
+        src = meta.get("source_runs")
+        if not src or any(not re.fullmatch(r"\d{8}-\d{6}", str(x)) or str(x) < DAGGER_FLOOR for x in src):
+            skipped["dagger source run missing or older than the floor"] += acts_here
+            return []
     group = f"seed {meta['seed']}" if meta.get("seed") is not None else f"run {run_dir}"
     skipped["not an act decision"] += sum(1 for t in thinks if t.get("kind") != "act")
     acts = [t for t in thinks if t.get("kind") == "act"]
@@ -263,6 +272,8 @@ def decisions(run_dir: Path, allow_mock: bool, skipped: Counter, completed: Coun
             skipped[reason] += 1
             continue
         d.run, d.messages, d.group = run_dir.name, prompt, group
+        if meta.get("dagger"):
+            d.dagger, d.weight, d.why = True, 1.0, "dagger"
         kept.append(d)
     return kept
 
@@ -276,7 +287,7 @@ def chat(d: Decision) -> dict:
     return {"messages": [*d.messages, {"role": "assistant", "content": d.answer}]}
 
 
-def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: int = 0, allow_mock: bool = False,
+def export(run_dirs: list[Path], out: Path, valid_episodes: int = 2, seed: int = 0, allow_mock: bool = False,
            log=print) -> dict:
     skipped: Counter = Counter()
     completed: Counter = Counter()
@@ -295,18 +306,17 @@ def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: i
             seen.add(key)
             unique.append(d)
     runs = sorted({d.run for d in unique})
-    groups = sorted({d.group for d in unique})
+    dagger_groups = {d.group for d in unique if d.dagger}
+    groups = sorted({d.group for d in unique} - dagger_groups)  # validation is for real teacher episodes only
     shuffled = groups[:]
     random.Random(seed).shuffle(shuffled)
     warnings = []
-    if len(groups) == 1:
+    if len(groups) <= 1:
         n_valid = 0
-        warnings.append("only one episode (or one seed's episodes): it all goes to train.jsonl and valid.jsonl is empty "
-                        "(mlx_lm.lora needs a validation set: export two or more seeds)")
-    elif len(groups) >= 2 and valid_fraction > 0:
-        n_valid = min(len(groups) - 1, max(1, round(len(groups) * valid_fraction)))
+        warnings.append("only one episode (a real teacher one, or one seed's episodes): it all goes to train.jsonl and "
+                        "valid.jsonl is empty (mlx_lm.lora needs a validation set: export two or more seeds)")
     else:
-        n_valid = 0
+        n_valid = min(len(groups) - 1, max(0, valid_episodes))
     valid_groups = set(shuffled[:n_valid])
     valid_runs = {d.run for d in unique if d.group in valid_groups}
     train, valid = [], []
@@ -340,7 +350,7 @@ def export(run_dirs: list[Path], out: Path, valid_fraction: float = 0.1, seed: i
         "completed_to_schema": completed["n"],
         "skipped": {k: v for k, v in skipped.most_common() if v},
         "warnings": warnings,
-        "sources": [str(p) for p in found], "valid_fraction": valid_fraction, "seed": seed, "allow_mock": allow_mock,
+        "sources": [str(p) for p in found], "valid_episodes": valid_episodes, "seed": seed, "allow_mock": allow_mock,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     for w in warnings:
@@ -371,12 +381,12 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Export mlx-lm chat training data from Swarm World run folders")
     ap.add_argument("runs", nargs="+", help="run folders (teacher episodes or live runs), or folders of them")
     ap.add_argument("--out", required=True, help="e.g. data/student/night1")
-    ap.add_argument("--valid-fraction", type=float, default=0.1, help="share of episodes held out for validation")
+    ap.add_argument("--valid-episodes", type=int, default=2, help="whole episodes (seeds) held out for validation")
     ap.add_argument("--seed", type=int, default=0, help="seeds the split, the subsampling and the shuffles")
     ap.add_argument("--allow-mock", action="store_true", help="keep mock decisions too (tests and plumbing only)")
     args = ap.parse_args(argv)
     out = Path(args.out)
-    s = export([Path(r) for r in args.runs], out, args.valid_fraction, args.seed, args.allow_mock)
+    s = export([Path(r) for r in args.runs], out, args.valid_episodes, args.seed, args.allow_mock)
     print(report(s, out))
 
 

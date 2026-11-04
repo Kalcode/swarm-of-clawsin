@@ -158,18 +158,18 @@ def test_weights_reward_what_led_somewhere_and_damp_repeats():
     events = [{"tick": 10, "kind": "discover", "actor": "c1"}, {"tick": 20, "kind": "craft", "actor": "c1"},
               {"tick": 96, "kind": "say", "actor": "c2"}]
     w = [(e.weight, e.why) for e in ex.weigh(thinks, events)]
-    assert w == [(4, "discovery"), (3, "craft"), (2, "ate hungry"), (1, ""), (2, "plan step"), (1, ""),
+    assert w == [(4, "discovery"), (1.5, "craft"), (2, "ate hungry"), (1, ""), (2, "plan step"), (1, ""),
                  (0.5, "repeat"), (0.25, "repeat"), (0.25, "repeat"), (1, "")]
 
 
 def test_weights_apply_by_repetition_in_train(tmp_path):
     runs = [run(tmp_path, f"r{i}", [act(10, f"c{i}", output=answer("craft", "rope")), act(20, f"c{i}")],
                 [{"tick": 10, "kind": "craft", "actor": f"c{i}"}]) for i in range(2)]
-    s = export(runs, tmp_path / "out", valid_fraction=0.5, seed=3)
+    s = export(runs, tmp_path / "out", valid_episodes=1, seed=3)
     train = read(tmp_path / "out" / "train.jsonl")
     crafts = [x for x in train if json.loads(x["messages"][2]["content"])["action"] == "craft"]
-    assert len(crafts) == 3  # weight 3: three copies
-    assert len(train) == 4 and s["valid_lines"] == 2  # validation is not weighted
+    assert len(crafts) in (1, 2)  # weight 1.5: one copy, or two with probability one half
+    assert len(train) == len(crafts) + 1 and s["valid_lines"] == 2  # validation is not weighted
 
 
 def test_fractional_weights_subsample_with_a_seed():
@@ -182,13 +182,13 @@ def test_fractional_weights_subsample_with_a_seed():
 # ------------------------------------------------------------------ split
 def test_split_is_by_episode_and_seeded(tmp_path):
     runs = [run(tmp_path, f"r{i:02d}", [act(t, f"c{i}") for t in range(10, 60, 10)]) for i in range(10)]
-    s = export(runs, tmp_path / "a", valid_fraction=0.2, seed=7)
+    s = export(runs, tmp_path / "a", valid_episodes=2, seed=7)
     valid_runs = {n for n, r in s["runs"].items() if r["split"] == "valid"}
     assert len(valid_runs) == 2
     train_creatures = {user_of(x).split()[2] for x in read(tmp_path / "a" / "train.jsonl")}
     valid_creatures = {user_of(x).split()[2] for x in read(tmp_path / "a" / "valid.jsonl")}
     assert train_creatures and valid_creatures and not train_creatures & valid_creatures
-    again = export(runs, tmp_path / "b", valid_fraction=0.2, seed=7)
+    again = export(runs, tmp_path / "b", valid_episodes=2, seed=7)
     assert again["runs"] == s["runs"]
     assert (tmp_path / "a" / "train.jsonl").read_text() == (tmp_path / "b" / "train.jsonl").read_text()
 
@@ -243,7 +243,7 @@ def test_episodes_of_one_seed_stay_on_one_side_of_the_split(tmp_path):
                             [act(t, f"c{seed}", model=model, output=answer(target=f"tree {t}", thought=model)) for t in (10, 20)],
                             meta={"model": model, "seed": seed}))
     for split_seed in range(12):
-        s = export(runs, tmp_path / f"out{split_seed}", valid_fraction=0.34, seed=split_seed)
+        s = export(runs, tmp_path / f"out{split_seed}", valid_episodes=1, seed=split_seed)
         sides = defaultdict(set)
         for name, r in s["runs"].items():
             sides[name.rsplit("-s", 1)[1]].add(r["split"])
@@ -275,3 +275,58 @@ def test_half_an_emoji_in_a_prompt_or_answer_never_stops_the_export(tmp_path):
     assert half not in text and "\\ud83c" not in text
     assert any("look ?!" in json.loads(x["messages"][2]["content"])["speech"] for x in lines)
     assert any("hi ?" in user_of(x) for x in lines)
+
+
+# ------------------------------------------------------------------ round 2
+def test_craft_weighs_one_and_a_half_and_discovery_still_four():
+    thinks = [act(10, "c1", output=answer("craft", "rope")), act(20, "c1", output=answer("combine", "", items=["a", "b"]))]
+    events = [{"tick": 10, "kind": "craft", "actor": "c1"}, {"tick": 20, "kind": "discover", "actor": "c1"}]
+    assert [(d.weight, d.why) for d in ex.weigh(thinks, events)] == [(1.5, "craft"), (4, "discovery")]
+    crafts = sum(ex.copies(1.5, ex.random.Random(i)) for i in range(2000))
+    assert 2700 < crafts < 3300  # about 1.5 copies each
+
+
+def test_valid_episodes_holds_out_that_many_whole_episodes(tmp_path):
+    runs = [run(tmp_path, f"r{i:02d}", [act(t, f"c{i}") for t in (10, 20)], meta={"model": "gpt-oss:20b", "seed": i})
+            for i in range(6)]
+    for n, want in ((None, 2), (1, 1), (3, 3), (99, 5), (0, 0)):
+        kw = {} if n is None else {"valid_episodes": n}
+        s = export(runs, tmp_path / f"o{n}", seed=2, **kw)
+        assert sum(r["split"] == "valid" for r in s["runs"].values()) == want
+        assert s["valid_lines"] == want * 2
+
+
+def test_dagger_episodes_export_with_weight_one_and_never_validate(tmp_path):
+    real = [run(tmp_path, f"real{i}", [act(10, f"c{i}")], meta={"model": "gpt-oss:20b", "seed": i}) for i in range(3)]
+    # a dagger row that would otherwise weigh 2 (plan step) and 2 (eating while hungry)
+    rows = [act(5, "d1", output=answer("walk_to", "boulder", step_done=True)),
+            act(6, "d2", output=answer("eat", "berries"), feel="very hungry"),
+            act(7, "d3", output=answer("gather", "grass"))]
+    for r in rows:
+        r["result"] = {"ok": True, "noop": False, "message": "dagger label"}
+    dag = run(tmp_path, "dag-dagger", rows, meta={"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261104-090000"], "labelled": 3})
+    for seed in range(8):
+        s = export([*real, dag], tmp_path / f"o{seed}", valid_episodes=2, seed=seed)
+        assert s["runs"]["dag-dagger"]["split"] == "train"
+        assert s["runs"]["dag-dagger"]["examples"] == 3 and s["runs"]["dag-dagger"]["lines"] == 3  # weight 1: one copy each
+        assert s["weights"]["dagger"] == 3
+        assert s["valid_lines"] == 2
+
+
+def test_dagger_alone_with_one_real_episode_warns_and_has_no_valid(tmp_path):
+    real = run(tmp_path, "real", [act(10)], meta={"model": "gpt-oss:20b", "seed": 1})
+    dag = run(tmp_path, "dag", [act(5, "d1")], meta={"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261104-090000"]})
+    said = []
+    s = export([real, dag], tmp_path / "out", log=said.append)
+    assert s["valid_lines"] == 0 and s["train_lines"] == 2 and any("only one" in x for x in said)
+
+
+def test_a_dagger_folder_needs_every_source_run_at_or_after_the_floor(tmp_path):
+    good = {"model": "gpt-oss:20b", "dagger": True, "source_runs": ["20261103-104243", "20261104-090000"]}
+    runs = [run(tmp_path, "g", [act(1, "c1")], meta=good),
+            run(tmp_path, "old", [act(2, "c2")], meta={**good, "source_runs": ["20261103-104243", "20261102-230000"]}),
+            run(tmp_path, "none", [act(3, "c3")], meta={"model": "gpt-oss:20b", "dagger": True}),
+            run(tmp_path, "bak", [act(4, "c4")], meta={**good, "source_runs": ["20261104-090000.bak"]})]
+    s = export(runs, tmp_path / "out")
+    assert s["examples"] == 1 and list(s["runs"]) == ["g"]
+    assert s["skipped"]["dagger source run missing or older than the floor"] == 3

@@ -172,3 +172,41 @@ isn't in reach, or combining a rope with things that don't fit.
 - Several held-out episodes.
 - Lighter weighting.
 - Shorter prompts.
+
+## 6. Round 2: DAgger
+
+The teacher answers the student's own situations, and the student retrains on those answers plus the original teacher
+episodes.
+
+**Label.** The live world logs every decision's full prompt (`messages` in `runs/<run>/thinks.jsonl`).
+
+```sh
+uv run python scripts/dagger_label.py runs/20261103-104243 runs/<later run> \
+  --base-url http://192.168.50.42:11434/v1 --model gpt-oss:20b --out runs/dagger-r2 \
+  --failures-first --limit 6000 --concurrency 8
+```
+
+- It picks the student's act decisions (model starts with `--student-prefix`, default `swarm-student`), failures first
+  (the action failed, was a no-op, or the think failed), then the rest shuffled with a fixed seed. `--limit` applies,
+  then identical prompts are deduped.
+- Each prompt goes to the teacher unchanged, with the same schema the live brain sends. A failed request is retried
+  twice, then skipped and counted. Progress prints every 100 labels, with a summary at the end.
+- It writes `runs/dagger-r2/<source run>-dagger/`: `thinks.jsonl` grows one line per label as it completes, and
+  `meta.json` (with `"dagger": true`) and `done` come at the end. After a crash the folder has no `done` (the export skips
+  it); rerun the same command with `--resume` to label only what is missing.
+- **Licensing.** Gemini outputs must never enter training. Only runs named at or after `--since-run` (default
+  `20261103-104243`, the fresh world with no Gemini mind) are read, and a run with the word Gemini or Google anywhere in
+  its raw `thinks.jsonl` is refused. `--since-run` cannot go below that default, and the export checks every DAgger
+  folder's `source_runs` against the same floor. Refusals exit 1 before any request.
+
+**Export.** Pass the DAgger folder together with the teacher episodes:
+
+```sh
+uv run python scripts/export_training.py runs/teacher runs/dagger-r2 --out data/student/round2 --valid-episodes 2
+```
+
+- `--valid-episodes N` (default 2) holds out N whole episodes (seeds). DAgger episodes are never held out: validation
+  is real teacher episodes only.
+- DAgger rows weigh 1 (they were never executed, so there is no outcome to reward).
+- A craft now weighs 1.5 instead of 3 (round 1's weighting over-fed `combine`); discoveries and eating while hungry
+  keep their weights.
