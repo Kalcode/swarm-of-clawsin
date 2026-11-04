@@ -454,3 +454,13 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **wishes:** none explicit. The newest are wistful lines from reflections, such as Hux's "resin source to seal the
   net more" (after inventing the net) and Dree's "reliable wheat seed trader". Left as they are.
 - **round 2:** step 2,600 of 4,000, validation loss 0.413. The best so far was 0.386 at step 2,400.
+
+### 02:13 watch (tick 55,842): steady; one hint deployed
+- **admin:** healthy. gpt-oss made 672 acts since 54,050, 86% successful, p50 7.8 s, p90 13.4 s. No streaks, no
+  collapses.
+- **fix (deployed 02:19, f221baf + 339ccae, reviewed):** 38 of the failed gives were rope the creature didn't hold,
+  with the plant fiber in hand. The hint now adds "you have the ingredients, so craft it first" when a craft would
+  work right now.
+- **round 2:** step 3,400 of 4,000, validation loss 0.459. Each check scores only 50 of 3,167 examples, so it wobbles
+  between 0.39 and 0.46. A checkpoint is saved every 200 steps, including step 2,400 (0.386), if one should be fused
+  instead.
