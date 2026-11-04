@@ -1319,7 +1319,7 @@ def _feed_fire(world: World, c: Creature, fire: WorldObject, it: Intention) -> A
     fuel = FUEL.get(iid)
     if not fuel:
         held = [f for f in FUEL if c.inventory.get(f, 0) > 0]
-        what = (f"Your {world.catalog.name(held[0])} would burn: give that instead." if held
+        what = (f"Your {world.catalog.name(max(held, key=FUEL.get))} would burn: give that instead." if held
                 else "Sticks, logs and charcoal burn; break sticks off trees.")
         return ActionResult(False, f"The {world.catalog.name(iid)} won't burn. {what}")
     n = min(max(it.count, 1), c.inventory[iid])

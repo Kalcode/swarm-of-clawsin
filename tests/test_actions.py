@@ -996,3 +996,7 @@ def test_what_will_not_burn_says_what_would(world):
     c.inventory["stick"] = 2
     res = act(world, c, action="give", target="campfire", items=["rope"])
     assert not res.ok and "Your stick would burn: give that instead." in res.message
+    c.inventory.pop("stick")
+    c.inventory.update({"plant_fiber": 3, "coal": 1})  # the best fuel held, not the first listed
+    res = act(world, c, action="give", target="campfire", items=["rope"])
+    assert "Your coal would burn" in res.message
