@@ -664,3 +664,10 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **frontier:** the fresh world's first explore act, by Jun (an explorer, student). Still 0 strips.
 - Ollama's "token repeat limit" think failure hit Tula (c3748) at 10:06 and again at 11:52. It's a gpt-oss repetition
   on that creature's prompt; one lost turn each, so I'm leaving it.
+
+### 13:12 watch (tick 18,669): gpt-oss dips on stick loops; fixed at 13:18
+- 1 watching, load about 3.2, public 200. gpt-oss is at 87% (from 95%), the student at 88%. No streaks.
+- Most of gpt-oss's failures: Gus (25), Gale (14) and Tula (5) giving sticks they didn't hold, mostly to the campfire,
+  told only "Stick: break them off trees".
+  - Fix (1070bff, reviewed, deployed 13:18): the hint names the nearest unspent source in sight.
+- Elm (gpt-oss) explored twice. The frontier has 0 strips.
