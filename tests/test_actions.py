@@ -160,7 +160,11 @@ def test_the_myth_hint_says_how_to_invent_and_when(world):
     # Hux combined toward a "net" 44 times, told "you could invent it" but never shown the invent verb (crowded out
     # of the tips); the hint now spells it out, and once a day's invention is used it says tomorrow
     c = creature(world)
-    c.inventory.update({"stick": 1, "rope": 1})
+    c.inventory.update({"stick": 1, "rope": 1})  # too little to invent with (invent wants at least 3 items in all)
+    res = act(world, c, action="combine", items=["stick", "rope"], target="net")
+    assert "No one has ever made a 'net'" in res.message and "at least 3 items in all" in res.message
+    assert "invent with" not in res.message
+    c.inventory["rope"] = 2
     res = act(world, c, action="combine", items=["stick", "rope"], target="net")
     assert 'invent with target "net", items ["rope", "stick"]' in res.message and "text" in res.message
     c.stats[f"invented_day_{world.clock()['day']}"] = 1

@@ -1030,7 +1030,9 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         dream = _dream(world, c, hint)
         if dream:
             if c.stats.get(f"invented_day_{world.clock()['day']}", 0) >= 1:
-                how = "You've already invented something today; tomorrow you could invent it with these things."
+                how = "You've already invented something today; tomorrow you could invent it."
+            elif not (2 <= len(ids) <= 4 and sum(min(2, c.inventory.get(i, 0)) for i in ids) >= 3):  # _invent's rules
+                how = "If you believe in it, you could invent it from 2 to 4 different things you carry, at least 3 items in all."
             else:  # the invent verb is often crowded out of the tips, so say how
                 items_txt = json.dumps([world.catalog.name(i) for i in sorted(ids)], ensure_ascii=False)
                 how = (f'If you believe in it, you could invent it with these things: invent with target "{dream}", '
