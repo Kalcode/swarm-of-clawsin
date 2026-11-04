@@ -162,9 +162,9 @@
     }
     // Deep water and forest floor are darker versions of water and grass. The
     // tint is painted one pixel per tile and scaled up smoothly so the regions
-    // fade into each other instead of forming blocks. The mask holds PAD columns beyond the span (inside the map), so
+    // fade into each other instead of forming blocks. The mask holds PAD (4) columns beyond the span (inside the map), so
     // the smoothing at a chunk's edge sees its neighbour and the chunks meet without a seam.
-    const PAD = 2;
+    const PAD = 4;
     const m0 = Math.max(0, x0 - PAD), m1 = Math.min(width, x1 + PAD);
     const mask = document.createElement('canvas');
     mask.width = m1 - m0; mask.height = height;

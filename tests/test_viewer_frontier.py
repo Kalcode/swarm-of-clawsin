@@ -10,7 +10,7 @@ from swarmworld.server.public_view import public_static
 from swarmworld.server.state import ServerState
 from swarmworld.world.model import FrontierSettings
 from swarmworld.world.packs.frontier import grow
-from tests.test_viewer_layers import LZ_PLAIN, WEB, needs_node, run_layers, run_skin  # noqa: F401  (run_layers: fixture use)
+from tests.test_viewer_layers import LZ_PLAIN, NODE, WEB, needs_node, run_layers, run_skin  # noqa: F401  (run_layers: fixture use)
 from tests.test_viewer_layers import default_map  # noqa: F401  (fixture)
 
 # Both tests below render the same rows (the default map: 128 surface rows with their nature rows, 128 deep rows) with
@@ -130,12 +130,15 @@ def test_chunk_spans_dirty_chunks_and_the_grow_shift(tmp_path, default_map):
       delete out.dirty.tiles;
       out.none = L.applyTiles(init.tiles, [[999, 5, 'w']], R).chunks;
       out.sameChunk = L.applyTiles(init.tiles, [[64, 5, 'w'], [95, 6, 'w'], [96, 6, 'w']], R).chunks;
+      out.edges = [63, 64, 0, 127, 96].map((x) => L.applyTiles(init.tiles, [[x, 5, 'w']], R).chunks);
       out.shift = [L.growShift({ side: 'west', columns: 32 }), L.growShift({ side: 'east', columns: 32 }), L.growShift(null)];
     """)
     assert out["spans"] == [[0, 32], [32, 64], [64, 96], [96, 128], [128, 130]] and out["chunk"] == 32
     assert out["dirty"] == {"dirty": ["surface", "deep"], "chunks": ["surface:64", "deep:0"]}
     assert out["none"] == []
-    assert out["sameChunk"] == ["surface:64", "surface:96"]
+    assert out["sameChunk"] == ["surface:32", "surface:64", "surface:96"]
+    # a tile's neighbours (shorelines, wall rims, autotiles) are read across a chunk edge: both chunks are redrawn
+    assert out["edges"] == [["surface:32", "surface:64"], ["surface:32", "surface:64"], ["surface:0"], ["surface:96"], ["surface:64", "surface:96"]]
     assert out["shift"] == [32, 0, 0]
 
 
@@ -169,4 +172,76 @@ def test_init_and_static_carry_the_origin():
 
 def test_the_viewer_wires_growth():
     src = (WEB / "viewer.js").read_text()
-    assert "case 'grow'" in src and "SwarmLayers.growShift" in src and "setOrigin(" in src and "chunkSpans(" in src
+    assert "case 'grow'" in src and "setOrigin(" in src and "chunkSpans(" in src
+    assert "m.origin_x | 0) - T.origin()" in src   # the camera shifts with the init, not with the notice
+
+
+@needs_node
+def test_an_init_with_a_new_origin_keeps_the_camera_on_its_spot(tmp_path):
+    """A viewer that reconnects after a west growth gets no `grow`, only the init: the shift comes with it."""
+    out = run_viewer_init(tmp_path)
+    assert out["cam"] == [10, 42] and out["voice"] == 42 and out["same"] == [5, 37]   # cam, voice target, an event's x
+    assert out["noShift"] == 10                                                          # the same origin: nothing moves
+    assert out["first"] == 32                                                            # the first init fits the map
+
+
+def run_viewer_init(tmp_path) -> dict:
+    """Loads viewer.js against a stub page (a Proxy for the DOM) and feeds it inits; returns what it did to the camera."""
+    harness = tmp_path / "viewer_init.js"
+    harness.write_text(VIEWER_HARNESS)
+    r = subprocess.run([NODE, str(harness), str(WEB)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+VIEWER_HARNESS = r"""
+const fs = require('fs'), path = require('path');
+const WEB = process.argv[2];
+const el = () => new Proxy(function () {}, {
+  get(t, k) {
+    if (k === Symbol.toPrimitive) return () => '';
+    if (k === 'dataset') return {};
+    if (k === 'style') return new Proxy({}, { get: () => () => '', set: () => true });
+    if (k === 'classList') return { add() {}, remove() {}, toggle() {}, contains: () => false };
+    if (k === 'children' || k === 'childNodes') return [];
+    if (k === 'getContext') return () => new Proxy({}, { get: (a, b) => (b === 'measureText' ? () => ({ width: 0 }) : () => ({ addColorStop() {} })), set: () => true });
+    if (k === 'getBoundingClientRect') return () => ({ left: 0, top: 0, width: 800, height: 600 });
+    if (k === 'width' || k === 'height' || k === 'clientWidth' || k === 'clientHeight') return 800;
+    if (k === 'length') return 0;
+    return el();
+  },
+  set() { return true; },
+  apply() { return el(); },
+});
+global.window = global;
+global.document = new Proxy({}, { get: (t, k) => (k === 'readyState' ? 'loading' : k === 'fonts' ? undefined : k === 'documentElement' || k === 'body' ? el() : () => el()) });
+document.addEventListener = () => {};
+global.addEventListener = () => {};
+global.localStorage = { getItem: () => null, setItem() {} };
+global.location = { search: '', hostname: 'x', href: 'http://x/', protocol: 'http:', host: 'x' };
+global.performance = { now: () => 1000 };
+global.requestAnimationFrame = () => 0;
+global.matchMedia = () => ({ matches: false, addEventListener() {} });
+global.getComputedStyle = () => ({ getPropertyValue: () => '' });
+global.Image = class {};
+global.innerWidth = 800; global.innerHeight = 600;
+global.fetch = async () => ({ ok: false, json: async () => ({}) });
+global.WebSocket = class { constructor() {} close() {} };
+global.ResizeObserver = class { observe() {} };
+for (const f of ['tiles.js', 'layers.js', 'viewer.js']) {
+  try { (0, eval)(fs.readFileSync(path.join(WEB, f), 'utf8')); } catch (e) { process.stderr.write(f + ': ' + e.stack + '\\n'); process.exit(2); }
+}
+const S = window.SwarmViewer.state;
+const init = (width, origin) => ({ type: 'init', width, height: 64, origin_x: origin, tiles: Array.from({ length: 64 }, () => 'g'.repeat(width)),
+  objects: [], creatures: [], regions: [], tick: 1 });
+const out = {};
+window.SwarmViewer.onMessage(init(64, 0));
+out.first = S.cam.x;
+S.cam.x = 10; S.cam.y = 20; S.voice.target = { x: 10, y: 3 }; S.events.push({ x: 5, y: 1 });
+window.SwarmViewer.onMessage(init(64, 0));
+out.noShift = S.cam.x;
+window.SwarmViewer.onMessage(init(96, 32));        // a west strip: no `grow` first, as on a reconnect
+out.cam = [10, S.cam.x]; out.voice = S.voice.target.x; out.same = [5, S.events[0].x];
+process.stdout.write(JSON.stringify(out), () => process.exit(0));   // the viewer's timers would keep it running
+"""
+

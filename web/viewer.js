@@ -257,25 +257,27 @@
     if (connState === 'connecting') setConn(DEMO ? 'demo' : 'live');
     switch (msg.type) {
       case 'init': applyInit(msg); break;
-      case 'grow': applyGrow(msg); break;
+      case 'grow': applyGrow(); break;
       case 'tick': applyTick(msg); break;
       case 'metrics': applyMetrics(msg); break;
       default: break;
     }
   }
 
-  /** A strip of land was laid (the fresh init follows at once and redraws the map, keeping the camera). A strip on the
-   *  west moves every old column east by its width: the camera and what remembers a column go with it, so the view
-   *  stays on the same spot of the world. Moving objects' animations are dropped; their new places come with the init. */
-  function applyGrow(m) {
-    const dx = SwarmLayers.growShift(m);
-    if (dx) {
-      S.cam.x += dx;
-      if (S.voice.target) S.voice.target.x += dx;
-      for (const ev of S.events) if (isNum(ev.x)) ev.x += dx;
-      for (const li of $('feed').children) if (li.dataset.x !== undefined) li.dataset.x = String(+li.dataset.x + dx);
-    }
-    S.objAnim.clear();
+  /** A strip of land was laid. Only a notice: the fresh init that follows carries the camera's shift (see applyInit),
+   *  so a viewer that reconnects after a growth, and gets no notice, lands on the same spot too. Moving objects'
+   *  animations are dropped; their new places come with the init. */
+  function applyGrow() { S.objAnim.clear(); }
+
+  /** Moves everything that remembers a world column east by dx: the camera, the voice's target, the feed's places, a
+   *  zoom in progress and a drag in progress. */
+  function shiftColumns(dx) {
+    S.cam.x += dx;
+    if (S.voice.target) S.voice.target.x += dx;
+    for (const ev of S.events) if (isNum(ev.x)) ev.x += dx;
+    for (const li of $('feed').children) if (li.dataset.x !== undefined) li.dataset.x = String(+li.dataset.x + dx);
+    if (S.zoom.anchor) S.zoom.anchor.wx += dx;
+    if (drag) drag.cx += dx;
   }
 
   function applyInit(m) {
@@ -287,6 +289,8 @@
     if (!SwarmLayers.byName(S.regions, S.layer)) S.layer = (SwarmLayers.byName(S.regions, 'surface') || S.regions[0]).name;
     S.land = SwarmLayers.landFor(m.nature, S.width, S.regions);   // the surface's biomes and rivers
     T.setKinds(m.kinds);
+    // a strip laid on the west moved every old column east by its width: the view goes with them, in step with the redraw
+    if (!first && (m.origin_x | 0) - T.origin()) shiftColumns((m.origin_x | 0) - T.origin());
     T.setOrigin(m.origin_x | 0);     // before anything renders: tile looks are hashed on x - origin
     S.terrains = {};
     S.dirty.clear();
@@ -3321,7 +3325,7 @@
   }
 
   // Handle for debugging from the console; the viewer itself does not use it.
-  window.SwarmViewer = { state: S, select: (id) => select(id, true), deselect };
+  window.SwarmViewer = { state: S, onMessage, select: (id) => select(id, true), deselect };
 
   boot();
 })();

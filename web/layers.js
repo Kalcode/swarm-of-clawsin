@@ -104,7 +104,10 @@
       if (!rows.has(y)) rows.set(y, row.split(''));
       rows.get(y)[x] = code;
       const r = regionAt(regions, y);
-      if (r) { hit.add(r.name); chunks.add(r.name + ':' + Math.floor(x / CHUNK) * CHUNK); }
+      if (r) { hit.add(r.name); 
+        // a tile's neighbours (shorelines, wall rims, autotiles) are read across a chunk edge: the chunks of x-1 and x+1 too
+        for (const nx of [x - 1, x, x + 1]) if (nx >= 0 && nx < row.length) chunks.add(r.name + ':' + Math.floor(nx / CHUNK) * CHUNK);
+      }
     }
     if (!rows.size) return { tiles, dirty: [], chunks: [] };
     const out = tiles.slice();
