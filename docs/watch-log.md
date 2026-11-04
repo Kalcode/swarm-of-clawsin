@@ -502,3 +502,11 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
     ..., but: ... nothing comes of it"), and it tries again.
   - Not a world fix: these are the failures a third DAgger round labels first.
 - **frontier:** the creatures span x 55–81, all far from the edges, and nobody has explored.
+
+### 04:13 watch (tick 63,024): both minds improving; the student invents
+- **admin:** both nodes are up, no errors, the tunnel answers 200, and the frontier has 0 strips (nobody explored).
+- **gpt-oss:** 620 acts since 61,229, 92% successful, p50 7.4 s, p90 12.7 s. No streaks.
+- **student (round 2):** 1,018 acts, 80% successful (76% at 03:43), p50 14.1 s, p90 19.1 s. No streaks.
+- **invention:** Inka, on the round-2 student, invented the **spinning wheel** at 61,490 ("Spinning with the stick!"),
+  something to place. It has no effect yet; the effect words don't cover spinning.
+  - Idea (parked): a placed spinning wheel could speed up rope making beside it, as a station.
