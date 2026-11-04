@@ -606,3 +606,14 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **first invention in the fresh world:** Mirth (gpt-oss) invented the **net** at tick 1,846: "a fishing net would
   help tomorrow".
 - **frontier:** 0 strips, and no explore acts yet.
+
+### 09:12 watch (tick 4,297): the student at 90%; food pressure near camp
+- **public:** 3 watching, load about 3.6, live.json 200, the app page a cache HIT, the tunnel running.
+- **gpt-oss:** 639 acts, 95% successful, p50 7.4 s. **student:** 1,057 acts, **90%** successful (its best so far), p50
+  13.9 s. No streaks, no errors.
+- **invention:** Teo (gpt-oss) invented the **rope sling**, a tool.
+- **food:** bushes near camp are picked over. Several creatures are low (Hux 10, Gale 18, Cyd 20), and Suki wished
+  "berries to feed me tonight" 6 times. They cope: seeds feed little ("still hungry"), and they walk to fruiting
+  bushes. Hux ate, then gathered 4 berries with his net. There are 497 bushes on the map and no collapses, so no
+  intervention; that's natural pressure. Revisit if anyone collapses.
+- **frontier:** 0 strips, and still no explore acts.
