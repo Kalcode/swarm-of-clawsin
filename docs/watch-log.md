@@ -656,3 +656,11 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - The toggle is now a sidebar glyph: a window with its right pane, filled while the panel is open.
 - Checked at 412 and 360 px (with a two-digit count) and 1440 px. It went live on the public page through the 10 s
   rescan, with no restart. 1,138 tests pass.
+
+### 12:12 watch (tick 15,077): the first explore
+- 1 watching, load about 3.3, live.json 200 (0.85 s on an edge revalidation), the tunnel running.
+- **gpt-oss:** 594 acts, 94% successful (p50 7.7 s). **student:** 1,103 acts, 91% successful (p50 13.5 s). No
+  streaks, no collapses (the lowest is Dree at 18).
+- **frontier:** the fresh world's first explore act, by Jun (an explorer, student). Still 0 strips.
+- Ollama's "token repeat limit" think failure hit Tula (c3748) at 10:06 and again at 11:52. It's a gpt-oss repetition
+  on that creature's prompt; one lost turn each, so I'm leaving it.
