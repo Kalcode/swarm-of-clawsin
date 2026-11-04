@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import logging
 import random
+import traceback
 import zlib
 from typing import TYPE_CHECKING
 
@@ -133,13 +134,17 @@ def grow(world: World, side: str, by: Creature | None = None, theme: str | None 
     why = why_not_grow(world, side)
     if why and not (ignore_pace and why == "pace"):
         return []
-    kept = _keep(world)
+    kept = None
     try:
+        kept = _keep(world)
         return _lay(world, side, by, theme)
     except Exception as exc:
-        _put_back(world, kept)
-        log.error("frontier: the strip to the %s failed and was taken back; nothing grew (%s: %s)", side,
-                  type(exc).__name__, " ".join(str(exc).split()))
+        if kept is not None:
+            _put_back(world, kept)
+        at = traceback.extract_tb(exc.__traceback__)[-1]
+        log.error("frontier: the strip to the %s failed and was taken back; nothing grew (%s: %s, at %s:%s in %s)",
+                  side, type(exc).__name__, " ".join(str(exc).split()), at.filename.rsplit("/", 1)[-1], at.lineno,
+                  at.name)
         return []
 
 
@@ -177,7 +182,9 @@ def _lay(world: World, side: str, by: Creature | None, theme: str | None) -> lis
         for kind, x, y, data in land.objects:
             if (x0 + x, y0 + y) not in world.grid:
                 world.add_object(kind, x0 + x, y0 + y, **data)
-    # the deep under the strip stays solid rock for now
+    from . import underground  # inside the function: pack order and the golden hashes stay as they were
+    mouths = [(x0 + land.mouth[0], y0 + land.mouth[1]) for (_, land), (x0, y0, _, _) in zip(made, rects) if land.mouth]
+    underground.grow_under(world, rects[0][0], rects[0][2], random.Random(f"{seed}:{lx}:deep"), mouths)
     for ly, rect in enumerate(rects):
         run_populate_land(world, random.Random(f"{seed}:{lx}:{ly}:populate"), rect)
     rec = world.frontier_record()
