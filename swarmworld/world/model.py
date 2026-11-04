@@ -119,6 +119,7 @@ class Creature:
     seen: dict = field(default_factory=dict)
     seen_pos: dict = field(default_factory=dict)  # lowercase name -> (x, y, tick) where last seen
     last_noop: str = ""  # "action target" of the last turn that changed nothing
+    last_dream: str = ""  # the new thing its last combine named, told it could invent it (not saved)
     spots: dict = field(default_factory=dict)  # object kind (or "water") -> (x, y, tick) of the nearest one last seen
     minds: list = field(default_factory=list)  # earlier models that thought for this body: {"model", "until"}
     stats_base: Counter = field(default_factory=Counter)  # stats earned before the current mind took over

@@ -1033,7 +1033,13 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
                 how = "You've already invented something today; tomorrow you could invent it."
             elif not (2 <= len(ids) <= 4 and sum(min(2, c.inventory.get(i, 0)) for i in ids) >= 3):  # _invent's rules
                 how = "If you believe in it, you could invent it from 2 to 4 different things you carry, at least 3 items in all."
+            elif c.last_dream == dream:  # told it could invent it, it tries again: it believes in it
+                c.last_dream = ""
+                res = _invent(world, c, Intention("invent", target=dream, items=[world.catalog.name(i) for i in sorted(ids)],
+                                                  text=it.text))
+                return replace(res, message=f"You believe in the {dream}. {res.message}") if res.ok else res
             else:  # the invent verb is often crowded out of the tips, so say how
+                c.last_dream = dream
                 items_txt = json.dumps([world.catalog.name(i) for i in sorted(ids)], ensure_ascii=False)
                 how = (f'If you believe in it, you could invent it with these things: invent with target "{dream}", '
                        f"items {items_txt}, and text saying what it is or does.")
