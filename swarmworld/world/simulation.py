@@ -230,18 +230,26 @@ class Simulation:
         moved to the food."""
         if c.satiety >= 35:
             return False
-        from .actions import food_within
-        if food_within(self.world, c, 4) is None:
-            return False
-        before = (c.x, c.y)
+        from .actions import food_within, station_near
+        w = self.world
         eaten: Counter = Counter()
-        self._eat_in_reach(c, eaten)
-        if not eaten and self._stagger_to_food(c, 4):
+        self._eat_carried(c, eaten, skip_seeds=True)  # the pack first, seeds excepted; no walk for that
+        if not eaten:
+            before = (c.x, c.y)
+            # a creature already in a bed or under a roof eats only what is in reach: it doesn't leave its bed
+            housed = bool(station_near(w, c, "bed")) or perception.roof_over(w, c.x, c.y) is not None
+            if food_within(w, c, 0 if housed else 4) is None:
+                return False
             self._eat_in_reach(c, eaten)
-        if eaten:
-            self.remember(c, "You ate before lying down.", 1)
+            if not eaten and self._stagger_to_food(c, 4):
+                self._eat_in_reach(c, eaten)
+            if eaten:
+                self.remember(c, "You ate before lying down.", 1)
+            c.wake_reason = None
+            return (c.x, c.y) != before
+        self.remember(c, "You ate before lying down.", 1)
         c.wake_reason = None
-        return (c.x, c.y) != before
+        return False
 
     def _start_sleep(self, c: Creature, snug: bool) -> None:
         from .actions import station_near
@@ -267,25 +275,33 @@ class Simulation:
         """A survival reflex that needs no thought: a starving body eats what it carries, or berries within reach, or
         other wild food within reach (a mushroom patch, wild herbs)."""
         w = self.world
-        foods = sorted((i for i, n in c.inventory.items() if n > 0 and w.catalog.items[i].food > 0),
-                       key=lambda i: -w.catalog.items[i].food)
+        from .actions import food_within
         eaten: Counter = Counter()
-        for i in foods:
-            while c.inventory.get(i, 0) > 0 and c.satiety < 60:
-                c.inventory[i] -= 1
-                c.satiety = min(100.0, c.satiety + w.catalog.items[i].food)
-                eaten[i] += 1
-            if c.inventory.get(i, 0) <= 0:
-                c.inventory.pop(i, None)
+        self._eat_carried(c, eaten, skip_seeds=food_within(w, c, 3) is not None)  # seed stock is for planting
         if c.satiety < 60:
             self._eat_in_reach(c, eaten)
-        if c.satiety < 60 and not eaten:  # nothing within arm's reach: stagger up to 3 steps to the nearest food
+        if c.satiety < 10:  # still starving, nothing within arm's reach: stagger up to 3 steps to the nearest food
             if self._stagger_to_food(c, 3):
                 self._eat_in_reach(c, eaten)
         if eaten:
             what = ", ".join(f"{n} {w.catalog.name(i)}" for i, n in eaten.items())
             w.emit("eat", c.id, c.x, c.y, f"{c.name}, starving, wolfed down {what}.")
             self.remember(c, f"Starving, you wolfed down {what} without thinking. Eat before it gets that bad.", 3)
+
+    def _eat_carried(self, c: Creature, eaten: Counter, skip_seeds: bool = False) -> None:
+        """Eat what the creature carries, best food first, up to satiety 60; seeds only when not skipped."""
+        w = self.world
+        items = w.catalog.items
+        foods = sorted((i for i, n in c.inventory.items()
+                        if n > 0 and items[i].food > 0 and not (skip_seeds and "seed" in items[i].tags)),
+                       key=lambda i: -items[i].food)
+        for i in foods:
+            while c.inventory.get(i, 0) > 0 and c.satiety < 60:
+                c.inventory[i] -= 1
+                c.satiety = min(100.0, c.satiety + items[i].food)
+                eaten[i] += 1
+            if c.inventory.get(i, 0) <= 0:
+                c.inventory.pop(i, None)
 
     def _eat_in_reach(self, c: Creature, eaten: Counter) -> None:
         """Eat, up to satiety 60, from what is within arm's reach: berries from a bush, then a food patch or a ripe crop."""

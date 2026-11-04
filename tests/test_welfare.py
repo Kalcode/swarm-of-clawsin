@@ -126,3 +126,84 @@ def test_bedtime_meal_food_must_be_within_four_steps(world):
     world.add_object("bush", 16, 10, berries=20)  # 5 steps to reach beside it
     sim._start_sleep(c, True)
     assert c.satiety == 20
+
+
+def test_starving_with_seeds_staggers_to_a_bush_and_keeps_the_seeds(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 2
+    c.inventory.update(wheat_seeds=2)
+    bush = world.add_object("bush", 13, 10, berries=6)
+    sim._reflex_eat(c)
+    assert c.inventory["wheat_seeds"] == 2 and bush.data["berries"] < 6 and c.satiety > 10
+
+
+def test_starving_with_seeds_and_no_food_near_eats_the_seeds(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 2
+    c.inventory.update(wheat_seeds=2)
+    sim._reflex_eat(c)
+    assert c.satiety == 4 and not c.inventory.get("wheat_seeds")
+
+
+def test_bedtime_meal_eats_carried_food_first_without_moving(world):
+    notes = []
+    sim = Simulation(world, memory_sink=lambda c, t, i: notes.append(t))
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(berries=20)
+    bush = world.add_object("bush", 13, 10, berries=6)
+    sim._start_sleep(c, True)
+    assert (c.x, c.y) == (10, 10) and bush.data["berries"] == 6
+    assert c.satiety >= 60 and notes == ["You ate before lying down."]
+
+
+def test_bedtime_meal_with_only_seeds_goes_to_the_bush(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 20
+    c.inventory.update(wheat_seeds=5)
+    bush = world.add_object("bush", 13, 10, berries=20)
+    sim._start_sleep(c, True)
+    assert c.inventory["wheat_seeds"] == 5 and bush.data["berries"] < 20 and c.satiety >= 60
+
+
+def test_bedtime_meal_does_not_leave_a_bed(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 20
+    world.add_object("bed", 10, 11)
+    bush = world.add_object("bush", 13, 10, berries=20)
+    sim._start_sleep(c, True)
+    assert (c.x, c.y) == (10, 10) and bush.data["berries"] == 20 and c.activity["sleep"]
+
+
+def test_ripe_wheat_is_not_food_for_the_reflex(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 3
+    world.add_object("crop", 12, 10, crop="wheat", stage=2)
+    sim._reflex_eat(c)
+    assert c.satiety == 3 and (c.x, c.y) == (10, 10)
+
+
+def test_ripe_crop_seeds_reach_the_pack(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 3
+    world.add_object("crop", 11, 10, crop="carrot", stage=2)
+    sim._reflex_eat(c)
+    assert c.inventory.get("carrot_seeds", 0) >= 1
+
+
+def test_stagger_never_lands_on_a_wall_or_a_creature(world):
+    sim = Simulation(world)
+    c = creature(world)
+    c.satiety = 3
+    other = creature(world, 12, 10)
+    world.add_object("bush", 13, 10, berries=6)
+    world.tiles[10][12] = "W"
+    sim._reflex_eat(c)
+    assert c.satiety > 3 and world.walkable(c.x, c.y) and (c.x, c.y) != (other.x, other.y)
+    assert max(abs(c.x - 13), abs(c.y - 10)) <= 1
