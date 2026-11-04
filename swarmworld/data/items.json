@@ -374,7 +374,7 @@
    "seed"
   ],
   "desc": "Plant them in soil and they grow into wheat. A poor meal in a pinch.",
-  "food": 3
+  "food": 1
  },
  "wheat": {
   "name": "wheat",
@@ -563,7 +563,7 @@
    "seed"
   ],
   "desc": "Plant them in soil and they grow into carrots. A poor meal in a pinch.",
-  "food": 3
+  "food": 1
  },
  "carrot": {
   "name": "carrot",
