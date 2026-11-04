@@ -569,3 +569,22 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   frontier has 0 strips.
 - **invention:** Ira (student) invented the **spindle wheel** ("Let's spin a wheel"), something to place with no effect
   yet. It's a cousin of Inka's spinning wheel, and both point at the parked spinning-station idea.
+
+### 07:49: stopped for the laptop restart; next is a fresh world
+- The world saved at tick 75,927 (also `worlds/default.20261104-morning.bak`). The nodes and oMLX are stopped.
+- The Show HN draft is refreshed in [docs/show-hn.md](show-hn.md).
+- **After the restart, the fresh world.** Check first that nothing is running:
+  `lsof -nP -iTCP:7777 -sTCP:LISTEN; pgrep -fl swarmworld`.
+  1. oMLX: `omlx serve --model-dir ~/models --max-concurrent-requests 16 --memory-guard-gb 20 --paged-ssd-cache-dir
+     ~/.omlx/cache --paged-ssd-cache-max-size 10GB >> runs/omlx.log 2>&1 &`
+  2. The world, fresh, logging prompts for round 3: `uv run python -m swarmworld.server --seed 7 --tick 1.0 --port
+     7777 --world worlds/default.json --harness-all plan,disclose,recall --token ef8e1e22 --lan --log-prompts
+     --frontier on --fresh`. The old save is kept as `worlds/default.<time>.bak`.
+  3. The student node, 12 creatures: `uv run python -m swarmworld.node --server ws://127.0.0.1:7777 --token ef8e1e22
+     --model-server http://127.0.0.1:8000/v1 --model swarm-student-20261104:12 --slots 12 --name student`
+  4. The pc node, 12 creatures: `uv run python -m swarmworld.node --server ws://127.0.0.1:7777 --token ef8e1e22
+     --model-server http://192.168.50.42:11434/v1 --model gpt-oss:20b:12 --slots 4 --name pc`
+  5. The tunnel, started by the user: `scripts/public-tunnel.sh start`, so that `stop` works as the kill switch.
+  - `start-world.sh` covers 1 to 3, but not `--log-prompts`, and it runs one node with shared slots, so the PC can't
+    get its own 4.
+- Then restart the watch cron and log the fresh start in docs/steward-log.md.
