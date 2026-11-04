@@ -541,3 +541,13 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - Suki took the very 6 rope Mirth had been told about before Mirth acted. Mirth then got the recipe hint again.
 - **parked (minor):** Dree sent "gather rope" at a pile 5 steps away ("There's no 'rope' within reach to gather
   from"). gather could take a ground pile within reach, as pick_up already falls back to gather for growing things.
+
+### 06:43 watch (tick 72,007): gpt-oss 92%, the student dips to 69%
+- **admin:** both nodes up, no errors, the tunnel answers 200, and the frontier has 0 strips.
+- **gpt-oss:** 456 acts, 92% successful (p50 7.7 s).
+- **student:** 673 acts, 69% successful (83% at 06:13).
+  - Most of the dip is invention-hunting combines: Jun 33, Vex 28, Ira 14, Gil 14 ("one more ingredient seems to be
+    missing", "nothing comes of it"). That's mind-side, for the next DAgger round.
+  - Opal offered rope to "Mika's cow" 14 times ("The Mika's cow sniffs the rope and turns away").
+  - Fix (deployed 06:49, f7fa17a + 83cee62, reviewed): the refusal now says what the animal eats, and the stray "The"
+    is gone.
