@@ -268,3 +268,7 @@ def test_an_animal_turning_food_down_says_what_it_eats(world):
     world.add_object("sheep", 9, 10)
     res = apply_intention(world, opal, Intention("give", target="sheep", items=["rope"]))
     assert res.message.startswith("The sheep sniffs the rope")
+    cow = next(o for o in world.objects.values() if o.kind == "cow")
+    tame(cow, owner="Mika")
+    res = apply_intention(world, opal, Intention("give", target="cow", items=["berries"]))
+    assert res.ok and res.message.startswith("Mika's cow eats happily from your hand.")

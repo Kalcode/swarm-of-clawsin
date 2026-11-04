@@ -1283,6 +1283,11 @@ def _wild_refusal(animal: WorldObject) -> ActionResult:
                                f"eat from anyone's hand, but it could be hunted.")
 
 
+def _the_animal(animal: WorldObject) -> str:
+    """How a sentence starts with the animal: "Mika's cow" once tamed (its label), else "The cow"."""
+    return animal.name if animal.data.get("label") else f"The {animal.name}"
+
+
 def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) -> ActionResult:
     if is_wild(animal.kind):  # before walking over: game never waits to be fed
         if dist(c.x, c.y, animal.x, animal.y) <= 1:
@@ -1295,11 +1300,10 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
     if not iid:
         return ActionResult(False, err)
     if iid not in ANIMAL_FOOD:
-        who = animal.name if "'s " in animal.name else f"the {animal.name}"  # "Mika's cow", not "The Mika's cow"
         held = sorted(f for f in ANIMAL_FOOD if c.inventory.get(f, 0) > 0)
         what = (f"Your {world.catalog.name(held[0])} might tempt it." if held
                 else "Animals eat wheat, seeds, berries, carrots or plant fiber.")
-        return ActionResult(False, f"{who[0].upper()}{who[1:]} sniffs the {world.catalog.name(iid)} and turns away. {what}")
+        return ActionResult(False, f"{_the_animal(animal)} sniffs the {world.catalog.name(iid)} and turns away. {what}")
     c.inventory[iid] -= 1
     if c.inventory[iid] <= 0:
         del c.inventory[iid]
@@ -1308,7 +1312,7 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
     animal.data["hunger"] = max(0, animal.data.get("hunger", 20) - 60)
     animal.data["fed_by"] = sorted({*animal.data.get("fed_by", ()), c.name})
     if animal.data.get("tamed_by"):
-        return ActionResult(True, f"The {animal.name} eats happily from your hand. It already belongs to {animal.data['tamed_by']}.")
+        return ActionResult(True, f"{_the_animal(animal)} eats happily from your hand. It already belongs to {animal.data['tamed_by']}.")
     if fed >= 2:
         animal.data.update(tamed_by=c.name, home=[animal.x, animal.y], ready_at=world.tick + 120)
         animal.data["label"] = f"{c.name}'s {animal.kind}"
@@ -1318,7 +1322,7 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
         gift = {"chicken": "It will lay eggs you can gather.", "cow": "You can gather milk from it.",
                 "sheep": "You can shear its wool with a knife."}.get(animal.kind, "")  # a pack's animal: no gift text
         return ActionResult(True, f"The {animal.kind} trusts you now and stays near this spot. {gift}".strip())
-    return ActionResult(True, f"The {animal.name} eats warily from your hand. Maybe it will trust you if you feed it again.")
+    return ActionResult(True, f"{_the_animal(animal)} eats warily from your hand. Maybe it will trust you if you feed it again.")
 
 
 FUEL = {"stick": 300, "log": 900, "charcoal": 1200, "plant_fiber": 60}  # campfire ticks per item; packs add theirs
