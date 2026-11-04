@@ -473,3 +473,8 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - Next: an offline comparison on round 1's validation episode (s101), which neither round trained on. The same 100
   decisions are scored for round 1, the round-2 final, and the round-2 step-2,400 checkpoint. Then oMLX restarts to
   list the model, and the student node adopts its 12 sleepers.
+
+### 02:43 watch (tick 57,638): 91%, the best stretch tonight
+- **admin:** healthy since the 02:19 restart. gpt-oss made 441 acts, 91% successful, p50 7.6 s, p90 13.3 s. No streaks.
+- **win:** the craft-it-first hint fired 6 times. 5 of those creatures next crafted the thing or gave it: Tula and Gale
+  made rope, and Sage made a campfire.
