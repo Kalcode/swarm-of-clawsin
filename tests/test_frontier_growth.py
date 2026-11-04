@@ -73,7 +73,7 @@ def test_an_east_strip_widens_every_region():
     n = w.ext["nature"]
     assert len(n["biomes"]) == 48 and all(len(r) == 80 for r in n["biomes"] + n["flow"])
     assert (w.origin_x, w.center, w.regions) == (0, (24, 24), regions)
-    assert all(w.tiles[y][48:] == ["R"] * 32 for y in range(w.region("deep").y0, w.height))  # the deep: Task 6's
+    assert all(w.tiles[y][48:50] == w.tiles[y][78:] == ["R"] * 2 for y in range(w.region("deep").y0, w.height))
 
 
 def test_a_west_strip_shifts_the_old_world_by_32():
@@ -179,7 +179,7 @@ def test_the_seed_is_the_worlds_or_read_from_its_land():
     assert frontier_seed(w) == seed  # kept in the record from then on
 
 
-def test_a_land_is_shaped_and_stocked_before_the_packs_fill_it():
+def test_a_land_is_shaped_and_stocked_before_the_packs_fill_it(caplog):
     w = world48()
     expected = _expected(w, "east")
     seen = []
@@ -191,7 +191,9 @@ def test_a_land_is_shaped_and_stocked_before_the_packs_fill_it():
     with registry.sandbox():
         registry.register_populate("probe", lambda world, rng, fresh: None, land=probe)
         registry.POPULATE.insert(0, registry.POPULATE.pop())  # ahead of food's and nature's land hooks
-        keys = grow(w, "east")
+        with caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
+            keys = grow(w, "east")
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]  # the growth worked, it wasn't taken back
     assert [b for b, _, _ in seen] == [land_rect(w, k) for k in keys]
     for (bounds, placed, widened), land in zip(seen, expected):
         x0, y0 = bounds[:2]
@@ -286,6 +288,7 @@ def test_a_failing_shift_hook_leaves_the_world_as_it_was(caplog):
     assert "frontier" not in w.ext and w.origin_x == 0
     lines = [r for r in caplog.records if "shift boom" in r.getMessage()]
     assert len(lines) == 1 and "\n" not in lines[0].getMessage() and lines[0].exc_info is None
+    assert re.search(r"at \w+\.py:\d+ in boom\)$", lines[0].getMessage())  # names the raising frame
     assert grow(w, "west") and (ada.x, w.origin_x) == (x + 32, 32)  # with the hook gone, the strip goes in
 
 
@@ -413,3 +416,11 @@ def test_a_strip_is_laid_quickly():
     t = time.perf_counter()
     assert grow(w, "east") and w.width == 160
     assert time.perf_counter() - t < 1.0
+
+
+def test_a_failing_copy_is_logged_and_nothing_grows(monkeypatch, caplog):
+    w = world48()
+    monkeypatch.setattr(frontier, "_keep", lambda world: (_ for _ in ()).throw(RuntimeError("copy boom")))
+    with caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
+        assert grow(w, "east") == []
+    assert w.width == 48 and len([r for r in caplog.records if "copy boom" in r.getMessage()]) == 1

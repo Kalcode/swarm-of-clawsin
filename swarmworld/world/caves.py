@@ -18,6 +18,7 @@ BORDER = 2  # rows and columns of rock along every edge of the deep
 ROCK_CHANCE = 0.48
 PASSES = 5
 MIN_POCKET = 16
+POCKET_ROCK = 0.56  # the rock chance for a strip's pockets: sparse, so few groups survive
 STREAM_STEP = 0.7  # chance a stream step goes toward its target
 _ORTHO = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -187,6 +188,30 @@ def _carve(rng: random.Random, width: int, height: int, chance: float) -> DeepMa
     return DeepMap(rows, caverns, (px, py))
 
 
+def carve_pockets(rng: random.Random, width: int, height: int, pockets: int) -> DeepMap:
+    """A rock rectangle holding the `pockets` largest groups of at least MIN_POCKET floor tiles that the automaton
+    (POCKET_ROCK, PASSES, a BORDER of rock) leaves; the rest are filled in. No tunnels, stream or pool. caverns: the
+    kept pockets, largest first; pool: the largest's middle. With no group big enough, a 5x5 room at the middle."""
+    rock = np.array([[rng.random() < POCKET_ROCK for _ in range(width)] for _ in range(height)])
+    _border(rock)
+    for _ in range(PASSES):
+        rock = _smooth(rock)
+        _border(rock)
+    open_ = ~rock
+    caverns = []
+    for g in _components(open_):
+        if len(g) < MIN_POCKET or len(caverns) >= pockets:
+            open_[g[:, 1], g[:, 0]] = False
+        else:
+            caverns.append((*_middle(g), len(g)))
+    if not caverns:
+        cx, cy = width // 2, height // 2
+        open_[cy - 2:cy + 3, cx - 2:cx + 3] = True
+        caverns = [(cx, cy, 25)]
+    grid = np.where(open_, "c", "R")
+    return DeepMap(["".join(r) for r in grid.tolist()], caverns, caverns[0][:2])
+
+
 # ------------------------------------------------------------------ digging into the rock
 def _interior(world: World, x: int, y: int) -> tuple[int, int, int, int] | None:
     reg = world.region_at(x, y)
@@ -217,10 +242,11 @@ def carve_chamber(world: World, x: int, y: int, r: int = 2) -> list[tuple[int, i
     return out
 
 
-def carve_passage(world: World, start: tuple[int, int],
-                  avoid: set[tuple[int, int]] = frozenset()) -> list[tuple[int, int]]:
+def carve_passage(world: World, start: tuple[int, int], avoid: set[tuple[int, int]] = frozenset(),
+                  goals: set[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
     """Dig the shortest orthogonal path through the region's interior from `start` to the main cave system: the
     largest connected group of cave floor and water outside `avoid`. Its rock tiles become cave floor; returns them.
+    With `goals`, the path ends at the nearest of those tiles instead (same search, same interior limits).
     Nothing changes when start is already in the main system or there is none to reach, or lies off the map."""
     if not 0 <= start[0] < world.width:  # the flat index below needs start's column on the map
         return []
@@ -235,11 +261,16 @@ def carve_passage(world: World, start: tuple[int, int],
     for ax, ay in avoid:
         if reg.y0 <= ay < reg.y1 and 0 <= ax < w:
             open_[ay - reg.y0, ax] = False
-    groups = _components(open_)
-    if not groups:
-        return []
     main = np.zeros(open_.shape, dtype=bool)
-    main[groups[0][:, 1], groups[0][:, 0]] = True
+    if goals is not None:
+        for gx, gy in goals:
+            if reg.y0 <= gy < reg.y1 and 0 <= gx < w:
+                main[gy - reg.y0, gx] = True
+    else:
+        groups = _components(open_)
+        if not groups:
+            return []
+        main[groups[0][:, 1], groups[0][:, 0]] = True
     main = main.ravel().tolist()
     s0 = (start[1] - reg.y0) * w + start[0]  # tiles as flat indices into the region's rows
     if main[s0]:

@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .. import actions, perception
-from ..caves import BORDER, carve_deep, carve_passage, tile_codes
+from ..caves import BORDER, _components, carve_deep, carve_passage, carve_pockets, tile_codes
 from ..catalog import DATA
 from ..model import LIGHT_ITEMS, SOLID_TILES, WATER_TILES
 from ..perception import DARK_SIGHT, direction, dist
@@ -328,6 +328,98 @@ def _stock_deep(world: World) -> None:
                 continue
             world.add_object(kind, *p, **ORE_DATA.get(kind, {}))
             placed += 1
+
+
+# ------------------------------------------------------------------ the deep under a frontier strip
+LATE_ORDINALS = ("second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
+
+
+def cave_name(world: World, up: tuple[int, int]) -> str:
+    """A cave mouth's name by its direction from the world's middle: the first of "the {way} cave", "the second {way}
+    cave" ... "the tenth {way} cave" that no portal has yet, else "the {way} cave {n}" (n from 11)."""
+    cx, cy = world.center
+    way = direction(up[0] - cx, up[1] - cy)
+    taken = {p["name"] for p in portals(world)}
+    names = [f"the {way} cave", *(f"the {o} {way} cave" for o in LATE_ORDINALS)]
+    free = next((n for n in names if n not in taken), None)
+    if free:
+        return free
+    n = 11
+    while f"the {way} cave {n}" in taken:
+        n += 1
+    return f"the {way} cave {n}"
+
+
+def _stock_pocket(world: World, rng: random.Random, floor: np.ndarray, rows: range, x0: int) -> None:
+    """Stock one pocket (`floor`: a boolean array over the strip's deep rows, True on this pocket's floor) with
+    CONFIG's pocket_counts, at least one vein of either metal. Veins and seams stand on floor touching rock; a blocking
+    thing never cuts a walk."""
+    solid = ~floor  # a strip's pockets are walled in rock, so anything off this pocket's floor is rock or another pocket
+    touches = np.zeros_like(solid)
+    touches[1:] |= solid[:-1]
+    touches[:-1] |= solid[1:]
+    touches[:, 1:] |= solid[:, :-1]
+    touches[:, :-1] |= solid[:, 1:]
+    walkable = _walker(world)
+
+    def place(kind: str, want: int) -> int:
+        ys, xs = np.nonzero(floor & touches if kind in ON_ROCK else floor)
+        spots = list(zip((xs + x0).tolist(), (ys + rows.start).tolist()))
+        rng.shuffle(spots)
+        blocking = KINDS[kind].get("blocking")
+        placed = 0
+        for p in spots:
+            if placed == want:
+                break
+            if p in world.grid or (blocking and not _blocks_nothing(walkable, *p)):
+                continue
+            world.add_object(kind, *p, **ORE_DATA.get(kind, {}))
+            placed += 1
+        return placed
+
+    metal = 0
+    for kind, (lo, hi) in CONFIG["pocket_counts"].items():
+        n = place(kind, rng.randint(lo, hi))
+        metal += n if kind in ("iron_vein", "copper_vein") else 0
+    if not metal:
+        for kind in rng.sample(("iron_vein", "copper_vein"), 2):
+            if place(kind, 1):
+                break
+
+
+def grow_under(world: World, x0: int, x1: int, rng: random.Random, mouths: list[tuple[int, int]]) -> list[dict]:
+    """The deep under a new strip (columns x0 <= x < x1, all rock before): carve 1-3 pockets in it, stock them, and
+    open a cave mouth at each of `mouths` (surface tiles) down to the pocket nearest its way up. Draws only from
+    `rng`; returns the new portals."""
+    deep = world.region("deep")
+    if deep is None:
+        return []
+    dm = carve_pockets(rng, x1 - x0, deep.height, rng.randint(1, 3))
+    rows = range(deep.y0, deep.y1)
+    for y, row in zip(rows, dm.rows):
+        world.tiles[y][x0:x1] = list(row)
+    open_ = np.array([[ch == "c" for ch in row] for row in dm.rows])
+    for g in _components(open_):
+        floor = np.zeros_like(open_)
+        floor[g[:, 1], g[:, 0]] = True
+        _stock_pocket(world, rng, floor, rows, x0)
+    goals = {(x0 + int(x), deep.y0 + int(y)) for y, x in zip(*np.nonzero(open_))}
+    made = []
+    for up in mouths:
+        down = world.below(*up)
+        if down is None:
+            continue
+        for oid in [world.grid.get(down)] if down in world.grid else []:
+            world.remove_object(oid)  # a stocked thing stands on the way up
+        if world.tile(*down) == "R":
+            world.set_tile(*down, "c")
+        cut = [down, *carve_passage(world, down, goals=goals)]
+        for x, y in cut:  # the stocked thing at the passage's end, where it meets the pocket, must not seal it
+            for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if n in goals and n in world.grid and world.objects[world.grid[n]].kind in BLOCKING:
+                    world.remove_object(world.grid[n])
+        made.append(add_portal(world, "cave", cave_name(world, up), up, down))
+    return made
 
 
 ANCIENT_TABLET = ("Worn letters, older than any above: 'WE CAME UP FROM THE DEEP AND LEFT OUR MACHINES IN THE LIGHT. "
