@@ -626,3 +626,14 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - One gpt-oss think failed at 09:21: Ollama's "prediction aborted, token repeat limit reached", a one-off.
 - **food:** better. The lowest is now Mika at 19 (Hux was at 10 at 09:12). No collapses. **frontier:** 0 strips, and
   no explore acts.
+
+### 10:12 watch (tick 7,889): steady; Cyd invents "seed"
+- **public:** 1 watching, load about 4, live.json 200, the tunnel running. HN traffic is light.
+- **gpt-oss:** 697 acts, 94% successful (p50 7.3 s). **student:** 1,039 acts, 85% successful (p50 14.0 s). No
+  streaks.
+  - A second Ollama "token repeat limit" think failure at 10:06; a one-off.
+- **invention:** Cyd (gpt-oss) invented the **seed** (2 plant fiber + 2 berries, "Here, Opal, a seed for you!").
+  Cyd used `invent` directly, so it isn't a side effect of the hints.
+  - "seed" slipped past invent's "already exists" check because only "wheat seeds" and "carrot seeds" exist.
+  - Parked (minor): the check could also refuse a name that is the head word of an existing item.
+- **food:** the lowest is Tula at 19, and there are no collapses. **frontier:** 0 strips, and no explore acts.
