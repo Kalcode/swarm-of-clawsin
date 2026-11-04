@@ -251,7 +251,7 @@ def test_eating_wild_food_out_of_reach_says_where_it_grows(world):
     c = creature(world)
     c.satiety = 10
     res = act(world, c, action="eat", target="mushroom")
-    assert not res.ok and res.message == "You don't have any mushroom."  # beside nothing: as before
+    assert not res.ok and res.message.startswith("You don't have any mushroom.")  # beside nothing: the generic refusal (plus the source hint)
     world.add_object("herb_patch", 14, 10)
     res = act(world, c, action="eat", target="herbs")
     assert not res.ok and "wild herbs 4 steps east" in res.message and c.satiety == 10
