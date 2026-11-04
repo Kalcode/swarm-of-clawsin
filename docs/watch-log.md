@@ -617,3 +617,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   bushes. Hux ate, then gathered 4 berries with his net. There are 497 bushes on the map and no collapses, so no
   intervention; that's natural pressure. Revisit if anyone collapses.
 - **frontier:** 0 strips, and still no explore acts.
+
+### 09:42 watch (tick 6,092): the student edges out gpt-oss
+- **public:** 1 watching, load about 2.9, live.json 200 in 0.18 s, the tunnel running. The app page came back EXPIRED
+  (revalidated at the edge), which is fine.
+- **student:** 758 acts, **91%** successful, p50 13.7 s. **gpt-oss:** 490 acts, 90% successful, p50 6.8 s. The first
+  stretch where the student out-succeeds its teacher, likely helped by the fresh world's easy early goals. No streaks.
+- One gpt-oss think failed at 09:21: Ollama's "prediction aborted, token repeat limit reached", a one-off.
+- **food:** better. The lowest is now Mika at 19 (Hux was at 10 at 09:12). No collapses. **frontier:** 0 strips, and
+  no explore acts.
