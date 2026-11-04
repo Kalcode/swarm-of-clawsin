@@ -298,4 +298,16 @@ def test_others_far_from_the_edge_still_wander():
     w.frontier_settings = FrontierSettings(on=True, pace=0)
     tam = at(w, "Tam", *w.center, persona={"drive": "curious"})
     res = apply_intention(w, tam, Intention("explore", target="east"))
-    assert not res.message.startswith("You head off east, toward the edge")
+    assert res.message == "You head off east." and "then" not in tam.activity  # the core 8-step wander
+
+
+def test_an_explorer_walled_off_from_the_edge_wanders_instead():
+    # deep water from top to bottom two steps east: no leg gains ground for long, and the chain must end
+    w = generate_world(7)
+    w.frontier_settings = FrontierSettings(on=True, pace=0)
+    holt = at(w, "Holt", *w.center, persona={"drive": "explorer"})
+    for y in range(w.height):
+        w.tiles[y][holt.x + 2] = "W"
+    apply_intention(w, holt, Intention("explore", target="east"))
+    done = run_walk(w, holt, limit=200)
+    assert w.width == 128 and holt.x < w.center[0] + 2 and "New country" not in done.message
