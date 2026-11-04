@@ -671,3 +671,7 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   told only "Stick: break them off trees".
   - Fix (1070bff, reviewed, deployed 13:18): the hint names the nearest unspent source in sight.
 - Elm (gpt-oss) explored twice. The frontier has 0 strips.
+
+### 13:25: watch stopped; the world keeps running
+- The user: "let's break the loop and just let it run". The half-hourly watch and the outage sentinel are stopped.
+  The world, both nodes, oMLX and the tunnel keep running.
