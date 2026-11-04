@@ -327,3 +327,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - three weak test assertions.
 
   Details in .superpowers/sdd/hotfix-review-nov3.md.
+
+### 18:20 watch (tick 27,543)
+- **admin:** healthy: 12 student creatures awake (the PC's 12 asleep until 20:30), tunnel up, no errors.
+- **Minds since tick 25,720:** the student made 820 acts, 85% successful, p50 14.1 s; no failure streaks.
+  - 3,990 student prompts have been logged for round 2 since 16:13.
+- **tweak (proposed), a bedtime meal:** the sixth creature today (Vex, Jun, Holt, Mika, Ula, Sorrel) lay down to sleep
+  near starving, 1-4 steps from bushes with fruit.
+  - The wake-at-5 alarm and the reflexes rescue them (Ula went from 3 to 62 just now), but each comes within a few
+    points of collapsing.
+  - Proposal: when a creature lies down to sleep hungry (satiety < 35) with food within a few steps, the body eats
+    first, in the same spirit as `_go_eat`. That affects only hungry sleepers, so GC2 holds for everyone else.
+  - Do it after the frontier merge, in one small batch with the seed food value.
