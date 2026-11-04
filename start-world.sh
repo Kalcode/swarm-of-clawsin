@@ -13,6 +13,11 @@
 #   HARNESS_ALL: layers every creature gets, e.g. HARNESS_ALL=plan.
 #   PUBLIC_LINK: the link in the public viewer's About panel (docs/public-viewer.md).
 #   FRONTIER=on: new land grows where creatures explore at the east or west edge (off by default)
+#   LOG_PROMPTS=1: log every decision's full prompt (what a DAgger round of the student labels; docs/distillation.md)
+#   PC="NAME:N": a second brain node for the gaming PC's Ollama, with its own throttle, e.g. PC="gpt-oss:20b:12"
+#     (PC_SERVER defaults to http://192.168.50.42:11434/v1, PC_SLOTS to 4: more requests at once slow every one).
+#     NODE_NAME names this Mac's node (shown in the world's log). The live setup of Nov 4, in one line:
+#     FRONTIER=on LOG_PROMPTS=1 NODE_NAME=student PC="gpt-oss:20b:12" ./start-world.sh --lan
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
@@ -33,6 +38,9 @@ TICK="${TICK:-1.0}"   # seconds per world tick; slower worlds give each creature
 PORT="${PORT:-7777}"
 WORLD="${WORLD:-worlds/default.json}"
 FRONTIER="${FRONTIER:-}"
+PC="${PC:-}"
+PC_SERVER="${PC_SERVER:-http://192.168.50.42:11434/v1}"
+PC_SLOTS="${PC_SLOTS:-4}"
 mkdir -p runs
 
 # Never run two worlds at once: they can share the port on macOS and steal each other's brain nodes.
@@ -64,6 +72,12 @@ NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "
 [[ -n "${HARNESS_ALL:-}" ]] && WORLD_ARGS+=(--harness-all "$HARNESS_ALL")
 [[ -n "${PUBLIC_LINK:-}" ]] && WORLD_ARGS+=(--public-link "$PUBLIC_LINK")
 [[ -n "$FRONTIER" ]] && WORLD_ARGS+=(--frontier "$FRONTIER")
+[[ -n "${LOG_PROMPTS:-}" ]] && WORLD_ARGS+=(--log-prompts)
+[[ -n "${NODE_NAME:-}" ]] && NODE_ARGS+=(--name "$NODE_NAME")
+if [[ -n "$PC" ]]; then
+  curl -sf --max-time 5 "$PC_SERVER/models" >/dev/null || { echo "No model server answering at $PC_SERVER (is the PC's Ollama up?)"; exit 1; }
+  PC_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$PC" --slots "$PC_SLOTS" --model-server "$PC_SERVER" --name pc)
+fi
 for a in ${ADOPT:-}; do NODE_ARGS+=(--adopt "$a"); done
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")
@@ -87,10 +101,15 @@ done
 
 uv run python -m swarmworld.server "${WORLD_ARGS[@]}" &
 WORLD_PID=$!
-trap 'kill $WORLD_PID ${NODE_PID:-} 2>/dev/null || true' EXIT INT TERM
+trap 'kill $WORLD_PID ${NODE_PID:-} ${PC_PID:-} 2>/dev/null || true' EXIT INT TERM
 for _ in $(seq 30); do curl -sf "http://127.0.0.1:$PORT/api/metrics" >/dev/null && break; sleep 0.5; done
 uv run python -m swarmworld.node "${NODE_ARGS[@]}" &
 NODE_PID=$!
+if [[ -n "$PC" ]]; then
+  [[ -n "${TOKEN:-}" ]] && PC_ARGS+=(--token "$TOKEN")
+  uv run python -m swarmworld.node "${PC_ARGS[@]}" >> runs/node-pc.log 2>&1 &
+  PC_PID=$!
+fi
 [[ -z "${NO_OPEN:-}" ]] && open "http://127.0.0.1:$PORT/" 2>/dev/null || true
 
 # Watchdog for long unattended runs: if the model server dies, bring it back (brain nodes retry on their own).

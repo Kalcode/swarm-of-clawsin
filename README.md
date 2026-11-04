@@ -40,6 +40,7 @@ for m in Qwen3.5-4B-MLX-4bit Qwen3.5-9B-MLX-4bit; do uvx --from huggingface_hub 
 ```bash
 ./start-world.sh                      # oMLX + world + 12 creatures on the newest ~/models/swarm-student-* with HARNESS_ALL=plan,disclose,recall (or Qwen3.5 9B alone when there is no student), opens the viewer
 MODEL=Qwen3.5-9B-MLX-4bit CREATURES=10 MODEL2= ./start-world.sh   # fewer, smarter creatures
+FRONTIER=on LOG_PROMPTS=1 NODE_NAME=student PC="gpt-oss:20b:12" ./start-world.sh --lan   # the live setup: the student here, gpt-oss on the gaming PC
 ```
 
 The world runs at 1 second per tick (a day lasts 20 minutes; `TICK=0.5` for faster). The start script also watches oMLX and restarts it if it stops answering, so long unattended runs keep going. It saves itself to `worlds/default.json` every 4 minutes and when it stops, and resumes from there next time. For a brand-new world use `./start-world.sh --fresh` (or `uv run python -m swarmworld.server --fresh`). The old save is kept as `worlds/default.<time>.bak`; rename it back to `default.json` to return to it. Add `SEED=42` for a different map.
@@ -224,6 +225,7 @@ The invention becomes a real recipe in that world. Anyone can learn it by watchi
 - **a tool** (hammer, spear, basket...): carrying it gives a bonus when gathering;
 - **a shelter** (hut, tent, lean-to...): resting beside it restores energy like a bed;
 - **a light** (torch, lantern...): it lights up the night like a fire;
+- **a spinner** (spinning wheel, spindle wheel, loom...): rope or cord made beside it comes out double;
 - otherwise **a structure** to place, shown as a "creation" with its name.
 
 The viewer draws each invention's icon by combining its ingredients' sprites, so creatures' inventions come with their own art. Inventions are saved with the world.
