@@ -984,3 +984,15 @@ def test_with_east_and_southeast_open_placing_east_goes_southeast(world):
         world.add_object("basket", 10 + dx, 10 + dy)
     res = act(world, c, action="place", target="basket east")
     assert res.ok and world.object_at(11, 11) is not None and world.object_at(11, 10) is None
+
+
+def test_what_will_not_burn_says_what_would(world):
+    # Mirth fed strong cord to a campfire 22 times and heard only "The strong cord won't burn."
+    c = creature(world)
+    world.add_object("campfire", 11, 10, lit=True, lit_until=world.tick + 500)
+    c.inventory["rope"] = 1
+    res = act(world, c, action="give", target="campfire", items=["rope"])
+    assert not res.ok and res.message.startswith("The rope won't burn.") and "break sticks off trees" in res.message
+    c.inventory["stick"] = 2
+    res = act(world, c, action="give", target="campfire", items=["rope"])
+    assert not res.ok and "Your stick would burn: give that instead." in res.message
