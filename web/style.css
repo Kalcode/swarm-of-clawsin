@@ -215,8 +215,8 @@ html:not(.sprites-ok) .brand-fallback { display: inline; }
   font-size: 12px; line-height: 15px;
   color: var(--text-2);
 }
-.watching {
-  flex: none; display: inline-flex; align-items: center; gap: 6px;
+.watching {   /* the one top-bar item that may give way, so a crowded bar never pushes the panel toggle off screen */
+  flex: 0 1 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; line-height: 15px; color: var(--text-2); white-space: nowrap;
 }
 .watching[hidden] { display: none; }
@@ -1231,7 +1231,19 @@ button.wwho:hover { text-decoration-color: currentColor; }
 }
 @media (max-width: 440px) {
   html.is-public .topbar, html.is-public .topbar-end { gap: 8px; }
+  html.is-public #music-btn { display: none; }   /* a phone's bar is full; the audio settings beside it set the music */
 }
+@media (max-width: 380px) {   /* the narrowest phones: the campfire and the live dot go (the dot returns when not live) */
+  html.is-public .brand, html.is-public .conn[data-state="live"] { display: none; }
+}
+
+/* the side panel toggle: a window with its right-hand pane, the pane filled while the panel is open */
+.panel-glyph {
+  display: block; position: relative; box-sizing: border-box;
+  width: 16px; height: 13px; border: 2px solid currentColor; border-radius: 2px;
+}
+.panel-glyph::after { content: ""; position: absolute; top: 0; bottom: 0; right: 3px; width: 2px; background: currentColor; }
+#panel-toggle[aria-expanded="true"] .panel-glyph::after { right: 0; width: 5px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -1389,15 +1401,12 @@ html.lz-ui[data-skin="limezu"] .hud-br .icon-btn:disabled { opacity: 0.55; backg
 /* their glyphs are the pack's; the sound module's SVGs and the music note step aside (they stay for other skins) */
 html.lz-ui[data-skin="limezu"] .topbar .icon-btn > svg,
 html.lz-ui[data-skin="limezu"] #music-btn > [aria-hidden],
-html.lz-ui[data-skin="limezu"] #panel-toggle > .ico,
 html.lz-ui[data-skin="limezu"] .hud-br .icon-btn > .ico { display: none; }
 html.lz-ui[data-skin="limezu"] #sound-btn { background-image: var(--lz-ib-mute); }
 html.lz-ui[data-skin="limezu"] #sound-btn[aria-pressed="true"] { background-image: var(--lz-ib-sound); }
 html.lz-ui[data-skin="limezu"] #music-btn { background-image: var(--lz-ib-music); }
 html.lz-ui[data-skin="limezu"] #music-btn[aria-pressed="false"] { background-image: var(--lz-ib-music-off); opacity: 1; filter: none; }
 html.lz-ui[data-skin="limezu"] #audio-btn { background-image: var(--lz-ib-sliders); }
-html.lz-ui[data-skin="limezu"] #panel-toggle { background-image: var(--lz-ib-right); }
-html.lz-ui[data-skin="limezu"] #panel-toggle[aria-expanded="false"] { background-image: var(--lz-ib-left); }
 html.lz-ui[data-skin="limezu"] .hud-br [data-zoom="1"] { background-image: var(--lz-ib-plus); }
 html.lz-ui[data-skin="limezu"] .hud-br [data-zoom="-1"] { background-image: var(--lz-ib-minus); }
 html.lz-ui[data-skin="limezu"] .panel .icon-btn .ico { color: var(--lz-page); }

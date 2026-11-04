@@ -691,7 +691,7 @@
   // bubbles on the map are drawn as 9-slices of the "button" piece. The class (which turns on the whole LimeZu
   // chrome in style.css) needs every piece the chrome uses: with an older build, or none, the chrome stays as it is.
   const UI_NEEDS = ['panel', 'board', 'well', 'slot', 'button', 'buttonDown', 'tab', 'tabOn', 'pillGold', 'skyFrame',
-    'skyButton', 'skyButtonDown', 'ibBlank', 'ibSound', 'ibMute', 'ibMusic', 'ibMusicOff', 'ibSliders', 'ibRight', 'ibLeft',
+    'skyButton', 'skyButtonDown', 'ibBlank', 'ibSound', 'ibMute', 'ibMusic', 'ibMusicOff', 'ibSliders',
     'ibPlus', 'ibMinus'];
   const UI = { pieces: {}, ok: false };
   function buildUI() {

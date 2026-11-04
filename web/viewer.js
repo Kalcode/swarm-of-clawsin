@@ -2119,8 +2119,7 @@
     document.body.classList.toggle('panel-collapsed', !open);
     const b = $('panel-toggle');
     b.setAttribute('aria-expanded', String(open));
-    b.title = open ? 'Hide side panel (\\)' : 'Show side panel (\\)';
-    setIco(b.querySelector('.ico'), open ? 'right' : 'left');
+    b.title = open ? 'Hide side panel (\\)' : 'Show side panel (\\)';  // the glyph follows aria-expanded (style.css)
   }
 
   function renderFollow() {
