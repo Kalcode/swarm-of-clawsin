@@ -387,3 +387,18 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   Decide after a day of data.
 - **minor:** Hux repeats combine [stick, rope, rope] ("one more ingredient seems to be missing"): gpt-oss hunting for
   an invention, harmless.
+
+### 23:43 watch (tick 46,874): the shortfall hint works; give-to-basket fixed
+- **admin:** healthy since the 23:19 restart: gpt-oss made 438 acts, 76% successful, p50 7.6 s, p90 15.0 s. No collapses.
+  The tunnel answers 200, and the frontier has 0 strips.
+- **win:** the crafting-shortfall hint (49128af) worked on its first try. Teo had looped "combine plant fiber rope +
+  2 flint", the invented *plant fiber rope*, not *rope*. Then Teo was told "You know how to make rope: 3 plant fiber ->
+  rope", made 1 rope, then 1 rope enhancer, then a stone knife.
+- **fix (deployed 23:49, 679e0ef):** 18 of the 49 failed gives came from Mirth trying "give basket [rope]" beside a
+  basket (plan: "Store rope"). `give` to a basket or chest now stores in it. Reviewed.
+- **idea (parked):** when a combine's items are one swap away from a known recipe (plant fiber rope for rope), the
+  refusal could name the near miss. Hux (24 failed combines) and Tula (9) loop the same way.
+- **round 2:** labeling finished with 2,997 labels, all in the training set.
+  - The export wrote 27,037 training and 3,167 validation lines. Validation is teacher episodes only.
+  - gpt-oss was unloaded, and training started at 23:47.
+  - At about 3.9 h it finishes near 03:40, then fuses and quantizes into `~/models/swarm-student-20261104`.
