@@ -675,3 +675,27 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 ### 13:25: watch stopped; the world keeps running
 - The user: "let's break the loop and just let it run". The half-hourly watch and the outage sentinel are stopped.
   The world, both nodes, oMLX and the tunnel keep running.
+
+### 14:09 to 16:00: the PC out, the page closed, the world stopped; improvements
+- **14:09:** the pc node stopped and gpt-oss was unloaded from the PC for the user's gaming.
+- **14:20:** the "Be back tomorrow!" Worker went up and the tunnel stopped (`scripts/public-closed.sh`).
+- **15:25:** the world stopped (it saved at tick 26,672).
+- **Round 3** is running (the chain is in the scratchpad's round3_chain.sh).
+  - The teacher (gpt-oss on oMLX) labels 3,000 of round 2's own decisions, failures first, from the six runs since
+    02:52, at about 830 an hour.
+  - Then export (teacher episodes plus DAgger nights 2 and 3) and training into `~/models/swarm-student-20261105`.
+    Expected around 22:15.
+  - After that, the held-out check on the same 100 decisions as rounds 1 and 2 runs by itself (runs/eval-r3.log).
+- **Improvements (each tested and reviewed; live at the next start):**
+  - **Frontier (30b675b, d421afe):** a day and a half of the live world laid no land, because explore only reached the
+    edge within 24 steps and the camp is 60 away.
+    - An explorer's explore toward an edge now goes there from anywhere, in legs.
+    - The pull says "explore east to go and see".
+    - Spec updated.
+  - **Gather (e4f5b5c, 7ad8e00):** "gather rope" picks up a pile lying in sight, and a pile at hand beats walking to a
+    tree. A thing combined with itself names its own recipe.
+  - **Spinning (7ad8e00):** a placed spinning wheel, spindle wheel or loom doubles rope and cord made within 2 steps.
+    Today's spinning wheel and spindle wheel spin too, by their names.
+  - **start-world.sh (f56488d):** `LOG_PROMPTS=1`, `PC="gpt-oss:20b:12"` (its own node and 4 slots), `NODE_NAME`. The
+    live setup is now one line.
+- 1,151 tests pass.
