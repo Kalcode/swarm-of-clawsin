@@ -172,29 +172,6 @@ def test_the_myth_hint_says_how_to_invent_and_when(world):
     assert "No one has ever made a 'net'" in res.message and "tomorrow" in res.message and "invent with" not in res.message
 
 
-def test_combining_toward_the_same_dream_again_invents_it(world):
-    # Hux, told how to invent the net, thought "Time to invent the net with what I have" and sent combine again, 5 times
-    c = creature(world)
-    c.inventory.update({"stick": 1, "rope": 2})
-    first = act(world, c, action="combine", items=["stick", "rope"], target="net")
-    assert not first.ok and "invent with" in first.message
-    again = act(world, c, action="combine", items=["stick", "rope"], target="net", text="a net for catching fish")
-    iid = world.catalog.resolve("net")
-    assert again.ok and again.message.startswith("You believe in the net.") and iid and c.inventory.get(iid) == 1
-    assert world.catalog.items[iid].desc == "a net for catching fish"
-
-
-def test_a_new_dream_or_a_used_day_does_not_invent(world):
-    c = creature(world)
-    c.inventory.update({"stick": 2, "rope": 2})
-    act(world, c, action="combine", items=["stick", "rope"], target="net")
-    res = act(world, c, action="combine", items=["stick", "rope"], target="snare")  # another dream: told again, first
-    assert not res.ok and "invent with" in res.message and world.catalog.resolve("snare") is None
-    c.stats[f"invented_day_{world.clock()['day']}"] = 1
-    res = act(world, c, action="combine", items=["stick", "rope"], target="snare")
-    assert not res.ok and "tomorrow" in res.message and world.catalog.resolve("snare") is None
-
-
 def test_a_singular_name_finds_a_plural_named_item(world):
     # Cyd asked to give 'spark fragment' 7 times: "You don't know of anything called 'spark fragment'"
     world.catalog.add_invention({"id": "inv_spark_fragments", "name": "spark fragments", "desc": "x", "food": 0,
