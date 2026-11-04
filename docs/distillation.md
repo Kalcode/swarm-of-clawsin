@@ -210,3 +210,27 @@ uv run python scripts/export_training.py runs/teacher runs/dagger-r2 --out data/
 - DAgger rows weigh 1 (they were never executed, so there is no outcome to reward).
 - A craft now weighs 1.5 instead of 3 (round 1's weighting over-fed `combine`); discoveries and eating while hungry
   keep their weights.
+
+### Round 2 results (Nov 4)
+
+The first round of DAgger ran overnight on Nov 3–4. gpt-oss on this Mac (oMLX, temperature 0.4) labelled 2,997 of
+the student's own live decisions, failures first, from the runs since `20261103-104243`. The export combined them with
+17 teacher episodes: 27,037 training and 3,167 validation lines, where validation is two whole teacher episodes, s101
+and s202. Training ran 4,000 steps (batch 1, an update every 8) in 2 h 50 min. The fuse and 8-bit quantize produced
+`~/models/swarm-student-20261104` (1.7 GB).
+
+- **Validation loss** went 3.05 → 0.41. It plateaued from about step 800 at 0.39–0.46. Each check scores only 50
+  examples, so those swings are noise. Checkpoints are saved every 200 steps.
+- **Offline action match.** The same 100 decisions from s101 were scored: s101 is held out from both rounds (round 1
+  trained on s202). The script is greedy mlx-lm with the serving template.
+
+  | model | parsed | action matches the teacher | action and target match |
+  |---|---|---|---|
+  | round 1 (`swarm-student-20261103`) | 99 | 25 | 16 |
+  | round 2, step 2,400 | 100 | 38 | 20 |
+  | **round 2, final** (`swarm-student-20261104`) | **100** | **40** | **21** |
+
+  The biggest remaining miss is the teacher walking where the student gathers (17 of 100, both rounds). Mostly
+  harmless: gather walks to a remembered spot by itself.
+- **Live.** At 02:52 the new student adopted its 12 sleeping creatures (`--adopt
+  swarm-student-20261103=swarm-student-20261104`, 12 slots on oMLX). 18 of the first 24 acts succeeded.
