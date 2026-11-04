@@ -861,6 +861,16 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
             return _busy(c, 4 * it.count, "fishing", msg)
         if not target:
             return ActionResult(False, "There's nothing to gather right beside you. Walk to a tree, bush or rock first.")
+        pile = next(((x, y, d) for x, y, d, _ in visible_piles(world, c) if want_item and world.ground[(x, y)].get(want_item)), None)
+        if pile:  # "gather rope" at rope lying on the ground means pick it up, walking there first
+            name = cat.name(want_item)
+            if pile[2] <= 1:
+                return _pick_up(world, c, Intention("pick_up", target=name))
+            res = start_walk(world, c, _adjacent_goals(world, pile[0], pile[1], include_self=True), f"walking to the {name}",
+                             f"You reach the {name} on the ground.")
+            if c.activity:
+                c.activity["then"] = Intention("pick_up", target=name)
+            return res
         spot = _recall(world, c, target, ITEM_SOURCES.get(want_item or "")) or _recall(world, c, target)
         if spot and spot[0] != "water":
             return _walk_to_spot(world, c, *spot, then=it)
@@ -1049,6 +1059,12 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         known = world.catalog.recipe_for(wanted) if wanted and wanted in c.known_recipes else None
         if known:
             return ActionResult(False, f"You know how to make {world.catalog.name(wanted)}: {world.catalog.describe_recipe(known)}.")
+        only = next(iter(ids)) if len(ids) == 1 else None
+        own = world.catalog.recipe_for(only) if only and only in c.known_recipes else None
+        if own:  # more of a thing from the thing itself: say what it is made of instead
+            n = world.catalog.name(only)
+            return ActionResult(False, f"Putting {n} with more {n} makes nothing new. You know how to make {n}: "
+                                       f"{world.catalog.describe_recipe(own)}.")
         lacking = f" ({missing[0].rstrip('.')}.)" if missing else ""
         dream = _dream(world, c, hint)
         if dream:

@@ -1,3 +1,4 @@
+from collections import Counter
 import pytest
 
 from swarmworld.world.actions import Intention, apply_intention, parse_intention, step_activity
@@ -1000,3 +1001,24 @@ def test_what_will_not_burn_says_what_would(world):
     c.inventory.update({"plant_fiber": 3, "coal": 1})  # the best fuel held, not the first listed
     res = act(world, c, action="give", target="campfire", items=["rope"])
     assert "Your coal would burn" in res.message
+
+
+def test_gather_an_item_lying_on_the_ground_picks_it_up(world):
+    # Dree: "gather rope" at a pile of rope on the ground: "There's no 'rope' within reach to gather from."
+    c = creature(world, "Dree")
+    world.ground[(11, 10)] = Counter({"rope": 3})
+    res = act(world, c, action="gather", target="rope")
+    assert res.ok and c.inventory["rope"] == 3 and (11, 10) not in world.ground
+    world.ground[(15, 13)] = Counter({"rope": 2})  # in sight, a few steps off: walk there, then pick it up
+    res = act(world, c, action="gather", target="rope")
+    assert res.ok and c.inventory["rope"] == 5 and max(abs(c.x - 15), abs(c.y - 13)) <= 1
+
+
+def test_combining_a_thing_with_itself_names_its_recipe(world):
+    # Ula combined plant fiber rope with plant fiber rope 10 times, wanting more of it; nothing said how it is made
+    c = creature(world, "Ula")
+    c.inventory["rope"] = 2
+    c.known_recipes.add("rope")
+    res = act(world, c, action="combine", items=["rope", "rope"])
+    assert not res.ok
+    assert res.message.startswith("Putting rope with more rope makes nothing new. You know how to make rope: 3 plant fiber")
