@@ -510,3 +510,13 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **invention:** Inka, on the round-2 student, invented the **spinning wheel** at 61,490 ("Spinning with the stick!"),
   something to place. It has no effect yet; the effect words don't cover spinning.
   - Idea (parked): a placed spinning wheel could speed up rope making beside it, as a station.
+
+### 04:43 watch (tick 64,819): steady
+- **admin:** both nodes up, no errors, the tunnel answers 200. gpt-oss is at 84% (p50 6.6 s), the student at 77%
+  (p50 13.6 s).
+- **frontier:** the first explore move tonight. Cass (an explorer) headed southeast "to the forest to find wheat".
+  Still 0 strips.
+- **parked (verb layer):** Ula combined plant fiber rope with itself 10 times, wanting more plant fiber rope. A held
+  item named in target is read as an ingredient, so the "You know how to make X" hint never fires. A one-kind combine
+  whose only item is a known recipe's product could show that recipe. Only one student creature does this, so it
+  isn't worth a restart tonight.
