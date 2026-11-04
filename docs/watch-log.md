@@ -373,3 +373,17 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   Fewer requests in flight beat 8 slots on tonight's GPU (the user is checking its clocks).
   - **Lesson:** `--slots` on the node is the throttle. Match it to what the GPU sustains, not to OLLAMA_NUM_PARALLEL.
 - **Frontier:** on, no strips yet. No collapses. Round 2: 721 of 3,000 labels.
+
+### 22:14 watch (tick 41,521)
+- **admin:** healthy: gpt-oss made 638 acts, 86% successful, p50 7.4 s; no collapses. Round 2: 1,661 of 3,000 labels.
+- **mod (frontier, expected):** no strips yet, and none expected tonight.
+  - All four explorer-drive creatures (Holt, Jun, Cass, Gil) belong to the student and sleep until the morning.
+  - The PC's 12 stay between x 51 and 75, 50+ steps from either edge, and none explored in this stretch.
+
+  The first growth will likely come when the new student wakes the explorers, around the time of the user's Show HN
+  post. Not forced: discovery is the point.
+- **tweak (idea):** if growth stays rare, a land's pull could also reach curious creatures, or idle creatures could
+  occasionally wander, as the spec's "Wanderers" paragraph first suggested (Decided 2 narrowed it to explorers).
+  Decide after a day of data.
+- **minor:** Hux repeats combine [stick, rope, rope] ("one more ingredient seems to be missing"): gpt-oss hunting for
+  an invention, harmless.
