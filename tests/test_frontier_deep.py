@@ -6,6 +6,7 @@ from collections import deque
 import numpy as np
 import pytest
 
+from swarmworld.world.actions import bfs_path
 from swarmworld.world.caves import BORDER, MIN_POCKET, _components, carve_passage, carve_pockets
 from swarmworld.world.model import FrontierSettings
 from swarmworld.world.packs import digging, underground
@@ -127,3 +128,46 @@ def test_the_deep_rolls_none_of_the_worlds_dice():
     grow(w, "east", theme="stony_hills")
     grow(w, "west", theme="stony_hills")
     assert w.rng.getstate() == state
+
+
+def _reaches(w, start, kinds):
+    """True when a walk (the real bfs_path, corner rule and all) from start ends beside an object of each kind."""
+    for kind in kinds:
+        spots = {(o.x, o.y) for o in w.objects.values() if o.kind in kind}
+        beside = {(x + dx, y + dy) for x, y in spots for dx in (-1, 0, 1) for dy in (-1, 0, 1)}
+        beside = {p for p in beside if w.walkable(*p)} | ({start} if start in beside else set())
+        if not beside or bfs_path(w, start, beside) is None:
+            return False
+    return True
+
+
+@pytest.mark.parametrize("side,seed", [("west", 5), ("east", 36), ("east", 0), ("west", 1), ("east", 2), ("east", 3)])
+def test_every_new_cave_reaches_stone_and_metal(side, seed):
+    w = generate_world(seed, 48, 48)
+    w.frontier_settings = FrontierSettings(on=True, pace=0)
+    for sd in (side, side, "east"):
+        before = {p["id"] for p in underground.portals(w)}
+        grow(w, sd, theme="stony_hills")
+        for p in underground.portals(w):
+            if p["id"] not in before:
+                down = tuple(p["down"])
+                assert _reaches(w, down, [("rock",), ("iron_vein", "copper_vein")]), (sd, p["name"])
+
+
+def test_a_raising_grow_under_leaves_the_world_as_it_was(monkeypatch, caplog):
+    import logging
+    w = world48()
+    before = ([r[:] for r in w.tiles], sorted((o.id, o.kind, o.x, o.y) for o in w.objects.values()), w.width,
+              dict(w.ext.get("underground", {})), w.tiles_version, len(w.events))
+    real = underground.carve_passage
+
+    def boom(*a, **k):
+        real(*a, **k)
+        raise RuntimeError("passage boom")
+    monkeypatch.setattr(underground, "carve_passage", boom)
+    with caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
+        assert grow(w, "east", theme="stony_hills") == []
+    after = ([r[:] for r in w.tiles], sorted((o.id, o.kind, o.x, o.y) for o in w.objects.values()), w.width,
+             dict(w.ext.get("underground", {})), w.tiles_version, len(w.events))
+    assert after == before and "frontier" not in w.ext
+    assert len([r for r in caplog.records if "passage boom" in r.getMessage()]) == 1

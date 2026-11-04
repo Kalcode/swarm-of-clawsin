@@ -399,26 +399,25 @@ def grow_under(world: World, x0: int, x1: int, rng: random.Random, mouths: list[
     for y, row in zip(rows, dm.rows):
         world.tiles[y][x0:x1] = list(row)
     open_ = np.array([[ch == "c" for ch in row] for row in dm.rows])
-    for g in _components(open_):
-        floor = np.zeros_like(open_)
-        floor[g[:, 1], g[:, 0]] = True
-        _stock_pocket(world, rng, floor, rows, x0)
     goals = {(x0 + int(x), deep.y0 + int(y)) for y, x in zip(*np.nonzero(open_))}
-    made = []
-    for up in mouths:
+    downs = []
+    for up in mouths:  # the passages first, so that stocking keeps every walk clear
         down = world.below(*up)
         if down is None:
             continue
-        for oid in [world.grid.get(down)] if down in world.grid else []:
-            world.remove_object(oid)  # a stocked thing stands on the way up
         if world.tile(*down) == "R":
             world.set_tile(*down, "c")
-        cut = [down, *carve_passage(world, down, goals=goals)]
-        for x, y in cut:  # the stocked thing at the passage's end, where it meets the pocket, must not seal it
-            for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                if n in goals and n in world.grid and world.objects[world.grid[n]].kind in BLOCKING:
-                    world.remove_object(world.grid[n])
-        made.append(add_portal(world, "cave", cave_name(world, up), up, down))
+        carve_passage(world, down, goals=goals)
+        downs.append((up, down))
+    now = np.array([[ch == "c" for ch in world.tiles[y][x0:x1]] for y in rows])
+    for g in _components(now):
+        floor = np.zeros_like(now)
+        floor[g[:, 1], g[:, 0]] = True
+        for _, (dx, dy) in downs:  # a way up needs its tile free
+            if x0 <= dx < x1:
+                floor[dy - deep.y0, dx - x0] = False
+        _stock_pocket(world, rng, floor, rows, x0)
+    made = [add_portal(world, "cave", cave_name(world, up), up, down) for up, down in downs]
     return made
 
 
