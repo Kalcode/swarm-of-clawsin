@@ -1022,3 +1022,48 @@ def test_combining_a_thing_with_itself_names_its_recipe(world):
     res = act(world, c, action="combine", items=["rope", "rope"])
     assert not res.ok
     assert res.message.startswith("Putting rope with more rope makes nothing new. You know how to make rope: 3 plant fiber")
+
+
+def test_inventing_a_spinning_wheel_says_what_it_does(world):
+    c = creature(world, "Inka")
+    c.inventory.update({"stick": 2, "rope": 2})
+    res = act(world, c, action="invent", target="spinning wheel", items=["stick", "rope"], text="Spins fiber fast.")
+    assert res.ok and "rope or cord made beside it comes out double" in res.message and "doesn't seem to do" not in res.message
+
+
+def test_rope_made_beside_a_spinning_wheel_comes_out_double(world):
+    # Inka and Ira invented a spinning wheel and a spindle wheel today; neither did anything
+    c = creature(world, "Tula")
+    c.inventory["plant_fiber"] = 9
+    c.known_recipes.add("rope")
+    world.add_object("creation", 12, 10, label="spinning wheel", effects=["spinning"])
+    res = act(world, c, action="craft", target="rope")
+    assert res.ok and c.inventory["rope"] == 2 and "spinning wheel beside you" in res.message
+    c.x = 30  # far from it: one rope as ever
+    res = act(world, c, action="craft", target="rope")
+    assert res.ok and c.inventory["rope"] == 3 and "spinning" not in res.message
+
+
+def test_an_older_spindle_wheel_spins_too_and_only_cord_and_rope_double(world):
+    c = creature(world, "Ira")
+    c.inventory.update({"plant_fiber": 3, "flint": 1, "stick": 1})
+    c.known_recipes |= {"rope", "stone_knife"}
+    world.add_object("creation", 11, 11, label="spindle wheel", effects=[])  # invented before spinning had an effect
+    assert act(world, c, action="craft", target="rope").ok and c.inventory["rope"] == 2
+    assert act(world, c, action="craft", target="stone knife").ok and c.inventory["stone_knife"] == 1
+
+
+def test_a_pile_at_hand_beats_a_tree_farther_off(world):
+    c = creature(world, "Gus")
+    world.add_object("tree", 15, 10)
+    world.ground[(10, 11)] = Counter({"stick": 4})
+    res = act(world, c, action="gather", target="stick")
+    assert res.ok and c.inventory["stick"] == 4 and (c.x, c.y) == (10, 10)
+
+
+def test_more_of_a_thing_only_when_it_is_all_that_was_named(world):
+    c = creature(world, "Ula")
+    c.inventory["rope"] = 2
+    c.known_recipes.add("rope")
+    assert "Putting rope with more rope" not in act(world, c, action="combine", items=["rope", "stick"]).message
+    assert "Putting rope with more rope" not in act(world, c, action="combine", items=["rope"]).message

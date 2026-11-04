@@ -448,7 +448,24 @@ def station_near(world: World, c: Creature, kind: str, r: int = 2) -> bool:
 EFFECT_STEMS = {  # matched at the start of a word, so "glow" catches "glowstick" and "glowing"
     "shelter": ("hut", "shelter", "house", "home", "tent", "lean-to", "lean to", "cabin", "roof", "den", "bed", "hammock", "sleep"),
     "light": ("torch", "lamp", "lantern", "beacon", "candle", "light", "glow", "illumin", "shine", "shining", "bright"),
+    "spinning": ("spin", "loom"),  # spinning wheel, spindle wheel, loom; not "weave": a woven net is a tool
 }
+SPUN = {"rope", "cord", "thread", "yarn", "twine", "string"}  # what a spinning creation doubles when made beside it
+
+
+def _spinner_near(world: World, c: Creature, output: str, r: int = 2) -> WorldObject | None:
+    """A placed spinning creation within r steps (one indoors spins only for those inside), if output is something spun.
+    Creations from before the effect existed spin by their name."""
+    if not SPUN & set(_words(world.catalog.name(output))):
+        return None
+    roof = perception.roof_over(world, c.x, c.y)
+    for y in range(c.y - r, c.y + r + 1):
+        for x in range(c.x - r, c.x + r + 1):
+            o = world.object_at(x, y)
+            if (o and o.kind == "creation" and perception.roof_over(world, x, y) in (None, roof)
+                    and ("spinning" in o.data.get("effects", ()) or "spinning" in invention_effects(o.data.get("label", "")))):
+                return o
+    return None
 
 
 def invention_effects(text: str) -> list[str]:
@@ -556,7 +573,8 @@ def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> A
         c.inventory[iid] -= n * count
         if c.inventory[iid] <= 0:
             del c.inventory[iid]
-    made = r.count * count
+    wheel = _spinner_near(world, c, r.output)
+    made = r.count * count * (2 if wheel else 1)
     c.inventory[r.output] += made
     first_time = r.output not in c.known_recipes
     c.known_recipes.add(r.output)
@@ -568,6 +586,8 @@ def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> A
         extra += f" {item.desc}"
     if item.placeable:
         extra += f" (Use place to set the {item.name} down.)"
+    if wheel:
+        extra += f" The {wheel.name} beside you doubled it."
     if r.output not in world.discoveries and not r.known_at_start:
         world.discoveries[r.output] = {"item": r.output, "by": c.name, "by_id": c.id, "model": c.model, "tick": world.tick}
         world.emit("discover", c.id, c.x, c.y, f"{c.name} discovered how to make {cat.name(r.output)}! ({recipe_text})", item=r.output)
@@ -787,6 +807,9 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
         if source_kinds and (obj is None or obj.kind not in source_kinds):
             # "gather stick" means: get sticks from the nearest thing that gives them
             near = find_object(world, c, "", max_dist=1, kinds=source_kinds)
+            want = world.catalog.resolve(target)
+            if near is None and any(d <= 1 and world.ground[(x, y)].get(want) for x, y, d, _ in visible_piles(world, c)):
+                return _pick_up(world, c, Intention("pick_up", target=world.catalog.name(want)))  # some lies at hand
             if near is None:
                 far_src = find_object(world, c, "", kinds=source_kinds)
                 if far_src is not None:
@@ -1059,7 +1082,7 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         known = world.catalog.recipe_for(wanted) if wanted and wanted in c.known_recipes else None
         if known:
             return ActionResult(False, f"You know how to make {world.catalog.name(wanted)}: {world.catalog.describe_recipe(known)}.")
-        only = next(iter(ids)) if len(ids) == 1 else None
+        only = next(iter(ids)) if len(ids) == 1 and len(names) >= 2 and not missing else None  # all it named: one kind
         own = world.catalog.recipe_for(only) if only and only in c.known_recipes else None
         if own:  # more of a thing from the thing itself: say what it is made of instead
             n = world.catalog.name(only)
@@ -1770,6 +1793,8 @@ def _invent(world: World, c: Creature, it: Intention) -> ActionResult:
         kind += "; resting beside it restores you like a bed"
     if "light" in effects:
         kind += "; once placed it lights up the night"
+    if "spinning" in effects and not tool:
+        kind += "; once placed, rope or cord made beside it comes out double"
     inert = f" {INERT_LINE}" if not (food or tool or effects) else ""
     return ActionResult(True, f"You invent the {name}: {desc} It is {kind}.{inert} Recipe: {recipe}. Others can learn it if you share how.")
 
