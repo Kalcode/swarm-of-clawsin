@@ -266,3 +266,15 @@ def test_far_from_an_edge_nothing_changes():
             res = apply_intention(w, c, Intention("explore", target=d))
             results.append((res.ok, res.message, res.instant))
         assert results[0] == results[1]
+
+
+def test_a_near_walk_longer_than_twice_the_edge_reach_falls_back_to_core_explore(monkeypatch):
+    w = world48()
+    ada = at(w, "Ada", 40, 20)
+    monkeypatch.setattr(frontier, "bfs_path", lambda *a, **k: [(41, 20)] * (2 * frontier.EDGE_NEAR + 1))
+    res = apply_intention(w, ada, Intention("explore", target="east"))
+    assert not res.message.startswith("You head off east, toward the edge")
+    monkeypatch.setattr(frontier, "bfs_path", lambda *a, **k: [(41, 20)] * (2 * frontier.EDGE_NEAR))
+    ada.activity = None
+    res = apply_intention(w, ada, Intention("explore", target="east"))
+    assert res.message.startswith("You head off east, toward the edge")

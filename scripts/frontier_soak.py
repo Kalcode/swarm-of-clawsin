@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import sys
+import statistics
 import tempfile
 import time
 from pathlib import Path
@@ -30,10 +31,16 @@ from swarmworld.world.model import FrontierSettings  # noqa: E402
 WINDOW = 300        # ticks: the spec's 5 live minutes at 1 s ticks
 AT_CAP = 2000       # ticks at the cap that the absolute gate looks at
 MIN_AT_CAP = 200    # fewer than this many ticks at the cap and the absolute gate has measured nothing
+DAY = 1200          # ticks: one in-game day, the window of the relative gate
+MIN_WINDOW = 300    # a window shorter than this isn't measured
+MEDIAN_FLOOR_MS = 0.5
 SLACK = 1.25
 FLOOR_MS = 1.0
 ABSOLUTE_MS = 50.0
 NEAR_START = 20     # start_near_edges: steps from the side's edge
+
+
+median = statistics.median
 
 
 def p95(xs: list[float]) -> float:
@@ -151,14 +158,15 @@ def _soak(ticks, creatures, seed, settings, explore_bias, start_near_edges, log,
     loop.close()
     stuck += _stuck(st)
 
-    # the relative gate: each growth against the ticks around it
+    # the relative gate: the median tick over a day after each growth against the day before (p95s are information)
     for g in growths:
         at = g["at"]  # the index of the first timed tick after the growth
-        b, a = times[max(0, at - WINDOW):at], times[at:at + WINDOW]
+        b, a = times[max(0, at - DAY):at], times[at:at + DAY]
         g["p95_before_ms"], g["p95_after_ms"] = round(p95(b), 3), round(p95(a), 3)
-        g["measured"] = len(b) >= WINDOW and len(a) >= WINDOW
-        g["ok"] = (not g["measured"]) or (max(g["p95_after_ms"], FLOOR_MS)
-                                          <= SLACK * max(g["p95_before_ms"], FLOOR_MS) * g["width"] / g["width_before"])
+        g["measured"] = len(b) >= MIN_WINDOW and len(a) >= MIN_WINDOW  # a cut-short window of 300 or more counts
+        g["median_before_ms"], g["median_after_ms"] = round(median(b), 3) if b else 0.0, round(median(a), 3) if a else 0.0
+        g["ok"] = (not g["measured"]) or (max(g["median_after_ms"], MEDIAN_FLOOR_MS)
+                                          <= SLACK * max(g["median_before_ms"], MEDIAN_FLOOR_MS) * g["width"] / g["width_before"])
     windows = [round(p95(times[i:i + WINDOW]), 2) for i in range(0, len(times) - WINDOW + 1, WINDOW)]
     # the noise floor: how far adjacent 300-tick windows differ where no growth lies between them
     cuts = {g["at"] // WINDOW for g in growths}
@@ -201,11 +209,11 @@ def _soak(ticks, creatures, seed, settings, explore_bias, start_near_edges, log,
 def report(r: dict) -> str:
     lines = [f"ticks {r['ticks']}, width {r['width']}, strips east {r['strips']['east']} west {r['strips']['west']}, "
              f"p95 overall {r['p95_all_ms']} ms",
-             f"{'tick':>7} {'side':<5} {'width':>11} {'p95 before':>11} {'p95 after':>10}  gate"]
+             f"{'tick':>7} {'side':<5} {'width':>11} {'median bef':>11} {'median aft':>11} {'p95 bef':>9} {'p95 aft':>9}  gate (median)"]
     for g in r["growths"]:
         lines.append(f"{g['tick']:>7} {g['side']:<5} {g['width_before']:>5}->{g['width']:<5} "
-                     f"{g['p95_before_ms']:>9} ms {g['p95_after_ms']:>8} ms  "
-                     f"{'ok' if g['ok'] else 'FAIL'}{'' if g['measured'] else ' (window cut short)'}")
+                     f"{g['median_before_ms']:>9} ms {g['median_after_ms']:>8} ms {g['p95_before_ms']:>7} {g['p95_after_ms']:>8}  "
+                     f"{'ok' if g['ok'] else 'FAIL'}{'' if g['measured'] else ' (skipped: window under 300 ticks)'}")
     n = r["noise"]
     lines.append(f"noise floor: of {n['pairs']} adjacent 300-tick windows with no growth between, {n['share_over_slack']} "
                  f"rose by more than {SLACK}x (largest {n['max_ratio']}x)")
