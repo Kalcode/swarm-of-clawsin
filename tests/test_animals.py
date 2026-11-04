@@ -252,3 +252,19 @@ def test_plant_fiber_feeds_but_does_not_lure(world):
     sheep.data["hunger"] = 80
     res = apply_intention(world, owner, Intention("give", target="sheep", items=["plant_fiber"]))
     assert res.ok and sheep.data["hunger"] == 20
+
+
+def test_an_animal_turning_food_down_says_what_it_eats(world):
+    # Opal offered rope to "Mika's cow" 14 times: "The Mika's cow sniffs the rope and turns away."
+    opal = creature(world, "Opal")
+    opal.inventory["rope"] = 1
+    world.add_object("cow", 11, 10, label="Mika's cow")
+    res = apply_intention(world, opal, Intention("give", target="cow", items=["rope"]))
+    assert not res.ok and res.message.startswith("Mika's cow sniffs the rope and turns away.")
+    assert "wheat, seeds, berries, carrots or plant fiber" in res.message
+    opal.inventory["berries"] = 2
+    res = apply_intention(world, opal, Intention("give", target="cow", items=["rope"]))
+    assert "Your berries might tempt it." in res.message
+    world.add_object("sheep", 9, 10)
+    res = apply_intention(world, opal, Intention("give", target="sheep", items=["rope"]))
+    assert res.message.startswith("The sheep sniffs the rope")

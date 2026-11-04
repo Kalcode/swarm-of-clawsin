@@ -1295,7 +1295,11 @@ def _feed_animal(world: World, c: Creature, animal: WorldObject, it: Intention) 
     if not iid:
         return ActionResult(False, err)
     if iid not in ANIMAL_FOOD:
-        return ActionResult(False, f"The {animal.name} sniffs the {world.catalog.name(iid)} and turns away.")
+        who = animal.name if "'s " in animal.name else f"the {animal.name}"  # "Mika's cow", not "The Mika's cow"
+        held = sorted(f for f in ANIMAL_FOOD if c.inventory.get(f, 0) > 0)
+        what = (f"Your {world.catalog.name(held[0])} might tempt it." if held
+                else "Animals eat wheat, seeds, berries, carrots or plant fiber.")
+        return ActionResult(False, f"{who[0].upper()}{who[1:]} sniffs the {world.catalog.name(iid)} and turns away. {what}")
     c.inventory[iid] -= 1
     if c.inventory[iid] <= 0:
         del c.inventory[iid]
