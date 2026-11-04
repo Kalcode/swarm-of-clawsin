@@ -182,3 +182,15 @@ async def test_progress_every_100_and_a_summary(aiohttp_server, tmp_path):
     text = "\n".join(logs).lower()
     for want in ("picked", "labeled", "skipped", "failures-first", "seconds"):
         assert want in text
+
+
+async def test_labels_ask_the_teacher_for_its_best_move_at_a_low_temperature(aiohttp_server, tmp_path):
+    # a label is the teacher's preferred answer, not a sample of its play: 0.4 by default, settable
+    t = Teacher()
+    url = await serve(aiohttp_server, t)
+    d = live(tmp_path, LATER, [row(1)])
+    await dl.run_labeling([d], url, "gpt-oss:20b", tmp_path / "o1", student_prefix=STUDENT, since_run=LIVE_OK, log=lambda *_: None)
+    assert t.bodies[-1]["temperature"] == 0.4
+    await dl.run_labeling([d], url, "gpt-oss:20b", tmp_path / "o2", student_prefix=STUDENT, since_run=LIVE_OK, temperature=0.9,
+                          log=lambda *_: None)
+    assert t.bodies[-1]["temperature"] == 0.9

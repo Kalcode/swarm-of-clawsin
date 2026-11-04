@@ -104,14 +104,14 @@ async def ask(brain: LLMBrain, r: dict) -> dict | None:
 
 async def run_labeling(runs: list[Path], base_url: str, model: str, out: Path, student_prefix: str = "swarm-student",
                        since_run: str = DEFAULT_SINCE, failures_first: bool = False, limit: int | None = None,
-                       concurrency: int = 8, api_key: str | None = None, log=print) -> dict:
+                       concurrency: int = 8, api_key: str | None = None, temperature: float = 0.4, log=print) -> dict:
     if GEMINI.search(model) or GEMINI.search(base_url):
         raise fail("Gemini (or any Google model) is never a teacher: its terms forbid training other models on its outputs")
     check_runs(runs, since_run)
     t0 = time.monotonic()
     picked, n_fail = pick(runs, student_prefix, failures_first, limit)
     log(f"Picked {len(picked)} decisions ({n_fail} failures-first) from {len(runs)} run(s)")
-    brain = LLMBrain(base_url, model, api_key, timeout=180.0)
+    brain = LLMBrain(base_url, model, api_key, timeout=180.0, temperature=temperature)  # the teacher's best move
     sem = asyncio.Semaphore(max(1, concurrency))
     answers: list[dict | None] = [None] * len(picked)
     done = 0
@@ -161,13 +161,14 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--failures-first", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--concurrency", type=int, default=8)
+    ap.add_argument("--temperature", type=float, default=0.4, help="teacher temperature for labels (0.4: its preferred move)")
     ap.add_argument("--api-key", default=None)
     a = ap.parse_args(argv)
     out = Path(a.out)
     if out.exists() and any(out.iterdir()):
         raise fail(f"{out} exists and is not empty")
     asyncio.run(run_labeling([Path(r) for r in a.runs], a.base_url, a.model, out, a.student_prefix, a.since_run,
-                             a.failures_first, a.limit, a.concurrency, a.api_key))
+                             a.failures_first, a.limit, a.concurrency, a.api_key, a.temperature))
 
 
 if __name__ == "__main__":
