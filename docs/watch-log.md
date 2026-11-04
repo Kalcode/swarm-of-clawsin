@@ -339,3 +339,14 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - Proposal: when a creature lies down to sleep hungry (satiety < 35) with food within a few steps, the body eats
     first, in the same spirit as `_go_eat`. That affects only hungry sleepers, so GC2 holds for everyone else.
   - Do it after the frontier merge, in one small batch with the seed food value.
+
+### 18:50 watch (tick 29,320)
+- **admin:** healthy: 12 student creatures awake, tunnel up, no errors. The student made 1,070 acts, 82% successful,
+  p50 13.4 s.
+- **mod (round-2 data), Holt's loop (11 failures in a row):** two give targets that can't work.
+  - It keeps giving strong cord to Hux, a gpt-oss creature asleep in stasis while the PC is off ("You don't see 'Hux'
+    here").
+  - It keeps giving strong cord to the campfire ("The strong cord won't burn").
+
+  Both are the student's habit. The teacher's answers in these moments belong in round 2.
+  - **tweak (idea):** "give to someone asleep in stasis" could say "Hux sleeps far away; their mind is gone for now".
