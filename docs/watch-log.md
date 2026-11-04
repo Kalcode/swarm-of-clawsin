@@ -529,3 +529,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   The pile was 4 steps away, and the refusal said craft rope. A pile in sight now comes first: walk_to, then pick_up.
   - Parked (low): walk_to checks objects and tiles before ground piles. For an item named like one ("sand", "stone"),
     the walk may go there first; pick_up reaches 3 by 3, so the worst case is a wasted step.
+
+### 06:13 watch (tick 70,207): the ground-pile hint works; the student at 83%
+- **admin:** both nodes up, no errors, the tunnel answers 200, and the frontier has 0 strips.
+- **gpt-oss:** 482 acts since 05:47, 87% successful (p50 8.0 s).
+- **student:** 852 acts, 83% successful (p50 14.8 s). That's its best stretch.
+- **win:** the ground-pile hint (61bc8da) fired 10 times.
+  - Suki picked up 6 rope, then 20 plant fiber.
+  - Dree walked to the rope.
+  - Cyd then gave Una stone.
+  - Suki took the very 6 rope Mirth had been told about before Mirth acted. Mirth then got the recipe hint again.
+- **parked (minor):** Dree sent "gather rope" at a pile 5 steps away ("There's no 'rope' within reach to gather
+  from"). gather could take a ground pile within reach, as pick_up already falls back to gather for growing things.
