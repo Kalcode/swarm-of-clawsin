@@ -133,3 +133,11 @@ def test_far_fireflies_are_only_the_nearest_few(world):
     world.add_object("campfire", 8, 20, lit=True, lit_until=world.tick + 5000)  # fires afar are not capped
     world.add_object("campfire", 22, 20, lit=True, lit_until=world.tick + 5000)
     assert "2 campfires (burning)" in perceive(world, c)
+
+
+def test_plural_leaves_an_already_plural_name_alone():
+    # Cyd saw "2 spark fragmentses", then asked for 'spark fragmentses'
+    from swarmworld.world.perception import plural
+    assert plural("spark fragments") == "spark fragments" and plural("wheat seeds (ripe)") == "wheat seeds (ripe)"
+    assert plural("grass") == "grasses" and plural("bush") == "bushes" and plural("berry bush") == "berry bushes"
+    assert plural("campfire (burning)") == "campfires (burning)" and plural("pony") == "ponies"

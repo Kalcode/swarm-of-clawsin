@@ -145,7 +145,8 @@ class Catalog:
             return None
         if n in self._names:
             return self._names[n]
-        for cand in (n[:-1] if n.endswith("s") else None, n[:-2] if n.endswith("es") else None):
+        for cand in (n[:-1] if n.endswith("s") else None, n[:-2] if n.endswith("es") else None,
+                     n + "s", n + "es"):  # and a singular for a plural name: "spark fragment"
             if cand and cand in self._names:
                 return self._names[cand]
         return None

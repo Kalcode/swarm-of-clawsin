@@ -1029,8 +1029,14 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
         lacking = f" ({missing[0].rstrip('.')}.)" if missing else ""
         dream = _dream(world, c, hint)
         if dream:
+            if c.stats.get(f"invented_day_{world.clock()['day']}", 0) >= 1:
+                how = "You've already invented something today; tomorrow you could invent it with these things."
+            else:  # the invent verb is often crowded out of the tips, so say how
+                items_txt = json.dumps([world.catalog.name(i) for i in sorted(ids)], ensure_ascii=False)
+                how = (f'If you believe in it, you could invent it with these things: invent with target "{dream}", '
+                       f"items {items_txt}, and text saying what it is or does.")
             return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it. No one has ever made a '{dream}'. "
-                                       f"If you believe in it, you could invent it with these things.{lacking}")
+                                       f"{how}{lacking}")
         if world.catalog.near_miss(ids):
             return ActionResult(False, f"You turn the {names_txt} over in your hands. They feel like part of something, but one more ingredient seems to be missing.{lacking}")
         return ActionResult(False, f"You fiddle with the {names_txt}, but nothing comes of it.{lacking}")

@@ -261,7 +261,9 @@ def article(word: str) -> str:
 
 def plural(label: str) -> str:
     head, _, tail = label.partition(" (")
-    if head.endswith(("sh", "ch", "s", "x")):
+    if head.endswith("s") and not head.endswith(("ss", "us", "is")):
+        pass  # already plural: "spark fragments", "wheat seeds"
+    elif head.endswith(("sh", "ch", "s", "x")):
         head += "es"
     elif head.endswith("y") and not head.endswith(("ay", "ey", "oy")):
         head = head[:-1] + "ies"

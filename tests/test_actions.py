@@ -156,6 +156,27 @@ def test_myth_hint_only_for_names_of_things(world):
     assert "No one has ever made a 'berry wand'" in res.message
 
 
+def test_the_myth_hint_says_how_to_invent_and_when(world):
+    # Hux combined toward a "net" 44 times, told "you could invent it" but never shown the invent verb (crowded out
+    # of the tips); the hint now spells it out, and once a day's invention is used it says tomorrow
+    c = creature(world)
+    c.inventory.update({"stick": 1, "rope": 1})
+    res = act(world, c, action="combine", items=["stick", "rope"], target="net")
+    assert 'invent with target "net", items ["rope", "stick"]' in res.message and "text" in res.message
+    c.stats[f"invented_day_{world.clock()['day']}"] = 1
+    res = act(world, c, action="combine", items=["stick", "rope"], target="net")
+    assert "No one has ever made a 'net'" in res.message and "tomorrow" in res.message and "invent with" not in res.message
+
+
+def test_a_singular_name_finds_a_plural_named_item(world):
+    # Cyd asked to give 'spark fragment' 7 times: "You don't know of anything called 'spark fragment'"
+    world.catalog.add_invention({"id": "inv_spark_fragments", "name": "spark fragments", "desc": "x", "food": 0,
+                                 "placeable": True, "inputs": {"flint": 2, "stone": 2}})
+    assert world.catalog.resolve("spark fragment") == "inv_spark_fragments"
+    assert world.catalog.resolve("spark fragments") == "inv_spark_fragments"
+    assert world.catalog.resolve("stick") == "stick" and world.catalog.resolve("sticks") == "stick"
+
+
 def test_walk_to_and_gather_use_remembered_spots(world):
     c = creature(world)
     world.add_object("rock", 30, 10)
