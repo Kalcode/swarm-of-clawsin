@@ -551,3 +551,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - Opal offered rope to "Mika's cow" 14 times ("The Mika's cow sniffs the rope and turns away").
   - Fix (deployed 06:49, f7fa17a + 83cee62, reviewed): the refusal now says what the animal eats, and the stray "The"
     is gone.
+
+### 07:13 watch (tick 73,796): gpt-oss 94%; the student ignores hints
+- **admin:** both nodes up and the tunnel answers 200. One PC request failed at 06:52 (a connection reset by peer);
+  a one-off.
+- **gpt-oss:** 374 acts since 06:49, 94% successful (the best tonight), p50 8.4 s.
+- **student:** 702 acts, 80% successful, p50 14.9 s.
+  - Opal got the new animal hint 12 times ("Mika's cow sniffs the rope and turns away. Your plant fiber might tempt
+    it.") and kept offering rope.
+  - Same pattern as the fuel hint at 03:43: gpt-oss acts on these hints and the student doesn't.
+  - For round 3: DAgger labels on exactly these failures, failures first, are the lever. The student was trained before
+    these hints existed, so it has never seen one followed.
+- **frontier:** 0 strips, and no explore acts.
