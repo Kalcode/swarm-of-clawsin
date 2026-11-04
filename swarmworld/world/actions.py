@@ -487,7 +487,8 @@ def _how_to_get(world: World, c: Creature, iid: str, named: bool = False) -> str
         short = [f"no {cat.name(i)}" if c.inventory.get(i, 0) <= 0 else f"only {c.inventory[i]} {cat.name(i)}"
                  for i, n in r.inputs.items() if c.inventory.get(i, 0) < n][:2]
         what = cat.name(iid) if named else "it"
-        return f" You know how to make {what}: {cat.describe_recipe(r)}" + (f"; you have {', '.join(short)}." if short else ".")
+        return f" You know how to make {what}: {cat.describe_recipe(r)}" + (
+            f"; you have {', '.join(short)}." if short else "; you have the ingredients, so craft it first.")
     if iid in SOURCE_HINT:
         return f" {cat.name(iid).capitalize()}: {_source_hint(world, c, iid)}."
     return ""

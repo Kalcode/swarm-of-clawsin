@@ -79,3 +79,14 @@ def test_a_raw_material_shortfall_keeps_its_source_hint(world):
     c.known_recipes.add("rope")
     res = apply_intention(world, c, Intention("craft", target="rope"))
     assert not res.ok and "Plant fiber:" in res.message and "You know how to make" not in res.message
+
+
+def test_holding_the_ingredients_says_craft_it_first(world):
+    # 38 failed gives in an hour: "You don't have any rope. You know how to make it: 3 plant fiber -> rope." while
+    # holding the fiber; nothing said it was all there
+    gale = make(world, "Gale", 10)
+    make(world, "Teo", 11)
+    gale.inventory["plant_fiber"] = 4
+    gale.known_recipes.add("rope")
+    res = apply_intention(world, gale, Intention("give", target="Teo", items=["rope"]))
+    assert not res.ok and "3 plant fiber -> rope; you have the ingredients, so craft it first." in res.message
