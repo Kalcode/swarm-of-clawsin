@@ -59,3 +59,23 @@ def test_unknown_recipe_or_item_unchanged(world):
     assert res.message == "You don't have a warm reed blanket to place."
     res = apply_intention(world, c, Intention("give", target="Una", items=["zzzz"]))
     assert res.message == "You don't know of anything called 'zzzz'."
+
+
+def test_a_crafting_shortfall_says_how_to_make_the_missing_ingredient(world):
+    # Teo tried "craft strong cord" 9 times: "you need 2 rope, but you have 1", never told that rope is 3 plant fiber
+    world.catalog.add_invention({"id": "inv_strong_cord", "name": "strong cord", "desc": "x", "food": 0,
+                                 "placeable": True, "inputs": {"rope": 2}})  # an invention in the live world
+    c = make(world, "Teo", 10)
+    c.inventory["rope"] = 1
+    c.known_recipes |= {"rope", "inv_strong_cord"}
+    res = apply_intention(world, c, Intention("craft", target="strong cord"))
+    assert not res.ok and "need 2 rope, but you have 1" in res.message
+    assert "You know how to make rope:" in res.message and "no plant fiber" in res.message
+
+
+def test_a_raw_material_shortfall_keeps_its_source_hint(world):
+    c = make(world, "Ann", 10)
+    c.inventory["plant_fiber"] = 1
+    c.known_recipes.add("rope")
+    res = apply_intention(world, c, Intention("craft", target="rope"))
+    assert not res.ok and "Plant fiber:" in res.message and "You know how to make" not in res.message

@@ -477,15 +477,17 @@ def _resolve_held(world: World, c: Creature, name: str) -> tuple[str | None, str
     return iid, ""
 
 
-def _how_to_get(world: World, c: Creature, iid: str) -> str:
+def _how_to_get(world: World, c: Creature, iid: str, named: bool = False) -> str:
     """What to add to a "you don't have it" refusal: the recipe the creature knows (and what it is short of), or where
-    a raw material comes from. Nothing for anything else."""
+    a raw material comes from. Nothing for anything else. `named` says the item's name instead of "it" (for a missing
+    ingredient inside a crafting shortfall)."""
     cat = world.catalog
     r = cat.recipe_for(iid) if iid in c.known_recipes else None
     if r is not None:
         short = [f"no {cat.name(i)}" if c.inventory.get(i, 0) <= 0 else f"only {c.inventory[i]} {cat.name(i)}"
                  for i, n in r.inputs.items() if c.inventory.get(i, 0) < n][:2]
-        return f" You know how to make it: {cat.describe_recipe(r)}" + (f"; you have {', '.join(short)}." if short else ".")
+        what = cat.name(iid) if named else "it"
+        return f" You know how to make {what}: {cat.describe_recipe(r)}" + (f"; you have {', '.join(short)}." if short else ".")
     if iid in SOURCE_HINT:
         return f" {cat.name(iid).capitalize()}: {_source_hint(world, c, iid)}."
     return ""
@@ -516,7 +518,7 @@ def _try_recipe(world: World, c: Creature, r: Recipe, count: int, via: str) -> A
     for iid, n in r.inputs.items():
         have = c.inventory.get(iid, 0)
         if have < n:
-            where = f" {cat.name(iid).capitalize()}: {_source_hint(world, c, iid)}." if iid in SOURCE_HINT else ""
+            where = _how_to_get(world, c, iid, named=True)  # a known recipe for the ingredient, else its source hint
             if via == "combine":
                 return ActionResult(False, f"You sense these could become something, but you'd need {n} {cat.name(iid)} (you have {have}).{where}")
             return ActionResult(False, f"To make {cat.name(r.output)} you need {n} {cat.name(iid)}, but you have {have}.{where}")
