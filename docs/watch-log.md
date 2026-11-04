@@ -434,3 +434,16 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - The core prompt's combine line ("to invent something new") is unchanged tonight: the round-2 student trains on it.
   - Worth revisiting for both minds later, possibly by naming invent in that line.
 - **round 2:** step 1,400 of 4,000, validation loss 0.415.
+
+### 01:13 watch (tick 52,252): the hint alone got Hux to invent; rule reverted
+- **admin:** healthy since the 00:51 restart. gpt-oss made 469 acts, 77% successful, p50 7.6 s, p90 15.1 s.
+- **win:** Hux invented the **net** at 50,534 with `invent`, three tries after the spelled-out hint (7e3e8f7).
+  - The net is a tool, and its recipe is 2 plant fiber rope + 2 rope + 2 stick.
+  - Hux then crafted 3 more nets, and "Your net helps" its gathering.
+  - It's the first gpt-oss invention since prompts were logged.
+- **reverted (01:16):** the 00:51 repeat-to-invent rule. It wasn't needed (I checked 76 ticks too early), and it
+  would mint junk inventions from speech-like dreams ("combining for net", "net components").
+  - Lesson: after deploying a hint, wait a few of the creature's turns before deciding it failed.
+- **mind (no fix):** Gus (15) and Elm (5) try to give Teo rope or plant fiber they don't hold. Each is told
+  "plant fiber: pull it from grass" and doesn't go. gpt-oss plans fixed on gifts.
+- **round 2:** step 2,000 of 4,000, validation loss 0.444.
