@@ -520,3 +520,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   item named in target is read as an ingredient, so the "You know how to make X" hint never fires. A one-kind combine
   whose only item is a known recipe's product could show that recipe. Only one student creature does this, so it
   isn't worth a restart tonight.
+
+### 05:43 watch (tick 68,412): Suki invents; Mirth's rope on the ground
+- **admin:** both nodes up, no errors. gpt-oss 80% (p50 7.4 s); the student 79% (p50 14.6 s).
+- **invention:** Suki (gpt-oss) invented the **adding rope basket**, "a basket that accepts rope and keeps it
+  secure for nets", a tool.
+- **fix (deployed 05:47, 61bc8da, reviewed):** Mirth failed 13 gives in a row, sure it had "6 rope on the ground".
+  The pile was 4 steps away, and the refusal said craft rope. A pile in sight now comes first: walk_to, then pick_up.
+  - Parked (low): walk_to checks objects and tiles before ground piles. For an item named like one ("sand", "stone"),
+    the walk may go there first; pick_up reaches 3 by 3, so the worst case is a wasted step.
