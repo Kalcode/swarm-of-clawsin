@@ -702,9 +702,18 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     return ActionResult(False, f"You don't see any '{it.target}' around you.")
 
 
+def explore_edge(world: World, c: Creature, direction: str) -> ActionResult | None:
+    """What exploring toward `direction` does when a pack has something to say about it (the frontier pack: a walk to
+    the edge of the known land, where new country may open). None leaves it to the ordinary walk. A pack replaces this."""
+    return None
+
+
 def _explore(world: World, c: Creature, it: Intention) -> ActionResult:
     words = _words(it.target)
     d = next((w for w in words if w in DIRS), None) or world.rng.choice(DIRS)
+    special = explore_edge(world, c, d)
+    if special is not None:
+        return special
 
     order = sorted(DIRS, key=lambda o: min((DIRS.index(o) - DIRS.index(d)) % 8, (DIRS.index(d) - DIRS.index(o)) % 8))
     for alt in order:

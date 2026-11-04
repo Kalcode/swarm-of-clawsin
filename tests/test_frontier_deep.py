@@ -169,5 +169,5 @@ def test_a_raising_grow_under_leaves_the_world_as_it_was(monkeypatch, caplog):
         assert grow(w, "east", theme="stony_hills") == []
     after = ([r[:] for r in w.tiles], sorted((o.id, o.kind, o.x, o.y) for o in w.objects.values()), w.width,
              dict(w.ext.get("underground", {})), w.tiles_version, len(w.events))
-    assert after == before and "frontier" not in w.ext
+    assert after == before and set(w.ext["frontier"]) == {"origin_x", "home_width", "failed"}
     assert len([r for r in caplog.records if "passage boom" in r.getMessage()]) == 1

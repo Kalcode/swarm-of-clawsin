@@ -528,8 +528,13 @@ def world_now(st: ServerState, kinds: list[dict]) -> dict:
     for b, raw in zip(built, (bstate.get("built") or {}).values()):
         b["by"], b["tick"] = list(raw.get("by") or []), raw.get("tick")
     m = st.metrics
+    laid = w.ext.get("frontier") or {}
+    new_lands = laid.get("lands") or {}
+    lands = {"strips": {"east": 0, "west": 0, **(laid.get("strips") or {})}, "count": len(new_lands),
+             "found": [{"name": r["name"], "theme": r["theme"], "by": r["found_by"]}
+                       for r in new_lands.values() if r.get("found_by")]}
     return {
-        "tick": w.tick, "clock": w.clock(),
+        "tick": w.tick, "clock": w.clock(), "lands": lands,
         "kinds": dict(on_map), "groups": groups, "items": held,
         "tamed": dict(Counter(o.kind for o in w.objects.values() if o.data.get("tamed_by"))),
         "crops": dict(Counter(o.data.get("crop") or "wheat" for o in w.objects.values() if o.kind == "crop")),

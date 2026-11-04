@@ -9,7 +9,7 @@ at every start: --frontier on|off). A strip to the west moves the whole world ea
 
 State, world.ext["frontier"] (saved), made at the first growth:
   {"origin_x", "home_width" (World.frontier_record), "seed", "strip", "strips": {"east": n, "west": n},
-   "last_grow": tick or None,
+   "last_grow": tick or None, "failed": tick of the last growth that failed (taken back), if any,
    "lands": {"lx,ly": {"theme", "side", "heart": [hx, hy] (inside the land), "name", "found_by", "tick"}}}
 lx counts strips out from the home lands (east 1, 2...; west -1, -2...), ly lands down from the surface's top row.
 They count from the home lands, so a shift never moves them. `strip` is the one the first growth used, from then on.
@@ -26,8 +26,11 @@ import traceback
 import zlib
 from typing import TYPE_CHECKING
 
-from .. import lands
-from ..registry import run_populate_land
+from .. import actions, lands
+from ..actions import ActionResult, Intention, bfs_path, start_walk
+from ..model import DAY_TICKS
+from ..perception import sight_range
+from ..registry import register_landmarks, register_perception, register_system, run_populate_land
 
 if TYPE_CHECKING:
     from ..model import Creature, World
@@ -35,6 +38,20 @@ if TYPE_CHECKING:
 PACK = "frontier"
 SIDES = ("east", "west")
 log = logging.getLogger("swarmworld.packs")
+
+EDGE_NEAR = 24   # within this many steps of a growable edge, exploring toward it walks there
+EDGE_REACH = 1   # this close counts as at the edge
+WALK_ON = 6      # after laying land, the explorer walks this many columns into it
+SIDE_DIRS = {"east": ("east", "northeast", "southeast"), "west": ("west", "northwest", "southwest")}
+EDGE_LINE = "To the {side} the land fades into unknown country; exploring might reveal more."
+ANOTHER_DAY = "The unknown country beyond looks hard going; perhaps another day."
+HEAD_TO_EDGE = "You head off {d}, toward the edge of the known land."
+REACH_EDGE = "You reach the edge of the known land to the {side}."
+NEW_COUNTRY = "New country opens before you to the {side}."
+ON_INTO = "New country opens before you to the {side}; you walk on into it."
+FOUND = "You found new country to the {side}: {label}. From now on it is {name}."
+LAND_EVENT = "{who} found new country to the {side}: {label}. It is {name} now."
+PULL = "The unknown country to the {side} calls to you, some {d} steps away."
 
 
 def _side(side: str) -> str:
@@ -68,9 +85,11 @@ def why_not_grow(world: World, side: str) -> str | None:
         return "off"
     if world.width + _strip(world) > settings.cap:
         return "cap"
-    last = (world.ext.get(PACK) or {}).get("last_grow")
-    if last is not None and world.tick - last < settings.pace:
-        return "pace"
+    rec = world.ext.get(PACK) or {}
+    for key in ("last_grow", "failed"):  # a failed growth holds the next try back as long as a laid one does
+        was = rec.get(key)
+        if was is not None and world.tick - was < settings.pace:
+            return "pace"
     return None
 
 
@@ -145,6 +164,7 @@ def grow(world: World, side: str, by: Creature | None = None, theme: str | None 
         log.error("frontier: the strip to the %s failed and was taken back; nothing grew (%s: %s, at %s:%s in %s)",
                   side, type(exc).__name__, " ".join(str(exc).split()), at.filename.rsplit("/", 1)[-1], at.lineno,
                   at.name)
+        world.frontier_record()["failed"] = world.tick  # after the put-back: no retry at every arrival
         return []
 
 
@@ -206,3 +226,144 @@ def _lay(world: World, side: str, by: Creature | None, theme: str | None) -> lis
     seam = width_before - 1 if side == "east" else strip  # the old edge column, where it lies now
     world.emit("frontier", by.id if by else None, seam, (s.y0 + s.y1) // 2, text)
     return [key for key, _ in made]
+
+
+# ------------------------------------------------------------------ the edge, and exploring to it
+def growable(world: World, side: str) -> bool:
+    """New land may come to this side some day: the frontier is on and the map is under its cap (the pace aside)."""
+    return world.frontier_settings.on and why_not_grow(world, side) != "cap"
+
+
+def edge_distance(world: World, c: Creature, side: str) -> int:
+    return world.width - 1 - c.x if side == "east" else c.x
+
+
+def _on_surface(world: World, c: Creature) -> bool:
+    r = world.region_at(c.x, c.y)
+    return r is not None and r.name == "surface"
+
+
+def _edge_line(world: World, c: Creature) -> str | None:
+    """The unknown country, said when a growable edge comes into sight and again on waking."""
+    mine = c.ext.get(PACK) or {}
+    sight = sight_range(world, c) if _on_surface(world, c) else -1
+    near = [(edge_distance(world, c, side), i, side) for i, side in enumerate(SIDES) if growable(world, side)]
+    near = [n for n in near if n[0] <= sight]
+    if not near:
+        mine.pop("edge", None)
+        return None
+    side = min(near)[2]
+    if mine.get("edge") == side and c.wake_reason != "woke":
+        return None
+    c.ext.setdefault(PACK, {})["edge"] = side
+    return EDGE_LINE.format(side=side)
+
+
+def _edge_explore(world: World, c: Creature, d: str) -> ActionResult | None:
+    if not _on_surface(world, c):
+        return None
+    side = next((s for s in SIDES if d in SIDE_DIRS[s] and growable(world, s)
+                 and edge_distance(world, c, s) <= EDGE_NEAR), None)
+    if side is None:
+        return None
+    if edge_distance(world, c, side) > EDGE_REACH:
+        cols = (world.width - 2, world.width - 1) if side == "east" else (0, 1)
+        goals = {(x, y) for x in cols for y in range(c.y - 4, c.y + 5) if world.walkable(x, y)}
+        path = bfs_path(world, (c.x, c.y), goals) if goals else None
+        if not path:
+            return None
+        c.activity = {"type": "walk", "path": path, "label": f"exploring {d}", "result": REACH_EDGE.format(side=side),
+                      "then": Intention("explore", target=side)}
+        return ActionResult(True, HEAD_TO_EDGE.format(d=d), instant=False)
+    if why_not_grow(world, side) == "pace":
+        return ActionResult(False, ANOTHER_DAY)
+    seam = world.width - 1  # the old edge column, in the world as it is before the strip
+    if not grow(world, side, by=c):
+        return ActionResult(False, ANOTHER_DAY)
+    seam = seam if side == "east" else _strip(world)
+    x = seam + WALK_ON if side == "east" else seam - WALK_ON
+    goals = {(x, y) for y in range(c.y - 2, c.y + 3) if world.walkable(x, y)}
+    if goals:
+        res = start_walk(world, c, goals, f"exploring {d}", ON_INTO.format(side=side))
+        if res.ok and c.activity:
+            return ActionResult(True, NEW_COUNTRY.format(side=side), instant=False)
+    return ActionResult(True, NEW_COUNTRY.format(side=side))
+
+
+actions.explore_edge = _edge_explore
+register_perception(_edge_line, priority=48)
+
+
+# ------------------------------------------------------------------ first entry, names, places
+ORDINALS = ("second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
+
+
+def land_name(world: World, rec: dict, founder: str) -> str:
+    """"the Eastern Hills" when no land has that name yet, else "{founder}'s Hills", then "{founder}'s second Hills"."""
+    noun = lands.THEMES[rec["theme"]]["noun"]
+    taken = {r.get("name") for r in ((world.ext.get(PACK) or {}).get("lands") or {}).values()}
+    name = f"the {'Eastern' if rec['side'] == 'east' else 'Western'} {noun}"
+    n = 1
+    while name in taken:
+        n += 1
+        ordinal = "" if n == 2 else (ORDINALS[n - 3] + " ") if n - 3 < len(ORDINALS) else f"{n}th "
+        name = f"{founder}'s {ordinal}{noun}"
+    return name
+
+
+def _discover(sim, t: int) -> None:
+    """The first creature to stand in a new land finds it, and names it."""
+    world = sim.world
+    laid = (world.ext.get(PACK) or {}).get("lands")
+    if not laid:
+        return
+    for c in list(world.creatures.values()):
+        if c.asleep or c.collapsed:
+            continue
+        key = land_at(world, c.x, c.y)
+        rec = laid.get(key) if key else None
+        if rec is None or rec["found_by"] is not None:
+            continue
+        label = lands.THEMES[rec["theme"]]["label"]
+        name = land_name(world, rec, c.name)
+        rec.update(found_by=c.name, name=name, tick=t)
+        sim.remember(c, FOUND.format(side=rec["side"], label=label, name=name), 3)
+        world.emit("land", c.id, c.x, c.y, LAND_EVENT.format(who=c.name, side=rec["side"], label=label, name=name))
+
+
+def _places(world: World) -> list[dict]:
+    out: list[dict] = []
+    for key, rec in ((world.ext.get(PACK) or {}).get("lands") or {}).items():
+        if not rec.get("name"):
+            continue
+        x0, y0, x1, y1 = land_rect(world, key)
+        out.append({"name": rec["name"], "x": x0 + rec["heart"][0], "y": y0 + rec["heart"][1], "kind": "land"})
+        for o in world.objects.values():
+            if o.kind == "terminal" and o.data.get("ruin") and x0 <= o.x < x1 and y0 <= o.y < y1:
+                out.append({"name": f"the old terminal in {rec['name']}", "x": o.x, "y": o.y, "kind": "terminal"})
+    return out
+
+
+register_system("frontier discovery", 3, _discover)
+register_landmarks(_places)
+
+
+# ------------------------------------------------------------------ the explorers' pull
+def _pull(sim, t: int) -> None:
+    """Once a day, an idle explorer is reminded of the unknown country. Draws no dice."""
+    world = sim.world
+    for c in world.creatures.values():
+        if (c.persona or {}).get("drive") != "explorer" or c.asleep or c.collapsed or c.activity is not None \
+                or c.thinking or not _on_surface(world, c):
+            continue
+        if t - (c.ext.get(PACK) or {}).get("pulled", -DAY_TICKS) < DAY_TICKS:
+            continue
+        ways = [(edge_distance(world, c, side), i, side) for i, side in enumerate(SIDES) if why_not_grow(world, side) is None]
+        if not ways:
+            continue
+        d, _, side = min(ways)
+        sim.remember(c, PULL.format(side=side, d=max(5, 5 * round(d / 5))), 2)
+        c.ext.setdefault(PACK, {})["pulled"] = t
+
+
+register_system("frontier pull", 20, _pull)

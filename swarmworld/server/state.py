@@ -320,7 +320,7 @@ class ServerState:
         eaten = 0
         speech = []
         for e in evs:
-            if e.kind in ("discover", "place", "plant", "write", "program", "collapse", "give"):
+            if e.kind in ("discover", "place", "plant", "write", "program", "collapse", "give", "land", "frontier"):
                 lines.append(e.text.split("\n")[0][:200])
             elif e.kind == "craft":
                 crafted[e.text] = crafted.get(e.text, 0) + 1

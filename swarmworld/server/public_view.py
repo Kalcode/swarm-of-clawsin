@@ -59,7 +59,9 @@ TREE_KEYS: tuple[str, ...] = ("nodes", "edges")
 TREE_NODE_KEYS: tuple[str, ...] = ("id", "type", "tier")
 TREE_EDGE_KEYS: tuple[str, ...] = ("from", "to", "kind", "n", "how", "back")
 WORLD_KEYS: tuple[str, ...] = ("tick", "clock", "kinds", "groups", "items", "tamed", "crops", "buildings", "built",
-                               "sites", "discoveries", "creatures", "verbs_since")
+                               "sites", "discoveries", "creatures", "verbs_since", "lands")
+LANDS_KEYS: tuple[str, ...] = ("strips", "count", "found")
+LAND_FOUND_KEYS: tuple[str, ...] = ("name", "theme", "by")
 CLOCK_KEYS: tuple[str, ...] = ("day", "light", "phase", "weather")
 GROUP_KEYS: tuple[str, ...] = ("label", "count", "kinds")
 BUILDING_KEYS: tuple[str, ...] = ("id", "design", "x0", "y0", "x1", "y1", "door", "roof", "by", "tick")
@@ -238,6 +240,9 @@ def _world(w: dict) -> dict:
         out["clock"] = pick(out["clock"], CLOCK_KEYS)
     if isinstance(out.get("groups"), dict):
         out["groups"] = {g: pick(v, GROUP_KEYS) for g, v in out["groups"].items()}
+    if isinstance(out.get("lands"), dict):
+        out["lands"] = pick(out["lands"], LANDS_KEYS)
+        _pick_in(out["lands"], "found", LAND_FOUND_KEYS)
     _pick_in(out, "buildings", BUILDING_KEYS)
     _pick_in(out, "sites", SITE_KEYS)
     _pick_in(out, "discoveries", DISCOVERY_KEYS)
