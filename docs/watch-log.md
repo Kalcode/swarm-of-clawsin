@@ -597,3 +597,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - The page, `style.css`, `tiles.js` and `public.js` (versioned) are cache HITs.
   - The LimeZu and sfx manifests are HITs (max-age 60).
   - The tunnel is running under `public-tunnel.sh`, so `stop` is the kill switch. "watching" reads 0 at post time.
+
+### 08:42 watch (tick 2,499): HN morning, all healthy
+- **public:** 5 watching. The Mac's load is about 8. live.json answers 200 in 0.13 s, and `/public/app/` is a cache
+  HIT. The tunnel is running.
+- **gpt-oss:** 873 acts, 96% successful, p50 7.0 s. **student:** 1,386 acts, 86% successful, p50 12.2 s. No streaks,
+  no errors, no collapses.
+- **first invention in the fresh world:** Mirth (gpt-oss) invented the **net** at tick 1,846: "a fishing net would
+  help tomorrow".
+- **frontier:** 0 strips, and no explore acts yet.
