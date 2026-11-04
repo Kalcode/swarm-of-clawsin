@@ -186,11 +186,11 @@ def test_at_the_cap_the_edge_is_the_end():
     w = world48(cap=80)
     grow(w, "east")
     assert w.width == 80 and why_not_grow(w, "east") == "cap"
-    c = at(w, "Ada", 74, 20)
+    c = at(w, "Ada", w.width - 1, 20)
+    assert c.x == w.width - 1
     assert "fades into unknown country" not in perceive(w, c)
     res = apply_intention(w, c, Intention("explore", target="east"))
-    assert "The land ends to the east, so you turn" in res.message or res.message.startswith("You head off")
-    assert not res.message.startswith("You head off east, toward the edge")
+    assert res.message.startswith("The land ends to the east, so you turn")
     sim = Simulation(w)
     memories = []
     sim.memory_sink = lambda c, text, imp: memories.append(text)
@@ -218,6 +218,19 @@ def test_a_failed_growth_cools_down(monkeypatch, caplog):
     assert not res.ok and res.message == ANOTHER_DAY and calls == []
     assert why_not_grow(w, "east") == "pace"
     w.tick += 1200
+    assert why_not_grow(w, "east") is None
+
+
+def test_a_failed_growth_holds_at_least_300_ticks_at_pace_zero(monkeypatch, caplog):
+    w = world48(pace=0)
+    ada = at(w, "Ada", 47, 20)
+    monkeypatch.setattr(underground, "grow_under", lambda *a, **k: 1 / 0)
+    with caplog.at_level(logging.ERROR):
+        assert grow(w, "east", by=ada) == []
+    assert why_not_grow(w, "east") == "pace"
+    w.tick += 299
+    assert why_not_grow(w, "east") == "pace"
+    w.tick += 1
     assert why_not_grow(w, "east") is None
 
 
@@ -253,3 +266,15 @@ def test_far_from_an_edge_nothing_changes():
             res = apply_intention(w, c, Intention("explore", target=d))
             results.append((res.ok, res.message, res.instant))
         assert results[0] == results[1]
+
+
+def test_a_near_walk_longer_than_twice_the_edge_reach_falls_back_to_core_explore(monkeypatch):
+    w = world48()
+    ada = at(w, "Ada", 40, 20)
+    monkeypatch.setattr(frontier, "bfs_path", lambda *a, **k: [(41, 20)] * (2 * frontier.EDGE_NEAR + 1))
+    res = apply_intention(w, ada, Intention("explore", target="east"))
+    assert not res.message.startswith("You head off east, toward the edge")
+    monkeypatch.setattr(frontier, "bfs_path", lambda *a, **k: [(41, 20)] * (2 * frontier.EDGE_NEAR))
+    ada.activity = None
+    res = apply_intention(w, ada, Intention("explore", target="east"))
+    assert res.message.startswith("You head off east, toward the edge")

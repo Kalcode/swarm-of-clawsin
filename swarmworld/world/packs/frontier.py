@@ -40,6 +40,7 @@ SIDES = ("east", "west")
 log = logging.getLogger("swarmworld.packs")
 
 EDGE_NEAR = 24   # within this many steps of a growable edge, exploring toward it walks there
+FAIL_HOLD = 300  # a failed growth is not tried again for this many ticks, whatever the pace
 EDGE_REACH = 1   # this close counts as at the edge
 WALK_ON = 6      # after laying land, the explorer walks this many columns into it
 SIDE_DIRS = {"east": ("east", "northeast", "southeast"), "west": ("west", "northwest", "southwest")}
@@ -86,9 +87,9 @@ def why_not_grow(world: World, side: str) -> str | None:
     if world.width + _strip(world) > settings.cap:
         return "cap"
     rec = world.ext.get(PACK) or {}
-    for key in ("last_grow", "failed"):  # a failed growth holds the next try back as long as a laid one does
-        was = rec.get(key)
-        if was is not None and world.tick - was < settings.pace:
+    for key, hold in (("last_grow", settings.pace), ("failed", max(settings.pace, FAIL_HOLD))):
+        was = rec.get(key)  # a failed growth holds the next try back as long as a laid one (at least FAIL_HOLD)
+        if was is not None and world.tick - was < hold:
             return "pace"
     return None
 
@@ -270,7 +271,7 @@ def _edge_explore(world: World, c: Creature, d: str) -> ActionResult | None:
         cols = (world.width - 2, world.width - 1) if side == "east" else (0, 1)
         goals = {(x, y) for x in cols for y in range(c.y - 4, c.y + 5) if world.walkable(x, y)}
         path = bfs_path(world, (c.x, c.y), goals) if goals else None
-        if not path:
+        if not path or len(path) > 2 * EDGE_NEAR:  # a long way round: the core explore it is
             return None
         c.activity = {"type": "walk", "path": path, "label": f"exploring {d}", "result": REACH_EDGE.format(side=side),
                       "then": Intention("explore", target=side)}
