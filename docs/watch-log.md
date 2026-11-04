@@ -422,3 +422,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
     passed.
 - **round 2:** at step 1,000 of 4,000 the validation loss is 0.471. The steps went 3.049 → 0.648 (200) → 0.556 →
   0.492 → 0.442 (800) → 0.471 (1,000). On track for about 03:40.
+
+### 00:43 watch (tick 50,458): the name fixes work; Hux still combines
+- **admin:** healthy since the 00:34 restart. gpt-oss made 85 acts, 80% successful, p50 6.1 s, p90 11.8 s.
+- **win:** Cyd's loop is gone. Gale gave Cyd 2 spark fragments, and Cyd gave 1 to Hux, "for the net".
+- **fix (deployed 00:51, 4c5642a + 789bcc7, reviewed):** Hux got the spelled-out invent hint and thought "Time to
+  invent the net", yet still sent `combine`. Since 16:00, gpt-oss invented once in 432 decisions with the invent
+  tip shown, and never in 4,034 without it. Fix: after the hint, combining toward the same new thing again invents it.
+  - The once-a-day limit and invent's item rules still apply.
+  - Every item named must be held.
+  - The core prompt's combine line ("to invent something new") is unchanged tonight: the round-2 student trains on it.
+  - Worth revisiting for both minds later, possibly by naming invent in that line.
+- **round 2:** step 1,400 of 4,000, validation loss 0.415.
