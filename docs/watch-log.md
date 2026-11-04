@@ -588,3 +588,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - `start-world.sh` covers 1 to 3, but not `--log-prompts`, and it runs one node with shared slots, so the PC can't
     get its own 4.
 - Then restart the watch cron and log the fresh start in docs/steward-log.md.
+
+### 08:10: Show HN posted
+- The user posted the Show HN (docs/show-hn.md). The fresh world is at tick 555: both nodes up, no errors, the frontier
+  has 0 strips.
+- Public serving checked at Cloudflare:
+  - The root `/` is a 302 to `/public/app/`, uncached but tiny.
+  - The page, `style.css`, `tiles.js` and `public.js` (versioned) are cache HITs.
+  - The LimeZu and sfx manifests are HITs (max-age 60).
+  - The tunnel is running under `public-tunnel.sh`, so `stop` is the kill switch. "watching" reads 0 at post time.
