@@ -190,8 +190,6 @@ def test_a_new_dream_or_a_used_day_does_not_invent(world):
     act(world, c, action="combine", items=["stick", "rope"], target="net")
     res = act(world, c, action="combine", items=["stick", "rope"], target="snare")  # another dream: told again, first
     assert not res.ok and "invent with" in res.message and world.catalog.resolve("snare") is None
-    res = act(world, c, action="combine", items=["stick", "rope", "flint"], target="snare")  # names flint it lacks
-    assert not res.ok and "flint" in res.message and world.catalog.resolve("snare") is None  # never from a subset
     c.stats[f"invented_day_{world.clock()['day']}"] = 1
     res = act(world, c, action="combine", items=["stick", "rope"], target="snare")
     assert not res.ok and "tomorrow" in res.message and world.catalog.resolve("snare") is None

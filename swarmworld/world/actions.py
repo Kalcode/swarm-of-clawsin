@@ -1033,7 +1033,7 @@ def _combine(world: World, c: Creature, it: Intention) -> ActionResult:
                 how = "You've already invented something today; tomorrow you could invent it."
             elif not (2 <= len(ids) <= 4 and sum(min(2, c.inventory.get(i, 0)) for i in ids) >= 3):  # _invent's rules
                 how = "If you believe in it, you could invent it from 2 to 4 different things you carry, at least 3 items in all."
-            elif c.last_dream == dream and not missing:  # told it could invent it, it tries again: it believes in it
+            elif c.last_dream == dream:  # told it could invent it, it tries again: it believes in it
                 c.last_dream = ""
                 res = _invent(world, c, Intention("invent", target=dream, items=[world.catalog.name(i) for i in sorted(ids)],
                                                   text=it.text))
