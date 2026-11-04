@@ -12,7 +12,7 @@ from . import perception
 from .catalog import Recipe
 from .events import HEARING
 from .model import ANIMALS, BLOCKING, SOLID_TILES, OBJECT_ALIASES, OBJECT_NAMES, WATER_TILES, Creature, Region, World, WorldObject
-from .perception import DIRS, dist, direction, sight_range, spot_name, visible_creatures, visible_objects
+from .perception import DIRS, _where, dist, direction, sight_range, spot_name, visible_creatures, visible_objects, visible_piles
 # Kinds come from data (objects.json and packs); verbs are registered: the core ones at the end of this module,
 # then every pack's. These are the registry's shared tables.
 from .registry import (ALIAS_TARGETS, CARVABLE, DEPLETED, GATHERABLE, HANDLERS, HANDOFFS, ITEM_SOURCES, KINDS,
@@ -473,8 +473,19 @@ def _resolve_held(world: World, c: Creature, name: str) -> tuple[str | None, str
     if iid is None:
         return None, f"You don't know of anything called '{name}'."
     if c.inventory.get(iid, 0) <= 0:
-        return None, f"You don't have any {world.catalog.name(iid)}." + _how_to_get(world, c, iid)
+        return None, f"You don't have any {world.catalog.name(iid)}." + (_on_the_ground(world, c, iid) or _how_to_get(world, c, iid))
     return iid, ""
+
+
+def _on_the_ground(world: World, c: Creature, iid: str) -> str:
+    """Where some of it lies on the ground in sight, nearest first: picking it up beats making it."""
+    for x, y, d, dirn in visible_piles(world, c):
+        n = world.ground[(x, y)].get(iid, 0)
+        if n > 0:
+            name = world.catalog.name(iid)
+            how = f'pick_up "{name}"' if d <= 1 else f'walk_to "{name}", then pick_up "{name}"'
+            return f" {n} {name} {'lie' if n > 1 else 'lies'} on the ground {_where(d, dirn)}: {how}."
+    return ""
 
 
 def _how_to_get(world: World, c: Creature, iid: str, named: bool = False) -> str:

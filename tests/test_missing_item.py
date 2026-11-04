@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 
 from swarmworld.world.actions import Intention, apply_intention
@@ -104,3 +106,19 @@ def test_craft_it_first_only_when_a_craft_would_work(world):
     c.known_recipes |= {"rope", "fishing_rod"}
     res = apply_intention(world, c, Intention("craft", target="fishing rod"))
     assert not res.ok and "You know how to make rope:" in res.message and "craft it first" not in res.message
+
+
+def test_an_item_on_the_ground_in_sight_says_go_and_pick_it_up(world):
+    # Mirth: "I have 6 rope on the ground... so just put them in", 13 times; told to craft rope, never to pick it up
+    mirth = make(world, "Mirth", 10)
+    make(world, "Suki", 11)
+    mirth.inventory["plant_fiber"] = 4
+    mirth.known_recipes.add("rope")
+    world.ground[(14, 14)] = Counter({"rope": 6})
+    res = apply_intention(world, mirth, Intention("give", target="Suki", items=["rope"]))
+    assert not res.ok and res.message.startswith("You don't have any rope.")
+    assert '6 rope lie on the ground 4 steps southeast: walk_to "rope", then pick_up "rope".' in res.message
+    assert "craft it first" not in res.message  # picking it up beats making it
+    world.ground[(11, 11)] = Counter({"rope": 2})
+    res = apply_intention(world, mirth, Intention("give", target="Suki", items=["rope"]))
+    assert '2 rope lie on the ground right beside you to the southeast: pick_up "rope".' in res.message
