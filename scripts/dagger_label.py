@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import random
 import re
 import sys
@@ -137,7 +138,9 @@ async def run_labeling(runs: list[Path], base_url: str, model: str, out: Path, s
             raise fail(f"{ep} is already complete (has done)")
         rows = existing_rows(ep) if resume else []
         if resume and (ep / "thinks.jsonl").exists():  # drop a line cut off by the crash
-            (ep / "thinks.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows))
+            tmp = ep / "thinks.jsonl.tmp"  # write then rename: a kill mid-rewrite never loses the labels kept
+            tmp.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows))
+            os.replace(tmp, ep / "thinks.jsonl")
         counts[name] = len(rows)
         have |= {prompt_key(x) for x in rows}
     todo = [r for r in picked if prompt_key(r) not in have]
