@@ -363,3 +363,13 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
     done.
   - A chain script then exports, unloads gpt-oss and trains `swarm-student-20261104`. It logs to
     runs/round2-chain.log and runs/train-student-night2.log.
+
+### 21:13 watch (tick 37,895)
+- **admin, the PC: fixed.** Since the pc node went to 4 slots (20:46), gpt-oss has made 552 acts:
+  - 93% succeeded;
+  - p50 6.8 s, p90 13.6 s, down from 53 s and 82 s;
+  - 0 think errors and no timeouts.
+
+  Fewer requests in flight beat 8 slots on tonight's GPU (the user is checking its clocks).
+  - **Lesson:** `--slots` on the node is the throttle. Match it to what the GPU sustains, not to OLLAMA_NUM_PARALLEL.
+- **Frontier:** on, no strips yet. No collapses. Round 2: 721 of 3,000 labels.
