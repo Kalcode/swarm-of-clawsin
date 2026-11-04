@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from ..mind.recall import VoyageEmbedder
+from ..world.model import FrontierSettings
 
 from aiohttp import web
 
@@ -65,7 +66,7 @@ def layers(arg: str) -> set[str]:
     return names
 
 
-def main() -> None:
+def make_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Swarm World server")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--port", type=int, default=7777)
@@ -88,7 +89,13 @@ def main() -> None:
                          "0 turns publishing off")
     ap.add_argument("--public-link", default=None, metavar="URL",
                     help="the link the public viewer's About panel offers (docs/public-viewer.md)")
-    args = ap.parse_args()
+    ap.add_argument("--frontier", choices=["on", "off"], default="off",
+                    help="new land grows where creatures explore at the east or west edge (default off)")
+    return ap
+
+
+def main() -> None:
+    args = make_parser().parse_args()
 
     everyone = layers(args.harness_all)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -102,7 +109,8 @@ def main() -> None:
         print(f"  Resuming the world saved in {world_path} (use --fresh for a new one)")
     app = create_app(seed=args.seed, token=token, tick_seconds=args.tick, run_dir=run_dir, world_path=world_path,
                      harness=Harness(layers(args.harness) | everyone, everyone), embedder=make_embedder(args.embed),
-                     log_prompts=args.log_prompts, public_every=args.public_every, public_link=args.public_link)
+                     log_prompts=args.log_prompts, public_every=args.public_every, public_link=args.public_link,
+                     frontier=FrontierSettings(on=args.frontier == "on"))
     print(f"  {recall_search_line(app[STATE].embedder, args.embed)}")
     app[STATE].sim.inspiration = not args.no_inspiration
 

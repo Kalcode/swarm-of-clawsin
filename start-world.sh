@@ -12,6 +12,7 @@
 #   HARNESS: layers in this world, e.g. HARNESS=plan,disclose,recall; each goes to half of every model's creatures.
 #   HARNESS_ALL: layers every creature gets, e.g. HARNESS_ALL=plan.
 #   PUBLIC_LINK: the link in the public viewer's About panel (docs/public-viewer.md).
+#   FRONTIER=on: new land grows where creatures explore at the east or west edge (off by default)
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
 #   ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b". Without it, new models bring new creatures.
 set -euo pipefail
@@ -31,6 +32,7 @@ SEED="${SEED:-7}"
 TICK="${TICK:-1.0}"   # seconds per world tick; slower worlds give each creature more thoughts per day
 PORT="${PORT:-7777}"
 WORLD="${WORLD:-worlds/default.json}"
+FRONTIER="${FRONTIER:-}"
 mkdir -p runs
 
 # Never run two worlds at once: they can share the port on macOS and steal each other's brain nodes.
@@ -61,6 +63,7 @@ NODE_ARGS=(--server "ws://127.0.0.1:$PORT" --model "$MODEL:$CREATURES" --slots "
 [[ -n "${HARNESS:-}" ]] && WORLD_ARGS+=(--harness "$HARNESS")
 [[ -n "${HARNESS_ALL:-}" ]] && WORLD_ARGS+=(--harness-all "$HARNESS_ALL")
 [[ -n "${PUBLIC_LINK:-}" ]] && WORLD_ARGS+=(--public-link "$PUBLIC_LINK")
+[[ -n "$FRONTIER" ]] && WORLD_ARGS+=(--frontier "$FRONTIER")
 for a in ${ADOPT:-}; do NODE_ARGS+=(--adopt "$a"); done
 if [[ -n "${TOKEN:-}" ]]; then  # e.g. when exposing the world through a tunnel
   WORLD_ARGS+=(--token "$TOKEN")

@@ -80,6 +80,7 @@ def restore(st: "ServerState", path: Path) -> None:
     data = json.loads(path.read_text())
     wd = data["world"]
     w = World(wd["width"], wd["height"], [list(r) for r in wd["tiles"]], Catalog.load())
+    w.frontier_settings = st.frontier  # the server's, never the save's
     w.seed = wd.get("seed")
     w.regions = [Region(**r) for r in wd["regions"]] if wd.get("regions") else [Region("surface", 0, 0, w.height, True, True)]
     w.skylight = {(x, y) for x, y in wd.get("skylight", [])}

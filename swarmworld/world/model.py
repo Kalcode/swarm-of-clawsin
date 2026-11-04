@@ -10,8 +10,7 @@ from dataclasses import dataclass, field
 from .catalog import Catalog
 from .events import Event
 # Object kinds live in swarmworld/data/objects.json and the packs' objects.json; these are the registry's shared tables.
-from .registry import (ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, SHIFT_HOOKS, STORES,  # noqa: F401
-                       call_safely)
+from .registry import ANIMALS, BLOCKING, KINDS, OBJECT_ALIASES, OBJECT_NAMES, SHIFT_HOOKS, STORES  # noqa: F401
 
 VIEW_KIND_FIELDS = ("look", "glyph", "glow")  # what the viewer's art reads from a kind's data, besides its name
 
@@ -49,6 +48,17 @@ SOLID_TILES = "RO"  # rock wall, open pit: nothing stands or moves here
 WATER_TILES = "wWu"  # water: objects can't be moved onto it
 REGION_GAP = 32  # rows of solid rock between regions: more than any sensing radius, so no distance check crosses one
 LIGHT_ITEMS: dict[str, int] = {}  # carried item id -> steps it lets you see in the dark (packs add to it)
+
+
+@dataclass
+class FrontierSettings:
+    """How the frontier grows (swarmworld/world/packs/frontier.py): on or off (--frontier), a strip's width in columns,
+    the ticks between strips, world-wide, and the widest the map may grow. Not saved: the server sets them at every
+    start."""
+    on: bool = False
+    strip: int = 32
+    pace: int = 1200
+    cap: int = 384
 
 
 @dataclass(frozen=True)
@@ -154,6 +164,8 @@ class World:
         self.buildings_changed = False  # a building went up or came down since the last tick message (viewer)
         self.tiles_version = 0  # bumped by set_tile, so what is worked out from the land can be kept until it changes
         self.terminals: dict[str, None] = {}  # ids of the terminal objects, in the order they came (Simulation)
+        self.frontier_settings = FrontierSettings()  # set by the server at every start (not saved)
+        self.growths: list[dict] = []  # strips laid since the server last told its viewers (not saved)
 
     @property
     def center(self) -> tuple[int, int]:
@@ -220,7 +232,23 @@ class World:
             ev.x += n
         rec["origin_x"] += n
         for hook in list(SHIFT_HOOKS):
-            call_safely(f"shift hook '{hook.name}'", hook.fn, self, n)
+            hook.fn(self, n)  # one that raises stops the shift: the frontier puts the world back as it was
+
+    def add_columns(self, side: str, n: int, fill: str = "R") -> None:
+        """n columns of `fill` on every row (the surface, the rock band and the deep): appended on the east, or
+        prepended on the west, where every stored x then moves n east (shift_x)."""
+        if side not in ("east", "west") or n < 1:
+            raise ValueError(f"add_columns needs a side, east or west, and n >= 1, got {side!r} and {n}")
+        self.frontier_record()  # while home_width is still the map's width
+        for row in self.tiles:
+            if side == "east":
+                row.extend([fill] * n)
+            else:
+                row[:0] = [fill] * n
+        self.width += n
+        self.tiles_version += 1
+        if side == "west":
+            self.shift_x(n)
 
     # --- regions -------------------------------------------------------
     def region(self, name: str) -> Region | None:

@@ -1,6 +1,5 @@
 """The frontier's fixed origin, and World.shift_x with its hooks."""
 
-import logging
 import re
 from collections import Counter
 
@@ -13,7 +12,8 @@ from swarmworld.world import registry
 from swarmworld.world.actions import start_walk
 from swarmworld.world.catalog import Catalog
 from swarmworld.world.packs.underground import add_portal
-from swarmworld.world.model import CORE_SHIFT_STORES, Creature, World, shift_key
+from swarmworld.world.model import CORE_SHIFT_STORES, Creature, FrontierSettings, World, shift_key
+from swarmworld.world.packs.frontier import grow
 from swarmworld.world.simulation import Simulation
 from swarmworld.world.terrain import generate_world
 
@@ -100,7 +100,7 @@ def test_shift_hooks_run_in_order_and_leave_with_the_sandbox(two_levels):
     assert not {h.name for h in registry.SHIFT_HOOKS} & {"probe a", "probe b"}
 
 
-def test_a_failing_shift_hook_is_logged_and_the_rest_run(two_levels, caplog):
+def test_a_failing_shift_hook_stops_the_shift(two_levels):
     w = two_levels(24)
     with registry.sandbox():
         calls = []
@@ -109,10 +109,9 @@ def test_a_failing_shift_hook_is_logged_and_the_rest_run(two_levels, caplog):
             raise RuntimeError("shift boom")
         registry.register_shift_hook("boom", boom)
         registry.register_shift_hook("after", lambda w, n: calls.append(n))
-        with caplog.at_level(logging.ERROR, logger="swarmworld.packs"):
+        with pytest.raises(RuntimeError, match="shift boom"):  # the frontier takes the growth back (its tests)
             w.shift_x(3)
-        assert calls == [3] and "shift boom" in caplog.text
-        assert w.origin_x == 3
+        assert calls == []
 
 
 def test_shifting_rolls_nothing(two_levels):
@@ -166,7 +165,9 @@ def test_the_lake_and_the_meadow_follow_the_origin_when_land_goes_in_west():
 # ---------------------------------------------------------------------------------------------------------------
 # The canary: every coordinate the world stores moves, and every store of them has a hook.
 
-IGNORED: dict[str, str] = {}  # a path that never moves -> why
+IGNORED: dict[str, str] = {  # a path that never moves -> why
+    "ext.frontier.lands": "land grid coordinates count from origin_x; a shift never moves them",
+}
 KEY = re.compile(r"-?\d+,-?\d+")
 WORD = re.compile(r"[a-z_]+")
 
@@ -181,20 +182,24 @@ def _walk(path: str, v):
     if isinstance(v, dict):
         if _ints(v.get("x"), v.get("y")):
             yield path, (v["x"], v["y"])
-        if _ints(v.get("x0")):
-            yield path, (v["x0"], v["y0"])
-            yield path, (v["x1"], v["y1"])
+        if _ints(v.get("x0")):  # a rectangle, even one missing a corner (flagged all the same)
+            yield path, (v["x0"], v.get("y0"))
+        if _ints(v.get("x1")):
+            yield path, (v["x1"], v.get("y1"))
         for k, item in v.items():
             if isinstance(k, str) and KEY.fullmatch(k):
                 x, y = k.split(",")
                 yield path, (int(x), int(y))
             yield from _walk(f"{path}.{k if isinstance(k, str) and WORD.fullmatch(k) else '*'}", item)
     elif isinstance(v, (list, tuple)):
-        if len(v) == 2 and _ints(*v):
+        if len(v) in (2, 3) and _ints(*v):  # [x, y], or [x, y, tick]
             yield path, (v[0], v[1])
         else:
             for item in v:
                 yield from _walk(f"{path}[]", item)
+    elif isinstance(v, str) and KEY.fullmatch(v):  # an "x,y" string, as a value or a list's item
+        x, y = v.split(",")
+        yield path, (int(x), int(y))
 
 
 def coordinate_leaves(world) -> list[tuple[str, tuple[int, int]]]:
@@ -217,9 +222,11 @@ def uncovered(world) -> set[str]:
 
 @pytest.fixture
 def everything():
-    """A world holding one of everything that has a position, and a Publisher that has seen two ticks."""
-    st = ServerState(seed=7)
+    """A world holding one of everything that has a position (a strip of new land east included), and a Publisher
+    that has seen two ticks. A pack that keeps positions puts one of them here."""
+    st = ServerState(seed=7, frontier=FrontierSettings(on=True, pace=0))
     w = st.world
+    assert grow(w, "east")  # a strip of new land, with its records
     sim = st.sim
     s = w.region("surface")
     deep = w.region("deep")
@@ -279,14 +286,15 @@ def positions(st) -> dict[str, list[tuple[int, int]]]:
         "events": [(e.x, e.y) for e in w.events],
     }
     for path, pt in coordinate_leaves(w):
-        out.setdefault(path, []).append(pt)
+        if not any(_covers(s, path) for s in IGNORED):
+            out.setdefault(path, []).append(pt)
     return out
 
 
 def publisher_positions(pub) -> dict[str, list[tuple[int, int]]]:
-    return {"publisher.trails": [(x, y) for trail in pub._trails.values() for _, x, y in trail],
-            "publisher.tiles": list(pub._tiles),
-            "publisher.tile_entries": [(e[0], e[1]) for e in pub._tiles.values()]}
+    out = {f"publisher.trail.{cid}": [(x, y) for _, x, y in trail] for cid, trail in pub._trails.items()}
+    return out | {"publisher.tiles": list(pub._tiles),
+                  "publisher.tile_entries": [(e[0], e[1]) for e in pub._tiles.values()]}
 
 
 def test_every_position_moves_together(everything):
@@ -297,11 +305,15 @@ def test_every_position_moves_together(everything):
     after = positions(st)  # read before a tick message takes the changed tiles
     pub.observe(st.tick_dict([]), [])  # the publisher notices the new origin on its next tick
     after |= publisher_positions(pub)
+    assert any(k.startswith("publisher.trail.") for k in before)
     for k, pts in before.items():
+        moved = [(x + 32, y) for x, y in pts]
         if k == "changed_objects":  # sorted by id, and the ids changed
-            assert sorted(after[k]) == sorted((x + 32, y) for x, y in pts), k
+            assert sorted(after[k]) == sorted(moved), k
+        elif k.startswith("publisher.trail."):  # a trail gains this tick's position, and may lose its oldest
+            assert after[k][:-1] == moved[len(moved) - len(after[k]) + 1:], k
         else:
-            assert after[k][:len(pts)] == [(x + 32, y) for x, y in pts], k  # a trail also gains this tick's position
+            assert after[k][:len(pts)] == moved, k
 
 
 def test_no_store_of_positions_goes_unshifted(everything):
@@ -310,10 +322,12 @@ def test_no_store_of_positions_goes_unshifted(everything):
 
 def test_the_canary_sings(everything):
     w = everything[0].world
-    w.ext["probe"] = {"camp": [3, 4], "seen": {"5,6": 1}}
+    w.ext["probe"] = {"camp": [3, 4], "seen": {"5,6": 1}, "trail": [[1, 2, 99]], "at": "7,8", "marks": ["9,10"],
+                      "box": {"x0": 1, "y0": 2}, "flag": [True, False], "name": "a,b"}
     cow = next(o for o in w.objects.values() if o.kind == "cow")
     cow.data["roost"] = {"x": 1, "y": 2}
-    assert uncovered(w) == {"ext.probe.camp", "ext.probe.seen", "object.data.roost"}
+    assert uncovered(w) == {"ext.probe.camp", "ext.probe.seen", "ext.probe.trail[]", "ext.probe.at",
+                            "ext.probe.marks[]", "ext.probe.box", "object.data.roost"}
 
 
 def test_every_declared_store_holds_something_in_the_fixture(everything):

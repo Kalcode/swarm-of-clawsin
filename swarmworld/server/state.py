@@ -18,7 +18,8 @@ from ..mind.prompts import (INTENTION_SCHEMA, INTENTION_SCHEMA_PLAN, SPEECH_RE, 
 from ..mind.recall import RecallIndex
 from ..mind.techniques import TECHNIQUES, lore
 from ..world.actions import ActionResult, apply_intention, parse_intention
-from ..world.model import OBJECT_NAMES, WATER_TILES, Creature
+from ..world.model import OBJECT_NAMES, WATER_TILES, Creature, FrontierSettings
+from ..world.packs.frontier import grow, why_not_grow
 from ..world.packs.weather import KINDS, set_weather
 from ..world.perception import direction, dist, perceive, spot_name, visible_creatures, visible_objects
 from ..world.simulation import Simulation
@@ -93,8 +94,10 @@ class Job:
 
 class ServerState:
     def __init__(self, seed: int = 7, token: str | None = None, tick_seconds: float = 0.5, run_dir: Path | None = None,
-                 harness: Harness | None = None, log_prompts: bool = False):
+                 harness: Harness | None = None, log_prompts: bool = False, frontier: FrontierSettings | None = None):
         self.world = generate_world(seed)
+        self.frontier = frontier if frontier is not None else FrontierSettings()  # how new land grows (not saved)
+        self.world.frontier_settings = self.frontier
         self.harness = harness or Harness()
         self.memories: dict[str, Memory] = {}
         self.recall = RecallIndex()
@@ -718,6 +721,18 @@ class ServerState:
             set_weather(w, weather, w.tick + max(1, min(2400, int(body.get("ticks") or 300))))
             note = f"set the weather to {weather} for {w.weather_until - w.tick} ticks"
             out = {"weather": weather, "until": w.weather_until}
+        elif action == "grow":
+            side = str(body.get("side") or "")
+            why = why_not_grow(w, side)  # a side that isn't east or west is a ValueError
+            if why == "off":
+                raise ValueError("the frontier is off (start the world with --frontier on)")
+            if why == "cap":
+                raise ValueError(f"the map is as wide as it may grow ({w.frontier_settings.cap})")
+            keys = grow(w, side, ignore_pace=True)
+            if not keys:
+                raise ValueError("the strip couldn't be laid, and the world is as it was (see the log)")
+            note = f"laid a strip of new land to the {side}"
+            out = {"side": side, "lands": keys, "width": w.width, "origin_x": w.origin_x}
         else:
             raise KeyError(action)
         w.emit("steward", None, *w.center, f"Steward {note}.", action=action)
@@ -822,6 +837,12 @@ class ServerState:
             "stats": dict(c.stats),
             "harness": sorted(self.harness.layers_for(c)),
         }
+
+    def take_growth(self) -> list[dict]:
+        """The strips laid since the last call ({"side", "columns", "width", "origin_x"}), for the viewers."""
+        laid = list(self.world.growths)
+        self.world.growths.clear()
+        return laid
 
     def tick_message(self, new_events: list) -> str:
         return json.dumps(self.tick_dict(new_events))

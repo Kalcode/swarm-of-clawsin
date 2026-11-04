@@ -135,7 +135,7 @@ class Publisher:
 
     def _publish(self, now: float) -> None:
         w = self.st.world
-        shape = (len(w.catalog.items), len(w.regions))
+        shape = (len(w.catalog.items), len(w.regions), w.width, w.origin_x)  # a strip of new land changes the map
         if (self._static is None or now - self._static_at >= STATIC_EVERY_S or self._deltas() > STATIC_MAX_DELTAS
                 or shape != self._static_shape):
             self._build_static(now, shape)
