@@ -525,6 +525,12 @@ def _source_hint(world: World, c: Creature, iid: str) -> str:
     mouth = c.spots.get("cave_mouth") if iid == "stone" else None
     if mouth and world.same_region((c.x, c.y), (mouth[0], mouth[1])):
         hint += f"; a cave mouth you know lies {direction(mouth[0] - c.x, mouth[1] - c.y)}"
+    kinds = ITEM_SOURCES.get(iid) or set()
+    near = min(((o, d, dirn) for o, d, dirn in visible_objects(world, c)
+                if o.kind in kinds and not _spent(o) and world.same_region((c.x, c.y), (o.x, o.y))),
+               key=lambda t: t[1], default=None)
+    if near:  # which one: a creature told only "break them off trees" kept asking for sticks it never went to get
+        hint += f"; the nearest {near[0].name} is {_where(near[1], near[2])}"
     return hint
 
 

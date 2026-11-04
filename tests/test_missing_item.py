@@ -122,3 +122,29 @@ def test_an_item_on_the_ground_in_sight_says_go_and_pick_it_up(world):
     world.ground[(11, 11)] = Counter({"rope": 2})
     res = apply_intention(world, mirth, Intention("give", target="Suki", items=["rope"]))
     assert '2 rope lie on the ground right beside you to the southeast: pick_up "rope".' in res.message
+
+
+def test_a_source_hint_names_the_nearest_source_in_sight(world):
+    # Gus tried to feed a campfire sticks he didn't have 23 times: "Stick: break them off trees." Which tree?
+    gus = make(world, "Gus", 10)
+    make(world, "Tula", 11)
+    tree = world.add_object("tree", 13, 10)
+    world.add_object("tree", 20, 10)  # farther
+    res = apply_intention(world, gus, Intention("give", target="Tula", items=["stick"]))
+    assert not res.ok and f"Stick: break them off trees; the nearest {tree.name} is 3 steps east." in res.message
+
+
+def test_no_source_in_sight_keeps_the_plain_hint(world):
+    c = make(world, "Tam", 10)
+    make(world, "Una", 11)
+    res = apply_intention(world, c, Intention("give", target="Una", items=["stick"]))
+    assert res.message == "You don't have any stick. Stick: break them off trees."
+
+
+def test_a_used_up_source_is_not_named(world):
+    c = make(world, "Tam", 10)
+    make(world, "Una", 11)
+    world.add_object("driftwood", 12, 10, uses=0)  # gathered out until it regrows
+    pine = world.add_object("pine", 15, 10)
+    res = apply_intention(world, c, Intention("give", target="Una", items=["stick"]))
+    assert f"the nearest {pine.name} is 5 steps east." in res.message
