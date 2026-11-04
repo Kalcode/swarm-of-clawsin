@@ -62,11 +62,19 @@
   function initMessage(staticDoc, live) {
     const view = viewOf(staticDoc, live);
     return {
-      type: 'init', width: staticDoc.width, height: staticDoc.height, tiles: view.tiles,
+      type: 'init', width: staticDoc.width, height: staticDoc.height, origin_x: staticDoc.origin_x | 0, tiles: view.tiles,
       objects: Array.from(view.objects.values()), creatures: (live.creatures || []).map(cardOf),
       regions: staticDoc.regions, tick: live.tick, clock: live.clock, items: staticDoc.items,
       landmarks: view.landmarks, buildings: view.buildings, kinds: staticDoc.kinds, nature: staticDoc.nature,
     };
+  }
+
+  /** The strip of new land between two static documents, as the grow message the viewer knows; null when the map's
+   *  width and origin are as they were. West by the origin's difference, else east by the width's. */
+  function growOf(prev, next) {
+    const dw = (next.width | 0) - (prev.width | 0), dox = (next.origin_x | 0) - (prev.origin_x | 0);
+    if (!dw && !dox) return null;
+    return { type: 'grow', side: dox > 0 ? 'west' : 'east', columns: dox > 0 ? dox : dw, width: next.width | 0, origin_x: next.origin_x | 0 };
   }
 
   /** What changed from one view to the next, in the shape of a tick message; null means unchanged. */
@@ -322,6 +330,18 @@
         failures = 0;
         staticSkips = 0;
         unchanged = false;
+        const grown = growOf(docs.static, st);
+        if (grown) {   // new land: the map is another shape, so the page starts over from this snapshot, camera kept by the viewer
+          every = live.every || every;
+          docs.live = live;
+          docs.static = st;
+          seenSeq = live.seq;
+          view = viewOf(st, live);
+          at = { tick: live.tick, eventSeq: Math.max(0, ...(live.events || []).map((e) => e.seq || 0)) };
+          deliver([grown, initMessage(st, live), metricsOf(live)], 0);
+          schedule(nextDelay());
+          return;
+        }
         const next = viewOf(st, live);
         const changes = diffViews(view, next);
         const frames = tickFrames(live, at, changes);
@@ -378,5 +398,5 @@
     return Promise.reject(Object.assign(new Error('HTTP 403'), { status: 403 }));
   }
 
-  window.SwarmPublic = { SCHEMA, MAX_FRAMES, HIDDEN_POLL_MS, RETRY_MS, viewOf, initMessage, diffViews, tickFrames, pollDelay, createSocket, api, post, makeId };
+  window.SwarmPublic = { SCHEMA, MAX_FRAMES, HIDDEN_POLL_MS, RETRY_MS, viewOf, initMessage, growOf, diffViews, tickFrames, pollDelay, createSocket, api, post, makeId };
 })();

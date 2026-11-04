@@ -61,6 +61,7 @@ TREE_EDGE_KEYS: tuple[str, ...] = ("from", "to", "kind", "n", "how", "back")
 WORLD_KEYS: tuple[str, ...] = ("tick", "clock", "kinds", "groups", "items", "tamed", "crops", "buildings", "built",
                                "sites", "discoveries", "creatures", "verbs_since", "lands")
 LANDS_KEYS: tuple[str, ...] = ("strips", "count", "found")
+LAND_STRIPS_KEYS: tuple[str, ...] = ("east", "west")
 LAND_FOUND_KEYS: tuple[str, ...] = ("name", "theme", "by")
 CLOCK_KEYS: tuple[str, ...] = ("day", "light", "phase", "weather")
 GROUP_KEYS: tuple[str, ...] = ("label", "count", "kinds")
@@ -242,6 +243,8 @@ def _world(w: dict) -> dict:
         out["groups"] = {g: pick(v, GROUP_KEYS) for g, v in out["groups"].items()}
     if isinstance(out.get("lands"), dict):
         out["lands"] = pick(out["lands"], LANDS_KEYS)
+        if isinstance(out["lands"].get("strips"), dict):
+            out["lands"]["strips"] = pick(out["lands"]["strips"], LAND_STRIPS_KEYS)
         _pick_in(out["lands"], "found", LAND_FOUND_KEYS)
     _pick_in(out, "buildings", BUILDING_KEYS)
     _pick_in(out, "sites", SITE_KEYS)
