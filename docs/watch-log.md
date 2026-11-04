@@ -350,3 +350,16 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 
   Both are the student's habit. The teacher's answers in these moments belong in round 2.
   - **tweak (idea):** "give to someone asleep in stasis" could say "Hux sleeps far away; their mind is gone for now".
+
+### 20:43 watch (tick 36,095): frontier on, round 2 running
+- **admin:** healthy: 12 gpt-oss creatures awake on the PC; the student's 12 sleep; tunnel up; no errors.
+  - The frontier is on, with no strips yet (width 128).
+- **admin, PC slow:** gpt-oss on the PC answers in 53 s (p50; p90 82 s), against 9 s this afternoon, with 91%
+  success. It's fully in VRAM (12.9 GB). The pattern fits Ollama answering one request at a time after the PC
+  restarted (12 × ~4.5 s).
+  - I asked the PC's own Claude session to check `OLLAMA_NUM_PARALLEL`, and to restart Ollama if it isn't 8.
+- **admin, round 2:** the DAgger labels on this Mac's oMLX run at ~16 a minute, so all 5,463 would take ~5.6 h.
+  - I capped the night at 3,000, failures first (all 951 failures plus ~2,000 others), resuming from the 253 already
+    done.
+  - A chain script then exports, unloads gpt-oss and trains `swarm-student-20261104`. It logs to
+    runs/round2-chain.log and runs/train-student-night2.log.
