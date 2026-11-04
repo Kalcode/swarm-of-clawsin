@@ -131,7 +131,7 @@ def test_the_public_client_reinits_on_a_growth(tmp_path):
     assert v["init"]["width"] == 6 and v["init"]["origin_x"] == 2 and v["init"]["tick"] == 106
     assert v["null_same"] is None
     assert v["east"] == {"type": "grow", "side": "east", "columns": 3, "width": 7, "origin_x": 0}
-    assert v["events"] == [2, 3]  # one frame after the init: LIVE1's cursor was seq 1, so the growth's own events play
+    assert v["events"] == [3]  # one frame after the init: seq 2 had played already, only the growth snapshot's newer event plays
 
 
 @needs_node

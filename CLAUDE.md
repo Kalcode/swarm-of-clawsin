@@ -13,7 +13,7 @@
   or note wishes; speak from the sky; admin/test actions) and must log every intervention in docs/steward-log.md
   (time, tick, what, why, outcome). The live world is the experiment, so keep interventions purposeful and logged.
   Resetting the world (`--fresh`, old save kept as .bak) is allowed when useful; log it too.
-  Tools: GET /api/wishes|state|creature/{id}|metrics, POST /api/wishes/{id}, /api/voice, /api/admin/{give,place,remove,move,weather}.
+  Tools: GET /api/wishes|state|creature/{id}|metrics, POST /api/wishes/{id}, /api/voice, /api/admin/{give,place,remove,move,weather,grow}.
 - Never commit `inbox/`, `web/assets/limezu/`, `web/assets/sfx/` or `docs/media/`: licensed art and sound (see .gitignore).
   The user (a game dev) bought these and holds the licenses: using them in this game, the public viewer included, is
   fine; credit each pack, and never offer the original packs for download.
