@@ -464,3 +464,12 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **round 2:** step 3,400 of 4,000, validation loss 0.459. Each check scores only 50 of 3,167 examples, so it wobbles
   between 0.39 and 0.46. A checkpoint is saved every 200 steps, including step 2,400 (0.386), if one should be fused
   instead.
+
+### 02:37: round 2 trained
+- `train_student.sh` exited 0 at 02:37, an hour ahead of the estimate. The model is
+  `~/models/swarm-student-20261104` (8-bit, 1.7 GB).
+  - Validation loss went 3.049 → 0.413 at step 4,000. It plateaued from step 800 at 0.39–0.46 (50-example checks).
+  - Smoke test: a held-out prompt got one JSON object with every field.
+- Next: an offline comparison on round 1's validation episode (s101), which neither round trained on. The same 100
+  decisions are scored for round 1, the round-2 final, and the round-2 step-2,400 checkpoint. Then oMLX restarts to
+  list the model, and the student node adopts its 12 sleepers.
