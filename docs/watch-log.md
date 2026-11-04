@@ -402,3 +402,23 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - The export wrote 27,037 training and 3,167 validation lines. Validation is teacher episodes only.
   - gpt-oss was unloaded, and training started at 23:47.
   - At about 3.9 h it finishes near 03:40, then fuses and quantizes into `~/models/swarm-student-20261104`.
+
+### 00:13 watch (tick 48,665): three loops, three fixes
+- **admin:** healthy since the 23:49 restart. gpt-oss made 474 acts, 73% successful, p50 7.5 s, p90 15.5 s. No
+  collapses; the frontier has 0 strips.
+- **win:** give-to-basket works. Mirth: "You put 3 rope into the basket."
+- **fix (deployed 00:34, c1e81b3 + 7e3e8f7, reviewed):** the streaks were Hux 42, Cyd 36 and Gus 26.
+  - Cyd asked for "spark fragment". The catalog only stripped plurals, so "spark fragment" never found the item
+    named "spark fragments".
+  - Cyd also asked for "spark fragmentses". Perception had been showing "2 spark fragmentses".
+  - Hux was told "you could invent it", but the core prompt leaves `invent` to the tips. Invent's tip scores 3.5,
+    so feeding, fire, play and dance crowd it out of the four slots. The refusal now spells out the command.
+- **mind (no fix):** Gus is told "rope is 3 plant fiber; you have only 1" and retries the fishing rod anyway: a
+  gpt-oss plan that won't update. Watch whether the round-2 student does better.
+- **parked:**
+  - A runtime invention with a plural name now shadows its singular. For example, an invention called "tents" would
+    take "build tent". Unlikely, so left alone.
+  - One unidentified test failed once among the first 157 tests while training loaded the Mac. Five full reruns
+    passed.
+- **round 2:** at step 1,000 of 4,000 the validation loss is 0.471. The steps went 3.049 → 0.648 (200) → 0.556 →
+  0.492 → 0.442 (800) → 0.471 (1,000). On track for about 03:40.
