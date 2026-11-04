@@ -637,3 +637,9 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - "seed" slipped past invent's "already exists" check because only "wheat seeds" and "carrot seeds" exist.
   - Parked (minor): the check could also refuse a name that is the head word of an existing item.
 - **food:** the lowest is Tula at 19, and there are no collapses. **frontier:** 0 strips, and no explore acts.
+
+### 11:12 watch (tick 11,482): steady
+- 1 watching, load about 3, live.json 200 and a cache HIT. gpt-oss is at 91% (p50 7.5 s), the student at 89% (p50 14.1
+  s). No streaks, no errors, no collapses (the lowest is Tula at 13). The frontier has 0 strips.
+- **invention:** Cyd (gpt-oss) invented the **reed rope**, "a stronger rope from reeds and fiber". Cyd's third
+  invention in the fresh world.
