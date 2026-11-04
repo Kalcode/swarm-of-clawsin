@@ -274,7 +274,7 @@ function ctx2d(el) {
       if (k in t) return t[k];
       if (k === 'measureText') return (s) => ({ width: String(s).length * 8 });
       return (...a) => {
-        calls.push({ fn: k, a, fill: t.fillStyle, el });
+        calls.push({ fn: k, a, fill: t.fillStyle, alpha: t.globalAlpha, el });
         if (k === 'fillText' && el) el._chars.push(String(a[0]));
         if (k === 'drawImage' && a[0] && a[0]._chars) for (const c of a[0]._chars) calls.push({ fn: 'char', a: [c] });
         return { addColorStop() {} };

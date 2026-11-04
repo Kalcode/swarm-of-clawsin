@@ -844,6 +844,18 @@ class ServerState:
         self.world.growths.clear()
         return laid
 
+    def viewer_payloads(self, msg: dict) -> list[str]:
+        """What the private viewers get for one tick, in order: a `grow` message for each strip laid since the last
+        call, then (after any) a fresh init, then the tick. The init holds the new tiles and objects, so the objects
+        the strips added to `changed_objects` are in it already; the tick carries them again and the viewer takes
+        them as plain upserts of objects it has."""
+        grown = self.take_growth()
+        out = [json.dumps({"type": "grow", **g}) for g in grown]
+        if grown:
+            out.append(json.dumps(self.world.to_init()))
+        out.append(json.dumps(msg))
+        return out
+
     def tick_message(self, new_events: list) -> str:
         return json.dumps(self.tick_dict(new_events))
 

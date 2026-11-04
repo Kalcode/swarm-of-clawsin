@@ -150,10 +150,10 @@
           const [fx, fy] = FLOW[c];
           const n = fx && fy ? Math.SQRT1_2 : 1;
           for (let i = 0; i < streaks; i++) {
-            const ph = T.hash2(x, y, 60 + i);
+            const ph = T.hashAt(x, y, 60 + i);
             const life = (now / 1600 + ph) % 1;
             const along = life - 0.5;
-            const side = (T.hash2(x, y, 70 + i) - 0.5) * 0.6;
+            const side = (T.hashAt(x, y, 70 + i) - 0.5) * 0.6;
             const cx = x + 0.5 + (fx * along - fy * side) * n, cy = y + 0.5 + (fy * along + fx * side) * n;
             ctx.globalAlpha = Math.sin(life * Math.PI) * 0.5;
             const sx = Math.round(ox + cx * ts), sy = Math.round(oy + cy * ts);
@@ -277,8 +277,8 @@
     }
     for (let i = 0; i < 9; i++) {
       const fl = 0.5 + 0.5 * Math.sin(now / (80 + i * 11) + i * 1.7);
-      const x = bx + (T.hash2(f.x, f.y, 80 + i) - 0.5) * ts * 1.1;
-      const y = by - ts * tall * (0.35 + T.hash2(f.x, f.y, 90 + i) * 0.55);
+      const x = bx + (T.hashAt(f.x, f.y, 80 + i) - 0.5) * ts * 1.1;
+      const y = by - ts * tall * (0.35 + T.hashAt(f.x, f.y, 90 + i) * 0.55);
       const h = Math.round((4 + fl * 6) * q * (tall > 1 ? 1.3 : 1)), w = 3 * q;
       ctx.fillStyle = '#c8301c';
       ctx.fillRect(Math.round(x - w / 2), Math.round(y - h), w, h);

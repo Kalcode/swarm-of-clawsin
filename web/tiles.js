@@ -206,6 +206,13 @@
     return (h >>> 0) / 4294967296;
   }
 
+  // Tile looks are hashed on x - origin, the world column counted from the home map's west edge, so land laid down
+  // west of it doesn't re-roll the look of the old map. The viewer sets the origin from each init.
+  let originX = 0;
+  function setOrigin(x) { originX = x | 0; }
+  function origin() { return originX; }
+  function hashAt(x, y, s) { return hash2(x - originX, y, s); }
+
   function hashStr(str) {
     let h = 2166136261;
     const s = String(str);
@@ -303,34 +310,37 @@
   // biomes (init's nature rows) shade the ground: an olive marsh, a cool pine forest, grey hills, warm beach
   const BIOME_SHADE = { k: ['#3a3a12', 0.3], p: ['#0a2a2a', 0.25], h: ['#3a3440', 0.2], b: ['#5c4b34', 0.12] };
 
-  /** Pre-renders the whole map at 16 px per tile; the viewer scales it. */
-  function renderTerrain(tiles, width, height, land) {
+  /** Pre-renders columns span.x0..x1-1 of the map (all of it by default) at 16 px per tile; the viewer scales it.
+   *  Tile looks are hashed on x - span.hx, and neighbours (shorelines, wall edges) are read from the full rows, so
+   *  a chunk's edge tiles look as they do in the whole map. */
+  function renderTerrain(tiles, width, height, land, span) {
+    const { x0, x1, hx } = span || { x0: 0, x1: width, hx: 0 };
     const cv = document.createElement('canvas');
-    cv.width = width * TILE; cv.height = height * TILE;
+    cv.width = (x1 - x0) * TILE; cv.height = height * TILE;
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = false;
     const at = (x, y) => (tiles[y] && tiles[y][x]) || 'g';
 
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const code = at(x, y);
         const t = TERRAIN[code] || TERRAIN.g;
-        const px = x * TILE, py = y * TILE;
-        g.fillStyle = t.base[Math.floor(hash2(x, y, 3) * t.base.length)];
+        const px = (x - x0) * TILE, py = y * TILE;
+        g.fillStyle = t.base[Math.floor(hash2(x - hx, y, 3) * t.base.length)];
         const shade = !t.water && land && land.biomes && BIOME_SHADE[(land.biomes[y] || '')[x]];
         if (shade) g.fillStyle = mix(g.fillStyle, shade[0], shade[1]);
         g.fillRect(px, py, TILE, TILE);
 
         if (t.water) continue;
-        if (t.density && hash2(x, y, 1) < t.density) {
+        if (t.density && hash2(x - hx, y, 1) < t.density) {
           g.globalAlpha = t.alpha;
           if (ready) {
-            const [c, r] = t.glyphs[Math.floor(hash2(x, y, 2) * t.glyphs.length)];
-            blit(g, c, r, t.tint, px, py, TILE, hash2(x, y, 4) < 0.5);
+            const [c, r] = t.glyphs[Math.floor(hash2(x - hx, y, 2) * t.glyphs.length)];
+            blit(g, c, r, t.tint, px, py, TILE, hash2(x - hx, y, 4) < 0.5);
           } else {
             g.fillStyle = t.tint;
             for (let i = 0; i < 4; i++) {
-              g.fillRect(px + Math.floor(hash2(x, y, 10 + i) * 14), py + Math.floor(hash2(x, y, 20 + i) * 14), 2, 1 + (i & 1));
+              g.fillRect(px + Math.floor(hash2(x - hx, y, 10 + i) * 14), py + Math.floor(hash2(x - hx, y, 20 + i) * 14), 2, 1 + (i & 1));
             }
           }
           g.globalAlpha = 1;
@@ -340,10 +350,10 @@
 
     // Shorelines: a pale lip where water meets land, a darker step into deep water.
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const code = at(x, y);
         if (!isWater(code)) continue;
-        const px = x * TILE, py = y * TILE;
+        const px = (x - x0) * TILE, py = y * TILE;
         const edges = [[0, -1], [1, 0], [0, 1], [-1, 0]];
         for (const [dx, dy] of edges) {
           const nx = x + dx, ny = y + dy;
@@ -361,17 +371,19 @@
         }
       }
     }
-    drawWallEdges(g, at, width, height);
+    drawWallEdges(g, at, width, height, span);
     return cv;
   }
 
   /** Rock walls stand up from the cave floor: a pale rim where a wall meets open ground, and the wall's shadow on
-   *  the ground south of it. On a pre-rendered terrain canvas of 16 px tiles; `at(x, y)` gives a tile's code. */
-  function drawWallEdges(g, at, width, height) {
+   *  the ground south of it. On a pre-rendered terrain canvas of 16 px tiles holding columns x0..x1-1 (`span`, all by
+   *  default); `at(x, y)` gives a tile's code. */
+  function drawWallEdges(g, at, width, height, span) {
+    const { x0, x1 } = span || { x0: 0, x1: width };
     const wall = (x, y) => x < 0 || y < 0 || x >= width || y >= height || at(x, y) === 'R';
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const px = x * TILE, py = y * TILE;
+      for (let x = x0; x < x1; x++) {
+        const px = (x - x0) * TILE, py = y * TILE;
         if (at(x, y) === 'R') {
           g.fillStyle = 'rgba(176,164,186,0.32)';
           if (!wall(x, y + 1)) g.fillRect(px, py + TILE - 2, TILE, 2);
@@ -390,13 +402,13 @@
   function drawWater(ctx, code, tx, ty, dx, dy, size, t) {
     const p = size / TILE;
     const deep = code === 'W', cave = code === 'u';
-    const phase = hash2(tx, ty, 7) * Math.PI * 2;
+    const phase = hashAt(tx, ty, 7) * Math.PI * 2;
     const k = Math.sin(t / (deep || cave ? 1400 : 1000) + phase);
     if (k < 0.35) return;
     const a = (k - 0.35) / 0.65 * (deep ? 0.18 : cave ? 0.2 : 0.32);
     ctx.fillStyle = cave ? `rgba(150,226,222,${a.toFixed(3)})` : `rgba(158,214,240,${a.toFixed(3)})`;
-    const ox = Math.floor(hash2(tx, ty, 8) * 8) + 2;
-    const oy = Math.floor(hash2(tx, ty, 9) * 10) + 3;
+    const ox = Math.floor(hashAt(tx, ty, 8) * 8) + 2;
+    const oy = Math.floor(hashAt(tx, ty, 9) * 10) + 3;
     const drift = Math.round(Math.sin(t / 1700 + phase) * 1.5);
     ctx.fillRect(dx + (ox + drift) * p, dy + oy * p, 4 * p, p);
     ctx.fillRect(dx + (ox + drift + 2) * p, dy + (oy - 1) * p, 2 * p, p);
@@ -500,7 +512,7 @@
     if (spec.fire && obj.lit !== false) {
       // a few sparks drifting up
       for (let i = 0; i < 2; i++) {
-        const life = ((t / 900) + i * 0.5 + hash2(obj.x, obj.y, i)) % 1;
+        const life = ((t / 900) + i * 0.5 + hashAt(obj.x, obj.y, i)) % 1;
         ctx.fillStyle = rgba(PAL.gold, (1 - life).toFixed(2));
         const sx = 6 + i * 4 + Math.round(Math.sin(life * 6 + i) * 1.5);
         ctx.fillRect(dx + sx * p, dy + (3 - life * 6) * p, p, p);
@@ -678,7 +690,7 @@
     TILE, SHEET_SRC, PAL, TERRAIN, OBJECTS, CREATURES, ICONS, GLYPHS, MONO,
     setKinds, kindInfo, kindGlyph, glyphSprite, drawGlyph, kenneyLook,
     load, get ready() { return ready; },
-    hash2, hashStr, rgb, mix, rgba, readable,
+    hash2, hashAt, setOrigin, origin, hashStr, rgb, mix, rgba, readable,
     renderTerrain, drawWater, isWater, drawWallEdges,
     drawObject, objectName, terrainName, drawWishAura, drawWishMotes,
     drawCreature, creatureBadge, drawRoof, roofColor,
