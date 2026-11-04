@@ -90,3 +90,17 @@ def test_holding_the_ingredients_says_craft_it_first(world):
     gale.known_recipes.add("rope")
     res = apply_intention(world, gale, Intention("give", target="Teo", items=["rope"]))
     assert not res.ok and "3 plant fiber -> rope; you have the ingredients, so craft it first." in res.message
+
+
+def test_craft_it_first_only_when_a_craft_would_work(world):
+    c = make(world, "Gale", 10)
+    make(world, "Teo", 11)
+    c.inventory["fish"] = 2
+    c.known_recipes.add("cooked_fish")  # needs a campfire, and none is near
+    res = apply_intention(world, c, Intention("give", target="Teo", items=["cooked fish"]))
+    assert not res.ok and "fish -> cooked fish" in res.message and "craft it first" not in res.message
+    # inside a crafting shortfall it isn't said: making rope eats the fiber the fishing rod needs too
+    c.inventory.update({"stick": 2, "plant_fiber": 3})
+    c.known_recipes |= {"rope", "fishing_rod"}
+    res = apply_intention(world, c, Intention("craft", target="fishing rod"))
+    assert not res.ok and "You know how to make rope:" in res.message and "craft it first" not in res.message
