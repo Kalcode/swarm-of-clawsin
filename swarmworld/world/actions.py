@@ -1960,9 +1960,9 @@ def _step_activity(world: World, c: Creature) -> ActionResult | None:
                 if c.activity:  # e.g. gathering takes a few ticks; report when it's done
                     if act.get("step_done"):
                         c.activity["step_done"] = True
-                    c.activity["result"] = f"{act['result']} {c.activity['result']}"
+                    c.activity["result"] = f"{act['result']} {c.activity['result']}".strip()
                     return None
-                return ActionResult(then.ok, f"{act['result']} {then.message}")
+                return ActionResult(then.ok, f"{act['result']} {then.message}".strip())
             return ActionResult(True, act["result"])
         return None
     if act["type"] == "busy":

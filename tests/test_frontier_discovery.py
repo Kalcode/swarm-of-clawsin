@@ -167,7 +167,7 @@ def test_explorers_feel_the_pull_once_a_day():
     cur = at(w, "Cy", w.center[0], w.center[1] + 3, persona={"drive": "curious"})
     w.tick = 1000
     frontier._pull(sim, 1000)
-    assert memories == ["The unknown country to the east calls to you, some 25 steps away."]
+    assert memories == ["The unknown country to the east calls to you, some 25 steps away: explore east to go and see."]
     frontier._pull(sim, 1000 + DAY_TICKS - 20)
     assert len(memories) == 1
     frontier._pull(sim, 1000 + DAY_TICKS)
@@ -278,3 +278,24 @@ def test_a_near_walk_longer_than_twice_the_edge_reach_falls_back_to_core_explore
     ada.activity = None
     res = apply_intention(w, ada, Intention("explore", target="east"))
     assert res.message.startswith("You head off east, toward the edge")
+
+
+def test_an_explorer_far_from_the_edge_heads_all_the_way_there():
+    # a day and a half of the fresh world: the explorers stayed 60 steps from either edge, where explore was the
+    # core 8-step wander, and no land grew; an explorer's explore toward an edge now goes there from anywhere
+    w = generate_world(7)
+    w.frontier_settings = FrontierSettings(on=True, pace=0)
+    holt = at(w, "Holt", *w.center, persona={"drive": "explorer"})
+    assert frontier.edge_distance(w, holt, "east") > frontier.EDGE_NEAR
+    res = apply_intention(w, holt, Intention("explore", target="east"))
+    assert res.ok and res.message == "You head off east, toward the edge of the known land."
+    done = run_walk(w, holt, limit=600)
+    assert "New country opens before you to the east" in done.message and w.width > 128
+
+
+def test_others_far_from_the_edge_still_wander():
+    w = generate_world(7)
+    w.frontier_settings = FrontierSettings(on=True, pace=0)
+    tam = at(w, "Tam", *w.center, persona={"drive": "curious"})
+    res = apply_intention(w, tam, Intention("explore", target="east"))
+    assert not res.message.startswith("You head off east, toward the edge")

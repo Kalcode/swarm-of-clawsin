@@ -39,7 +39,7 @@ PACK = "frontier"
 SIDES = ("east", "west")
 log = logging.getLogger("swarmworld.packs")
 
-EDGE_NEAR = 24   # within this many steps of a growable edge, exploring toward it walks there
+EDGE_NEAR = 24   # within this many steps of a growable edge, exploring toward it walks there (an explorer: from anywhere)
 FAIL_HOLD = 300  # a failed growth is not tried again for this many ticks, whatever the pace
 EDGE_REACH = 1   # this close counts as at the edge
 WALK_ON = 6      # after laying land, the explorer walks this many columns into it
@@ -52,7 +52,7 @@ NEW_COUNTRY = "New country opens before you to the {side}."
 ON_INTO = "New country opens before you to the {side}; you walk on into it."
 FOUND = "You found new country to the {side}: {label}. From now on it is {name}."
 LAND_EVENT = "{who} found new country to the {side}: {label}. It is {name} now."
-PULL = "The unknown country to the {side} calls to you, some {d} steps away."
+PULL = "The unknown country to the {side} calls to you, some {d} steps away: explore {side} to go and see."
 
 
 def _side(side: str) -> str:
@@ -260,21 +260,33 @@ def _edge_line(world: World, c: Creature) -> str | None:
     return EDGE_LINE.format(side=side)
 
 
+def _reach(world: World, c: Creature) -> int:
+    """How far from an edge exploring toward it still heads there: an explorer goes from anywhere (the pull names the
+    edge, and the camp is far from both), anyone else within EDGE_NEAR, so their explore stays the core one."""
+    return world.width if (c.persona or {}).get("drive") == "explorer" else EDGE_NEAR
+
+
 def _edge_explore(world: World, c: Creature, d: str) -> ActionResult | None:
     if not _on_surface(world, c):
         return None
+    reach = _reach(world, c)
     side = next((s for s in SIDES if d in SIDE_DIRS[s] and growable(world, s)
-                 and edge_distance(world, c, s) <= EDGE_NEAR), None)
+                 and edge_distance(world, c, s) <= reach), None)
     if side is None:
         return None
     if edge_distance(world, c, side) > EDGE_REACH:
         cols = (world.width - 2, world.width - 1) if side == "east" else (0, 1)
         goals = {(x, y) for x in cols for y in range(c.y - 4, c.y + 5) if world.walkable(x, y)}
         path = bfs_path(world, (c.x, c.y), goals) if goals else None
-        if not path or len(path) > 2 * EDGE_NEAR:  # a long way round: the core explore it is
+        leg = False
+        if path is None and goals and reach > EDGE_NEAR:  # an explorer far off: walk a leg toward it, then explore on
+            path = bfs_path(world, (c.x, c.y), goals, closest=True)
+            ahead = path and (path[-1][0] > c.x if side == "east" else path[-1][0] < c.x)
+            path, leg = (path, True) if ahead else (None, False)  # a leg that gains no ground: the core explore it is
+        if not path or len(path) > 2 * reach:  # a long way round: the core explore it is
             return None
-        c.activity = {"type": "walk", "path": path, "label": f"exploring {d}", "result": REACH_EDGE.format(side=side),
-                      "then": Intention("explore", target=side)}
+        c.activity = {"type": "walk", "path": path, "label": f"exploring {d}",
+                      "result": "" if leg else REACH_EDGE.format(side=side), "then": Intention("explore", target=side)}
         return ActionResult(True, HEAD_TO_EDGE.format(d=d), instant=False)
     if why_not_grow(world, side) == "pace":
         return ActionResult(False, ANOTHER_DAY)
