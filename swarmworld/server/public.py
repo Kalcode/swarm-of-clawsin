@@ -35,7 +35,7 @@ SLOW_EVERY_S = 60.0
 LIVE_KEYS = ("schema", "type", "boot", "seq", "every", "tick_seconds", "tick", "from_tick", "clock", "static", "creatures",
              "objects_upsert", "objects_removed", "tiles", "buildings", "landmarks", "events", "chronicle",
              "chronicle_version", "society", "wishes", "metrics", "watching", "here")
-STATIC_KEYS = ("schema", "type", "version", "tick", "width", "height", "tiles", "regions", "objects", "items", "kinds",
+STATIC_KEYS = ("schema", "type", "version", "tick", "width", "height", "origin_x", "tiles", "regions", "objects", "items", "kinds",
                "nature", "landmarks", "buildings", "inventions")
 
 

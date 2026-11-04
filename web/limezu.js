@@ -73,15 +73,15 @@
 
   /** A tile the build has no flat for (the deep's rock and floor, dug land): its ground in the Kenney palette, with
    *  a speckle of the same art's stone or earth. The user's packs may add flats for these codes in the build. */
-  function fallbackTile(g, code, x, y) {
+  function fallbackTile(g, code, x, y, x0, hx) {
     const t = K.TERRAIN[code];
-    const px = x * TILE, py = y * TILE;
-    g.fillStyle = t.base[Math.floor(K.hash2(x, y, 3) * t.base.length)];
+    const px = (x - x0) * TILE, py = y * TILE;
+    g.fillStyle = t.base[Math.floor(K.hash2(x - hx, y, 3) * t.base.length)];
     g.fillRect(px, py, TILE, TILE);
     const n = Math.round((t.density || 0) * 7);
     for (let i = 0; i < n; i++) {
       g.fillStyle = i % 3 === 2 ? 'rgba(0,0,0,0.35)' : t.tint;
-      g.fillRect(px + 1 + Math.floor(K.hash2(x, y, 10 + i) * 13), py + 1 + Math.floor(K.hash2(x, y, 20 + i) * 13), 2, 1 + (i & 1));
+      g.fillRect(px + 1 + Math.floor(K.hash2(x - hx, y, 10 + i) * 13), py + 1 + Math.floor(K.hash2(x - hx, y, 20 + i) * 13), 2, 1 + (i & 1));
     }
   }
 
@@ -89,7 +89,7 @@
    *  (8x8 each), so thin strips and single-tile peninsulas get edges on every
    *  side. o = [n, e, s, w, ne, se, sw, nw]: true where the neighbour is the
    *  "other" terrain. Quarters with nothing to show are skipped unless `fill`. */
-  function drawAutotile(g, sheet, set, inner, o, x, y, fill) {
+  function drawAutotile(g, sheet, set, inner, o, x, y, fill, x0) {
     const [n, e, s, w, ne, se, sw, nw] = o;
     if (!fill && !(n || e || s || w || ne || se || sw || nw)) return false;
     const H = TILE / 2;
@@ -103,7 +103,7 @@
         else if (D) { sx = inner[0] + (1 - qx) * TILE; sy = inner[1] + (1 - qy) * TILE; }
         else if (fill) { sx = set[0] + TILE; sy = set[1] + TILE; }
         else continue;
-        g.drawImage(sheet, sx + qx * H, sy + qy * H, H, H, x * TILE + qx * H, y * TILE + qy * H, H, H);
+        g.drawImage(sheet, sx + qx * H, sy + qy * H, H, H, (x - x0) * TILE + qx * H, y * TILE + qy * H, H, H);
       }
     }
     return true;
@@ -112,9 +112,13 @@
   // biomes (init's nature rows) tint the land a little: an olive marsh, a cool dark pine forest, grey hills
   const BIOME_TINT = { k: 'rgba(96,88,20,0.22)', p: 'rgba(0,26,40,0.22)', h: 'rgba(64,52,64,0.14)', b: 'rgba(120,96,40,0.06)' };
 
-  function renderTerrain(tiles, width, height, land) {
+  /** Columns span.x0..x1-1 of the map (all by default). Tile looks are hashed on x - span.hx; neighbours (beaches,
+   *  grass edges, wall edges) are read from the full rows, so a chunk's edge tiles look as they do in the whole map.
+   *  The smooth tints are painted from a few columns of padding either side, so chunks blend into each other. */
+  function renderTerrain(tiles, width, height, land, span) {
+    const { x0, x1, hx } = span || { x0: 0, x1: width, hx: 0 };
     const cv = document.createElement('canvas');
-    cv.width = width * TILE;
+    cv.width = (x1 - x0) * TILE;
     cv.height = height * TILE;
     const g = cv.getContext('2d');
     g.imageSmoothingEnabled = false;
@@ -124,90 +128,96 @@
       const cx = Math.max(0, Math.min(width - 1, x)), cy = Math.max(0, Math.min(height - 1, y));
       return (tiles[cy] && tiles[cy][cx]) || 'g';
     };
-    const blit = (rect, x, y) => g.drawImage(sheet, rect[0], rect[1], TILE, TILE, x * TILE, y * TILE, TILE, TILE);
+    const blit = (rect, x, y) => g.drawImage(sheet, rect[0], rect[1], TILE, TILE, (x - x0) * TILE, y * TILE, TILE, TILE);
     const near = (x, y, pred) => [
       pred(at(x, y - 1)), pred(at(x + 1, y)), pred(at(x, y + 1)), pred(at(x - 1, y)),
       pred(at(x + 1, y - 1)), pred(at(x + 1, y + 1)), pred(at(x - 1, y + 1)), pred(at(x - 1, y - 1)),
     ];
     const shore = T.autotiles.shore, hole = T.autotiles.grassHole;
-    // land touching water is drawn as beach; everything else keeps its own ground
+    // land touching water is drawn as beach; everything else keeps its own ground (worked out one column beyond the
+    // span, which the grass edges look at)
+    const bx0 = Math.max(0, x0 - 1), bx1 = Math.min(width, x1 + 1);
     const beach = new Uint8Array(width * height);
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = bx0; x < bx1; x++) {
         if (!isWater(at(x, y)) && near(x, y, isWater).some(Boolean)) beach[y * width + x] = 1;
       }
     }
     const isBeach = (x, y) => beach[Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))] === 1;
     const lush = (x, y) => isGrassy(at(x, y)) && !isBeach(x, y);
+    const flatHash = (x, y) => hash((x - hx) + ',' + y);
 
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const c = at(x, y);
         const flats = T.flats[c] || (c === 'u' && T.flats.w);
-        if (flats) blit(flats[hash(x + ',' + y) % flats.length], x, y);
-        else if (K.TERRAIN[c]) fallbackTile(g, c, x, y);
-        else blit(T.flats.g[hash(x + ',' + y) % T.flats.g.length], x, y);
+        if (flats) blit(flats[flatHash(x, y) % flats.length], x, y);
+        else if (K.TERRAIN[c]) fallbackTile(g, c, x, y, x0, hx);
+        else blit(T.flats.g[flatHash(x, y) % T.flats.g.length], x, y);
         if (!isWater(c)) {
           // land touching water becomes a little beach with a foam edge
-          if (isBeach(x, y)) drawAutotile(g, sheet, shore.set, shore.inner, near(x, y, isWater), x, y, true);
+          if (isBeach(x, y)) drawAutotile(g, sheet, shore.set, shore.inner, near(x, y, isWater), x, y, true, x0);
         }
       }
     }
     // Deep water and forest floor are darker versions of water and grass. The
     // tint is painted one pixel per tile and scaled up smoothly so the regions
-    // fade into each other instead of forming blocks.
+    // fade into each other instead of forming blocks. The mask holds PAD (4) columns beyond the span (inside the map), so
+    // the smoothing at a chunk's edge sees its neighbour and the chunks meet without a seam.
+    const PAD = 4;
+    const m0 = Math.max(0, x0 - PAD), m1 = Math.min(width, x1 + PAD);
     const mask = document.createElement('canvas');
-    mask.width = width; mask.height = height;
+    mask.width = m1 - m0; mask.height = height;
     const mg = mask.getContext('2d');
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = m0; x < m1; x++) {
         const tint = T.tint[at(x, y)] || TINT[at(x, y)];
-        if (tint) { mg.fillStyle = tint; mg.fillRect(x, y, 1, 1); }
+        if (tint) { mg.fillStyle = tint; mg.fillRect(x - m0, y, 1, 1); }
       }
     }
     g.imageSmoothingEnabled = true;
-    g.drawImage(mask, 0, 0, width * TILE, height * TILE);
+    g.drawImage(mask, (m0 - x0) * TILE, 0, (m1 - m0) * TILE, height * TILE);
     const biomes = land && land.biomes;
     if (biomes) {
       // biome edges are ragged, so their tint is blurred over a couple of tiles before it is laid on
-      mg.clearRect(0, 0, width, height);
+      mg.clearRect(0, 0, m1 - m0, height);
       for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
+        for (let x = m0; x < m1; x++) {
           const tint = BIOME_TINT[(biomes[y] || '')[x]];
-          if (tint) { mg.fillStyle = tint; mg.fillRect(x, y, 1, 1); }
+          if (tint) { mg.fillStyle = tint; mg.fillRect(x - m0, y, 1, 1); }
         }
       }
       const soft = document.createElement('canvas');
-      soft.width = width * 4; soft.height = height * 4;
+      soft.width = (m1 - m0) * 4; soft.height = height * 4;
       const sg = soft.getContext('2d');
       sg.filter = 'blur(5px)';
       sg.drawImage(mask, 0, 0, soft.width, soft.height);
-      g.drawImage(soft, 0, 0, width * TILE, height * TILE);
+      g.drawImage(soft, (m0 - x0) * TILE, 0, (m1 - m0) * TILE, height * TILE);
     }
     g.imageSmoothingEnabled = false;
     // grass creeps over the edges of every bare tile (dirt, sand, gravel, beach)
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const c = at(x, y);
         if (isWater(c) || lush(x, y)) continue;
         const o = [lush(x, y - 1), lush(x + 1, y), lush(x, y + 1), lush(x - 1, y),
           lush(x + 1, y - 1), lush(x + 1, y + 1), lush(x - 1, y + 1), lush(x - 1, y - 1)];
-        drawAutotile(g, sheet, hole.set, hole.inner, o, x, y, false);
+        drawAutotile(g, sheet, hole.set, hole.inner, o, x, y, false, x0);
       }
     }
-    K.drawWallEdges(g, at, width, height);      // rock walls stand up from the cave floor
+    K.drawWallEdges(g, at, width, height, span);      // rock walls stand up from the cave floor
     // small decorations baked into the ground
     const obj = img.objects;
     const decor = (variants, x, y, salt) => {
-      const r = variants[hash(salt + x + ',' + y) % variants.length].rect;
-      const ox = Math.round((TILE - r[2]) / 2 + (K.hash2(x, y, 31) - 0.5) * 4);
-      const oy = TILE - r[3] - Math.floor(K.hash2(x, y, 32) * 3);
-      g.drawImage(obj, r[0], r[1], r[2], r[3], x * TILE + ox, y * TILE + oy, r[2], r[3]);
+      const r = variants[hash(salt + (x - hx) + ',' + y) % variants.length].rect;
+      const ox = Math.round((TILE - r[2]) / 2 + (K.hash2(x - hx, y, 31) - 0.5) * 4);
+      const oy = TILE - r[3] - Math.floor(K.hash2(x - hx, y, 32) * 3);
+      g.drawImage(obj, r[0], r[1], r[2], r[3], (x - x0) * TILE + ox, y * TILE + oy, r[2], r[3]);
     };
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const c = at(x, y);
-        const roll = K.hash2(x, y, 30);
+        const roll = K.hash2(x - hx, y, 30);
         if (isBeach(x, y)) continue;
         if ((c === 'g' && roll < 0.2) || (c === 'f' && roll < 0.32)) decor(T.decor.variants, x, y, 'd');
         else if (c === 'r' && roll < 0.3) decor(T.pebbles.variants, x, y, 'p');

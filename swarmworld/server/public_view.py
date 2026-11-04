@@ -84,7 +84,7 @@ SOCIETY_EDGE_KEYS: tuple[str, ...] = ("a", "b", "talk", "gift", "teach", "play",
 SOCIETY_HUB_KEYS: tuple[str, ...] = ("id", "name", "weight")
 # the static document's world parts, from World.to_init (creatures and the clock live in live.json); kinds, items and
 # regions are picked one by one like everything else, and the tile and nature rows are terrain codes
-STATIC_INIT_KEYS: tuple[str, ...] = ("tick", "width", "height", "tiles", "regions", "objects", "items", "kinds", "nature",
+STATIC_INIT_KEYS: tuple[str, ...] = ("tick", "width", "height", "origin_x", "tiles", "regions", "objects", "items", "kinds", "nature",
                                      "landmarks", "buildings")
 STATIC_INIT_PRIVATE: tuple[str, ...] = ("type", "creatures", "clock")
 REGION_KEYS: tuple[str, ...] = ("name", "level", "y0", "y1", "sky", "weather")
@@ -147,7 +147,7 @@ def _view_kind(spec: dict) -> dict:
 
 def public_static(init: dict) -> dict:
     """The world parts of static.json, from World.to_init(): every part picked."""
-    out = pick(init, ("tick", "width", "height", "tiles"))
+    out = pick(init, ("tick", "width", "height", "origin_x", "tiles"))
     out["regions"] = pick_all(init.get("regions", []), REGION_KEYS)
     out["objects"] = [public_object(o) for o in init.get("objects", [])]
     out["items"] = {i: name for i, name in init.get("items", {}).items() if isinstance(name, str)}

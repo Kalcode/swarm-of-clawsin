@@ -116,12 +116,13 @@ async def tick_loop(app: web.Application) -> None:
                     if now - last_pub_log[0] >= 60.0:
                         last_pub_log[0] = now
                         log.exception("publishing failed")
+            payloads = st.viewer_payloads(msg)   # always taken, so growth is not left queued with no viewer
             if st.viewers:
-                payload = json.dumps(msg)
                 metrics = st.metrics_message() if st.world.tick % 10 == 0 else None
                 for ws in list(st.viewers):
                     try:
-                        await ws.send_str(payload)
+                        for payload in payloads:
+                            await ws.send_str(payload)
                         if metrics:
                             await ws.send_str(metrics)
                     except Exception:

@@ -73,11 +73,28 @@
     return out;
   }
 
+  /** Terrain is drawn in chunks of this many columns, so a change draws one chunk again and a strip of new land adds
+   *  whole ones. */
+  const CHUNK = 32;
+
+  /** The column spans [x0, x1) that cut a width into chunks: [[0, 32], [32, 64], ...], the last one the remainder. */
+  function chunkSpans(width, size = CHUNK) {
+    const out = [];
+    for (let x = 0; x < width; x += size) out.push([x, Math.min(width, x + size)]);
+    return out;
+  }
+
+  /** How far the map's old columns move east when a strip is laid (a `grow` message): the strip's width when it
+   *  lies to the west, else none. */
+  function growShift(grow) {
+    return grow && grow.side === 'west' && Number.isInteger(grow.columns) && grow.columns > 0 ? grow.columns : 0;
+  }
+
   /** The tick's tile changes ([x, y, code], ...) applied to a copy of the rows; dirty: the regions whose terrain
-   *  must be drawn again, in the regions' order. Entries off the map or malformed are ignored. */
+   *  must be drawn again, in the regions' order; chunks: the chunks to draw again, each "<region>:<x0>". Entries off the map or malformed are ignored. */
   function applyTiles(tiles, changes, regions) {
     const rows = new Map();
-    const hit = new Set();
+    const hit = new Set(), chunks = new Set();
     for (const ch of Array.isArray(changes) ? changes : []) {
       if (!Array.isArray(ch)) continue;
       const [x, y, code] = ch;
@@ -87,12 +104,17 @@
       if (!rows.has(y)) rows.set(y, row.split(''));
       rows.get(y)[x] = code;
       const r = regionAt(regions, y);
-      if (r) hit.add(r.name);
+      if (r) { hit.add(r.name); 
+        // a tile's neighbours (shorelines, wall rims, autotiles) are read across a chunk edge: the chunks of x-1 and x+1 too
+        for (const nx of [x - 1, x, x + 1]) if (nx >= 0 && nx < row.length) chunks.add(r.name + ':' + Math.floor(nx / CHUNK) * CHUNK);
+      }
     }
-    if (!rows.size) return { tiles, dirty: [] };
+    if (!rows.size) return { tiles, dirty: [], chunks: [] };
     const out = tiles.slice();
     for (const [y, chars] of rows) out[y] = chars.join('');
-    return { tiles: out, dirty: regions.filter((r) => hit.has(r.name)).map((r) => r.name) };
+    const order = (key) => regions.findIndex((r) => r.name === key.split(':')[0]) * 1e6 + (+key.split(':')[1]);
+    return { tiles: out, dirty: regions.filter((r) => hit.has(r.name)).map((r) => r.name),
+             chunks: [...chunks].sort((a, b) => order(a) - order(b)) };
   }
 
   /** The init message's land rows (biomes, river flow) to draw the surface with, or null. They cover the surface's
@@ -174,6 +196,6 @@
     return `${x}${s}${y - r.y0} below`;
   }
 
-  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor,
+  window.SwarmLayers = { regionsFrom, regionAt, byName, otherLayer, moveCam, clampCam, followLayer, counts, applyTiles, landFor, CHUNK, chunkSpans, growShift,
                          lightsFor, skylitTiles, darkHole, placeText };
 })();

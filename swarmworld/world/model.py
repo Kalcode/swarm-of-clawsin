@@ -524,6 +524,7 @@ class World:
             "type": "init",
             "width": self.width,
             "height": self.height,
+            "origin_x": self.origin_x,
             "tiles": ["".join(row) for row in self.tiles],
             "objects": self.all_object_dicts(),
             "creatures": [self.cre_dict(c) for c in self.creatures.values()],

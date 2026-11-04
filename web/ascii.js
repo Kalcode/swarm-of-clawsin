@@ -46,23 +46,24 @@
     const row = LAND[code] || LAND.g;
     const b = biomeAt(x, y);
     const g = row[b] || row._;
-    return K.hash2(x, y, 41) < g[4] ? { char: g[0], color: g[1] } : { char: g[2], color: g[3] };
+    return K.hashAt(x, y, 41) < g[4] ? { char: g[0], color: g[1] } : { char: g[2], color: g[3] };
   }
 
   /** The background: one pixel per tile (the viewer scales it up without smoothing). */
-  function renderTerrain(tiles, width, height, nature) {
+  function renderTerrain(tiles, width, height, nature, span) {
+    const { x0, x1 } = span || { x0: 0, x1: width };    // columns x0..x1-1; the glyphs hash through K.hashAt, live
     land = nature || null;
     const cv = document.createElement('canvas');
-    cv.width = width; cv.height = height;
+    cv.width = x1 - x0; cv.height = height;
     const g = cv.getContext('2d');
     for (let y = 0; y < height; y++) {
       const row = tiles[y] || '';
-      for (let x = 0; x < width; x++) {
+      for (let x = x0; x < x1; x++) {
         const c = row[x] || 'g';
         const b = biomeAt(x, y);
         g.fillStyle = c === 'W' ? WATER_BG.W : c === 'w' ? (b === 'k' && flowAt(x, y) < 0 ? WATER_BG.pool : WATER_BG.w)
           : c === 'u' ? WATER_BG.u : GROUND_BG[c] || BG[b] || BG._;
-        g.fillRect(x, y, 1, 1);
+        g.fillRect(x - x0, y, 1, 1);
       }
     }
     return cv;
@@ -87,10 +88,10 @@
             const [fx, fy] = FLOW[f];
             const k = Math.sin((x * fx + y * fy) * 0.9 - now / 380);
             wopts.alpha = 0.45 + 0.55 * Math.max(0, k);
-            const arrow = k > 0.93 && K.hash2(x, y, 43) < 0.35;
+            const arrow = k > 0.93 && K.hashAt(x, y, 43) < 0.35;
             K.drawGlyph(ctx, { char: arrow ? ARROWS[f] : '≈', color: arrow ? '#a8dcff' : '#4f9fd8' }, dx, dy, ts, wopts);
           } else {
-            const k = Math.sin(now / (code === 'W' ? 1500 : 1100) + K.hash2(x, y, 44) * 6.28);
+            const k = Math.sin(now / (code === 'W' ? 1500 : 1100) + K.hashAt(x, y, 44) * 6.28);
             wopts.alpha = 0.6 + 0.4 * k;
             const pool = code === 'w' && biomeAt(x, y) === 'k';
             K.drawGlyph(ctx, code === 'W' ? { char: '≈', color: '#2f62a8' } : { char: '~', color: pool ? '#5a9a86' : '#3c8cc0' }, dx, dy, ts, wopts);
@@ -98,7 +99,7 @@
           continue;
         }
         if (code === 'u') {
-          wopts.alpha = 0.55 + 0.35 * Math.sin(now / 1700 + K.hash2(x, y, 44) * 6.28);
+          wopts.alpha = 0.55 + 0.35 * Math.sin(now / 1700 + K.hashAt(x, y, 44) * 6.28);
           K.drawGlyph(ctx, { char: '~', color: '#2f8a86' }, dx, dy, ts, wopts);
           continue;
         }
