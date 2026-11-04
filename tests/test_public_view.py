@@ -59,6 +59,9 @@ def busy(tmp_path):
     b.setdefault("sites", {})["s1"] = {"design": "hut", "needs": {"log": 2}, "have": {}, "work": 3, "done": 0, "by": ["Holt"]}
     b.setdefault("built", {})["b1"] = {"design": "hut", "x0": 1, "y0": 1, "x1": 3, "y1": 3, "door": [2, 3], "roof": True,
                                        "by": ["Holt"], "tick": 5}
+    rec = w.frontier_record()
+    rec.update(strips={"east": 1, "west": 1}, lands={"1,0": {"theme": "meadow", "side": "east", "heart": [130, 10], "name": "the Eastern Meadow",
+                                                              "found_by": "Holt", "tick": 9}})
     st.record_history()
     st.tick_message(st.world.events)
     return st
@@ -147,7 +150,8 @@ def test_every_nested_almanac_field_is_classified(busy, issues_dir):
               ([x for i in full["items"] for x in i["used_in"]], pv.USED_IN_KEYS),
               ([i["discovered"] for i in full["items"] if i["discovered"]], pv.DISCOVERY_KEYS),
               (w["discoveries"], pv.DISCOVERY_KEYS), (w["buildings"], pv.BUILDING_KEYS), (w["sites"], pv.SITE_KEYS),
-              (w["creatures"], pv.WORLD_CREATURE_KEYS), ([w["clock"]], pv.CLOCK_KEYS),
+              (w["creatures"], pv.WORLD_CREATURE_KEYS), ([w["clock"]], pv.CLOCK_KEYS), ([w["lands"]], pv.LANDS_KEYS),
+              ([w["lands"]["strips"]], pv.LAND_STRIPS_KEYS), (w["lands"]["found"], pv.LAND_FOUND_KEYS),
               (list(w["groups"].values()), pv.GROUP_KEYS), ([v["used"] for v in full["verbs"]], pv.VERB_USED_KEYS)]
     for rows, keys in checks:
         assert rows
@@ -156,7 +160,8 @@ def test_every_nested_almanac_field_is_classified(busy, issues_dir):
     assert set(full["tree"]) == set(pv.TREE_KEYS) and set(w) == set(pv.WORLD_KEYS)
     # and the public copy keeps those fields (nothing is picked away by mistake)
     a = public_almanac(full)
-    assert a["world"]["sites"] == w["sites"] and a["world"]["buildings"] == w["buildings"]
+    assert a["world"]["sites"] == w["sites"] and a["world"]["buildings"] == w["buildings"] and a["world"]["lands"] == w["lands"]
+    assert w["lands"]["found"] and w["lands"]["strips"] == {"east": 1, "west": 1}
     assert a["items"] == full["items"] and a["kinds"] == full["kinds"] and a["inventions"] == full["inventions"]
 
 

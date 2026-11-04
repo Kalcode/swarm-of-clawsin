@@ -34,7 +34,7 @@ SLOW_EVERY_S = 60.0
 
 LIVE_KEYS = ("schema", "type", "boot", "seq", "every", "tick_seconds", "tick", "from_tick", "clock", "static", "creatures",
              "objects_upsert", "objects_removed", "tiles", "buildings", "landmarks", "events", "chronicle",
-             "chronicle_version", "society", "wishes", "metrics", "watching", "here")
+             "chronicle_version", "society", "wishes", "metrics", "watching", "here", "frontier")
 STATIC_KEYS = ("schema", "type", "version", "tick", "width", "height", "origin_x", "tiles", "regions", "objects", "items", "kinds",
                "nature", "landmarks", "buildings", "inventions")
 
@@ -197,6 +197,8 @@ class Publisher:
             "chronicle": public_chronicle(st.chronicle[-CHRONICLE_TAIL:]), "chronicle_version": self.chronicle_version,
             "society": public_society(st), "wishes": public_wishes(st), "metrics": public_metrics(st),
             "watching": watching, "here": here,
+            "frontier": {"origin_x": w.origin_x, "strips": sum(((w.ext.get("frontier") or {}).get("strips") or {}).get(s, 0)
+                                                               for s in ("east", "west"))},
         }
         self.builds["live"] += 1
         return encode(doc, f"{self.boot}-{self.seq}")
