@@ -205,5 +205,5 @@ uv run python scripts/export_training.py runs/teacher runs/dagger-r2 --out data/
 - `--valid-episodes N` (default 2) holds out N whole episodes (seeds). DAgger episodes are never held out: validation
   is real teacher episodes only.
 - DAgger rows weigh 1 (they were never executed, so there is no outcome to reward).
-- A craft now weighs 1.5 instead of 2-3 (round 1's weighting over-fed `combine`); discoveries and eating while hungry
+- A craft now weighs 1.5 instead of 3 (round 1's weighting over-fed `combine`); discoveries and eating while hungry
   keep their weights.
