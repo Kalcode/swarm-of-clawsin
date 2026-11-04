@@ -1071,22 +1071,43 @@ def _nearest_reachable(world: World, c: Creature, cands: list):
     return next((t for t in cands if path[-1] in goals_of[id(t)]), None)
 
 
+def food_of(world: World, o: WorldObject) -> str | None:
+    """What a creature can eat from this object, if it feeds: berries from a bush with fruit, a ripe food crop, a food patch."""
+    if o.kind == "bush":
+        return "berries" if o.data.get("berries", 6) > 0 else None
+    if o.kind == "crop":  # only a crop whose harvest is food: ripe wheat isn't (it recursed through _eat)
+        crop = o.data.get("crop", "wheat")
+        ok = o.data.get("stage", 0) >= 2 and crop in world.catalog.items and world.catalog.items[crop].food > 0
+        return world.catalog.name(crop) if ok else None
+    if o.kind in YIELDS and not _spent(o):
+        return next((world.catalog.name(i) for i in YIELDS[o.kind]["items"]
+                     if i in world.catalog.items and world.catalog.items[i].food > 0), None)
+    return None
+
+
+def food_within(world: World, c: Creature, steps: int):
+    """The nearest food the creature can reach on foot within `steps` steps (by bfs_path, in its own region, in sight):
+    (object, food, path to a spot beside it), or None. Food already within arm's reach needs no walk (empty path)."""
+    cands = sorted(((o, d, e) for o, d, _ in visible_objects(world, c) if (e := food_of(world, o))), key=lambda t: t[1])
+    taken = occupied_tiles(world, c.id)
+    best = None
+    for o, d, e in cands:
+        if d <= 1:
+            return o, e, []
+        if d - 1 > steps or (best and d - 1 >= len(best[2])):
+            continue
+        goals = _adjacent_goals(world, o.x, o.y, include_self=o.kind not in BLOCKING)
+        path = bfs_path(world, (c.x, c.y), goals - taken or goals, avoid=taken)
+        if path is not None and len(path) <= steps and (best is None or len(path) < len(best[2])):
+            best = (o, e, path)
+    return best
+
+
 def _go_eat_once(world: World, c: Creature, why: str) -> ActionResult:
     """A creature that wants to eat but named nothing it can eat: its body goes for the nearest food in sight (a bush
     with fruit, a ripe crop, a food patch) and eats there, like "eat berries" walks to a bush. With none in sight, the
     refusal says what food is. (The student kept trying "eat grass" beside a bush the world had named.)"""
-    def eats(o: WorldObject) -> str | None:  # what to eat from it, if it feeds
-        if o.kind == "bush":
-            return "berries" if o.data.get("berries", 6) > 0 else None
-        if o.kind == "crop":  # only a crop whose harvest is food: ripe wheat isn't (it recursed through _eat)
-            crop = o.data.get("crop", "wheat")
-            ok = o.data.get("stage", 0) >= 2 and crop in world.catalog.items and world.catalog.items[crop].food > 0
-            return world.catalog.name(crop) if ok else None
-        if o.kind in YIELDS and not _spent(o):
-            return next((world.catalog.name(i) for i in YIELDS[o.kind]["items"]
-                         if i in world.catalog.items and world.catalog.items[i].food > 0), None)
-        return None
-    cands = sorted(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := eats(o))), key=lambda t: t[1])
+    cands = sorted(((o, d, dirn, e) for o, d, dirn in visible_objects(world, c) if (e := food_of(world, o))), key=lambda t: t[1])
     near = _nearest_reachable(world, c, cands)
     foods = [i for i in c.inventory if c.inventory[i] > 0 and world.catalog.items[i].food > 0]
     if foods:  # it carries food: eat that, not a walk to a bush for what is already in the pack
