@@ -478,3 +478,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **admin:** healthy since the 02:19 restart. gpt-oss made 441 acts, 91% successful, p50 7.6 s, p90 13.3 s. No streaks.
 - **win:** the craft-it-first hint fired 6 times. 5 of those creatures next crafted the thing or gave it: Tula and Gale
   made rope, and Sage made a campfire.
+
+### 03:13 watch (tick 59,435): both minds live
+- **admin:** all 24 awake, no errors. The student node (12 slots, oMLX) and the pc node are both connected.
+- **student (round 2):** 636 acts, 79% successful, p50 14.3 s, p90 19.1 s.
+  - The cold start's 19.8 s settled to round 1's live pace (13–16 s).
+  - Failures are mostly invention-hunting combines with odd mixes: Jun 31 (rope enhancer + rope), Mika 19, Gil 15.
+    No world fix: nothing named, so there is no hint to give.
+- **gpt-oss:** 608 acts, 81% successful, p50 7.4 s.
+  - Mirth fed strong cord to the campfire 22 times: "The strong cord won't burn."
+  - Fix in review (006b645): the refusal now says what would burn.
+- **frontier:** the explorers are awake but mid-map: Holt (66, 75), Jun (69, 74), Cass (63, 57), Gil (64, 78), about
+  60 steps from either edge. No explore acts yet.
