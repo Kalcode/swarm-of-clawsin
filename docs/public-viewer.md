@@ -103,6 +103,21 @@ everyone gets it through the cache they already poll.
 
 The stop does not recall what is already out there: copies cached at Cloudflare's edge stay until they expire (live data within seconds, but `static.json`, `chronicle.json` and the page files for up to a year), and browsers keep what they have loaded. To take content down, also use Caching > Configuration > Purge Everything in the Cloudflare dashboard; the copies in browsers that already have them stay until the visitor reloads. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
 
+## Closed for the night
+
+`scripts/public-closed.sh on` puts up a "Be back tomorrow!" page, then stops the tunnel. The page is a small
+Cloudflare Worker ([deploy/closed-page](../deploy/closed-page)) whose route, `swarm-world.4rc4de.com/*`, answers every
+request before the cache or the tunnel would. So visitors see the page, not an error or a stale copy, and the Mac can
+sleep. It answers 503 with `Retry-After` (a planned break, so crawlers come back) and `no-store` (nothing keeps it
+once the world is back), and shows the reopening time in the visitor's own time zone.
+
+`scripts/public-closed.sh off` starts the tunnel, then deletes the Worker, and the live viewer is back.
+`scripts/public-closed.sh status` shows what the site answers and the tunnel's state. For another day, edit `BACK`
+and `WHEN` in `deploy/closed-page/worker.js`.
+
+- **Needs:** wrangler signed in to the account that owns the zone (`npx wrangler whoami`).
+- **Cost:** none. Workers on the Free plan stop at 100,000 requests a day and never bill.
+
 ## Load test
 
 `nice -n 10 uv run python scripts/public_load_test.py --port 7801 --clients 200 --seconds 60 --creatures 50` (2026-11-03, code at 816181a, with the query redirects and gzip app files, run under `nice -n 10`; 50 mock creatures, 1 s ticks, snapshots every 3 s, 200 pollers fetching `live.json` every 2 s, a tenth of them also a creature's detail; teacher runs were using the Mac at the time).

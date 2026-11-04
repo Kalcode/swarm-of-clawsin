@@ -1,0 +1,8 @@
+# The "back tomorrow" page: answers every request on swarm-world.4rc4de.com while the tunnel is down.
+# Switched on and off by scripts/public-closed.sh (docs/public-viewer.md).
+name = "swarm-world-closed"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+account_id = "2406c90d54a5b2c9cce223f063509e77"
+workers_dev = false
+routes = [{ pattern = "swarm-world.4rc4de.com/*", zone_name = "4rc4de.com" }]
