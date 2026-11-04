@@ -336,9 +336,11 @@
           docs.live = live;
           docs.static = st;
           seenSeq = live.seq;
+          const was = at.eventSeq;   // the publisher moves its events with the world, so those past the cursor are safe to play
           view = viewOf(st, live);
-          at = { tick: live.tick, eventSeq: Math.max(0, ...(live.events || []).map((e) => e.seq || 0)) };
-          deliver([grown, initMessage(st, live), metricsOf(live)], 0);
+          at = { tick: live.tick, eventSeq: Math.max(was, ...(live.events || []).map((e) => e.seq || 0)) };
+          const frame = tickFrames(live, { tick: live.tick, eventSeq: was }, diffViews(view, view))[0];
+          deliver([grown, initMessage(st, live), metricsOf(live), frame], 0);
           schedule(nextDelay());
           return;
         }

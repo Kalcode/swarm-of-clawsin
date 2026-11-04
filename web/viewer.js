@@ -318,7 +318,8 @@
 
     if (first) {
       const R = shownRegion();
-      S.cam.x = S.width / 2;
+      const meadow = S.landmarks.find((l) => l.kind === 'meadow');   // land may have grown more on one side
+      S.cam.x = meadow ? meadow.x : S.width / 2;
       S.cam.y = (R.y0 + R.y1) / 2;
       const fit = Math.min(vw / (S.width * 16), vh / (R.height * 16));
       const level = vw < 700 ? 1.5 : 2;

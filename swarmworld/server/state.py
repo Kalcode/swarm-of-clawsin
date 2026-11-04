@@ -896,4 +896,8 @@ class ServerState:
         return {"p50": at(0.5), "p95": at(0.95), "max": round(xs[-1], 1), "n": len(xs)}
 
     def metrics_message(self) -> str:
-        return json.dumps({**self.metrics.snapshot(self.world, self.started), "tick_ms": self.tick_stats(), "watching": self.watching})
+        w = self.world
+        strips = sum(((w.ext.get("frontier") or {}).get("strips") or {}).values())
+        frontier = {"on": w.frontier_settings.on, "strips": strips, "width": w.width, "origin_x": w.origin_x}
+        return json.dumps({**self.metrics.snapshot(w, self.started), "tick_ms": self.tick_stats(), "watching": self.watching,
+                           "frontier": frontier})

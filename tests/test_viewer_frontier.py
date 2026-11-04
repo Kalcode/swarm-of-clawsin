@@ -183,6 +183,7 @@ def test_an_init_with_a_new_origin_keeps_the_camera_on_its_spot(tmp_path):
     assert out["cam"] == [10, 42] and out["voice"] == 42 and out["same"] == [5, 37]   # cam, voice target, an event's x
     assert out["noShift"] == 10                                                          # the same origin: nothing moves
     assert out["first"] == 32                                                            # the first init fits the map
+    assert out["meadow"] == 70 and out["noMeadow"] == 48   # a fresh page centres on the meadow, else on the map's middle
 
 
 def run_viewer_init(tmp_path) -> dict:
@@ -242,6 +243,12 @@ window.SwarmViewer.onMessage(init(64, 0));
 out.noShift = S.cam.x;
 window.SwarmViewer.onMessage(init(96, 32));        // a west strip: no `grow` first, as on a reconnect
 out.cam = [10, S.cam.x]; out.voice = S.voice.target.x; out.same = [5, S.events[0].x];
+S.loaded = false;                                  // a fresh page on a map grown unevenly: the meadow is not the middle
+window.SwarmViewer.onMessage(Object.assign(init(96, 32), { landmarks: [{ kind: 'lake', x: 3, y: 4, name: 'l' }, { kind: 'meadow', x: 70, y: 40, name: 'm' }] }));
+out.meadow = S.cam.x;
+S.loaded = false;
+window.SwarmViewer.onMessage(init(96, 32));
+out.noMeadow = S.cam.x;
 process.stdout.write(JSON.stringify(out), () => process.exit(0));   // the viewer's timers would keep it running
 """
 

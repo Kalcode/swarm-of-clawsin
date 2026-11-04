@@ -90,6 +90,8 @@ class Publisher:
             self._trails = {cid: deque(((t, x + moved, y) for t, x, y in trail), maxlen=trail.maxlen)
                             for cid, trail in self._trails.items()}
             self._tiles = {(x + moved, y): [x + moved, y, t] for (x, y), (_, _, t) in self._tiles.items()}
+            self._events = deque(((t, {**e, "x": e["x"] + moved}) if isinstance(e.get("x"), int) else (t, e)
+                                  for t, e in self._events), maxlen=self._events.maxlen)
         for o in msg.get("objects_upsert") or []:
             self._upsert[o["id"]] = o
             self._removed.discard(o["id"])
