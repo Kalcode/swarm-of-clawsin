@@ -155,11 +155,14 @@ class Simulation:
             c.health = min(100.0, c.health + 1)
         if c.satiety > 50:
             self.hunger_alert.pop(c.id, None)
-        for level in (40, 20, 5):
+        for level in (40, 20, 5, 0):
             if c.satiety <= level and self.hunger_alert.get(c.id, 101) > level:
                 self.hunger_alert[c.id] = level
                 self.wake(c, "hungry")
                 break
+        else:
+            if c.satiety <= 0 and t % 60 == 0 and (c.activity or {}).get("sleep"):
+                self.wake(c, "hungry")  # starving and asleep again: keep waking it
         if c.satiety < 10 and not c.collapsed:
             self._reflex_eat(c)
         if c.health <= 0:
@@ -222,9 +225,37 @@ class Simulation:
                     return
         self._start_sleep(c, snug)
 
+    def _bedtime_meal(self, c: Creature) -> bool:
+        """A hungry creature lying down eats first if food is within 4 steps: up to satiety 60, quietly. True if it
+        moved to the food."""
+        if c.satiety >= 35:
+            return False
+        from .actions import food_within, station_near
+        w = self.world
+        eaten: Counter = Counter()
+        self._eat_carried(c, eaten, skip_seeds=True)  # the pack first, seeds excepted; no walk for that
+        if not eaten:
+            before = (c.x, c.y)
+            # a creature already in a bed or under a roof eats only what is in reach: it doesn't leave its bed
+            housed = bool(station_near(w, c, "bed")) or perception.roof_over(w, c.x, c.y) is not None
+            if food_within(w, c, 0 if housed else 4) is None:
+                return False
+            self._eat_in_reach(c, eaten)
+            if not eaten and self._stagger_to_food(c, 4):
+                self._eat_in_reach(c, eaten)
+            if eaten:
+                self.remember(c, "You ate before lying down.", 1)
+            c.wake_reason = None
+            return (c.x, c.y) != before
+        self.remember(c, "You ate before lying down.", 1)
+        c.wake_reason = None
+        return False
+
     def _start_sleep(self, c: Creature, snug: bool) -> None:
         from .actions import station_near
         w = self.world
+        if self._bedtime_meal(c):  # it walked to the food: the spot may be warmer or colder than the one it left
+            snug = bool(station_near(w, c, "bed")) or self.exposure(c) is None
         c.activity = {"type": "busy", "ticks": 10_000, "label": "sleeping" + ("" if snug else " out in the cold"),
                       "result": "You wake up.", "rest": True, "bed": station_near(w, c, "bed"), "sleep": True}
         c.wake_reason = None
@@ -244,36 +275,79 @@ class Simulation:
         """A survival reflex that needs no thought: a starving body eats what it carries, or berries within reach, or
         other wild food within reach (a mushroom patch, wild herbs)."""
         w = self.world
-        foods = sorted((i for i, n in c.inventory.items() if n > 0 and w.catalog.items[i].food > 0),
-                       key=lambda i: -w.catalog.items[i].food)
+        from .actions import food_within
         eaten: Counter = Counter()
-        for i in foods:
-            while c.inventory.get(i, 0) > 0 and c.satiety < 60:
-                c.inventory[i] -= 1
-                c.satiety = min(100.0, c.satiety + w.catalog.items[i].food)
-                eaten[i] += 1
-            if c.inventory.get(i, 0) <= 0:
-                c.inventory.pop(i, None)
-        if c.satiety < 60:  # nothing carried: strip berries from a bush within arm's reach
-            from .perception import dist
-            for o in list(w.objects.values()):
-                if o.kind == "bush" and dist(c.x, c.y, o.x, o.y) <= 1:
-                    o.data.setdefault("berries", 6)
-                    while o.data.get("berries", 6) > 0 and c.satiety < 60:
-                        o.data["berries"] -= 1
-                        c.satiety = min(100.0, c.satiety + w.catalog.items["berries"].food)
-                        eaten["berries"] += 1
-                    if o.data.get("berries", 6) <= 0:
-                        w.change_kind(o, "bush_empty")
-                        o.data["regrow_at"] = w.tick + 400
-                    if c.satiety >= 60:
-                        break
-        if c.satiety < 60:  # then whatever grows within reach and is food: a mushroom patch, wild herbs
-            self._reflex_forage(c, eaten)
+        self._eat_carried(c, eaten, skip_seeds=food_within(w, c, 3) is not None)  # seed stock is for planting
+        if c.satiety < 60:
+            self._eat_in_reach(c, eaten)
+        if c.satiety < 10:  # still starving, nothing within arm's reach: stagger up to 3 steps to the nearest food
+            if self._stagger_to_food(c, 3):
+                self._eat_in_reach(c, eaten)
         if eaten:
             what = ", ".join(f"{n} {w.catalog.name(i)}" for i, n in eaten.items())
             w.emit("eat", c.id, c.x, c.y, f"{c.name}, starving, wolfed down {what}.")
             self.remember(c, f"Starving, you wolfed down {what} without thinking. Eat before it gets that bad.", 3)
+
+    def _eat_carried(self, c: Creature, eaten: Counter, skip_seeds: bool = False) -> None:
+        """Eat what the creature carries, best food first, up to satiety 60; seeds only when not skipped."""
+        w = self.world
+        items = w.catalog.items
+        foods = sorted((i for i, n in c.inventory.items()
+                        if n > 0 and items[i].food > 0 and not (skip_seeds and "seed" in items[i].tags)),
+                       key=lambda i: -items[i].food)
+        for i in foods:
+            while c.inventory.get(i, 0) > 0 and c.satiety < 60:
+                c.inventory[i] -= 1
+                c.satiety = min(100.0, c.satiety + items[i].food)
+                eaten[i] += 1
+            if c.inventory.get(i, 0) <= 0:
+                c.inventory.pop(i, None)
+
+    def _eat_in_reach(self, c: Creature, eaten: Counter) -> None:
+        """Eat, up to satiety 60, from what is within arm's reach: berries from a bush, then a food patch or a ripe crop."""
+        w = self.world
+        from .actions import _harvest, food_of
+        from .perception import dist
+        for o in list(w.objects.values()):  # strip berries from a bush within arm's reach
+            if o.kind == "bush" and dist(c.x, c.y, o.x, o.y) <= 1:
+                o.data.setdefault("berries", 6)
+                while o.data.get("berries", 6) > 0 and c.satiety < 60:
+                    o.data["berries"] -= 1
+                    c.satiety = min(100.0, c.satiety + w.catalog.items["berries"].food)
+                    eaten["berries"] += 1
+                if o.data.get("berries", 6) <= 0:
+                    w.change_kind(o, "bush_empty")
+                    o.data["regrow_at"] = w.tick + 400
+                if c.satiety >= 60:
+                    return
+        if c.satiety < 60:  # then whatever grows within reach and is food: a mushroom patch, wild herbs
+            self._reflex_forage(c, eaten)
+        for o in list(w.objects.values()):  # a ripe food crop: pull it up and eat it
+            if c.satiety >= 60:
+                return
+            if o.kind == "crop" and dist(c.x, c.y, o.x, o.y) <= 1 and food_of(w, o):
+                crop = o.data.get("crop", "wheat")
+                got = _harvest(w, o)
+                n = got.pop(crop, 0)
+                c.inventory.update(got)  # its seeds are kept
+                while n > 0 and c.satiety < 60:
+                    n -= 1
+                    c.satiety = min(100.0, c.satiety + w.catalog.items[crop].food)
+                    eaten[crop] += 1
+                if n > 0:
+                    c.inventory[crop] += n
+
+    def _stagger_to_food(self, c: Creature, steps: int) -> bool:
+        """Move the creature (waking it, dropping what it was doing) to a spot beside the nearest food it can walk to
+        within `steps` steps. False when there is none, or it is already there."""
+        from .actions import food_within
+        found = food_within(self.world, c, steps)
+        if not found or not found[2]:
+            return False
+        c.x, c.y = found[2][-1]
+        c.activity = None
+        self.wake(c, "hungry")
+        return True
 
     def _reflex_forage(self, c: Creature, eaten: Counter) -> None:
         """Pick from food-giving kinds (objects.json yields) within arm's reach, a use at a time, eating as it goes."""
