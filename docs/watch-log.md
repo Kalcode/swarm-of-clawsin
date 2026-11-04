@@ -490,3 +490,15 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - Fix in review (006b645): the refusal now says what would burn.
 - **frontier:** the explorers are awake but mid-map: Holt (66, 75), Jun (69, 74), Cass (63, 57), Gil (64, 78), about
   60 steps from either edge. No explore acts yet.
+
+### 03:43 watch (tick 61,229): gpt-oss 90%; the student's combine loops are round-3 material
+- **admin:** both nodes are up, all 24 awake, no errors, the tunnel answers 200, and the frontier has 0 strips.
+- **gpt-oss:** 463 acts since 03:19, 90% successful, p50 7.8 s.
+  - The fuel hint works: Mirth, told "Your stick would burn", fed the campfire 5 sticks.
+- **student (round 2):** 745 acts, 76% successful, p50 13.5 s, p90 18.1 s.
+  - It ignored the fuel hint: Holt kept offering rope and strong cord.
+  - Most failures are combines repeated with no result: Jun 51, Sorrel 23, Ula 15, Gil 14.
+  - Jun's plan step is "combine strong cord, plant fiber rope". Its prompt shows each failure ("You tried to combine
+    ..., but: ... nothing comes of it"), and it tries again.
+  - Not a world fix: these are the failures a third DAgger round labels first.
+- **frontier:** the creatures span x 55–81, all far from the edges, and nobody has explored.
