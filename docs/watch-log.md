@@ -447,3 +447,10 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
 - **mind (no fix):** Gus (15) and Elm (5) try to give Teo rope or plant fiber they don't hold. Each is told
   "plant fiber: pull it from grass" and doesn't go. gpt-oss plans fixed on gifts.
 - **round 2:** step 2,000 of 4,000, validation loss 0.444.
+
+### 01:43 watch (tick 54,050): best stretch tonight
+- **admin:** healthy since the 01:16 restart. gpt-oss made 595 acts, 87% successful (the best tonight), p50 7.4 s,
+  p90 14.1 s. No failure streaks of 5 or more, and no collapses.
+- **wishes:** none explicit. The newest are wistful lines from reflections, such as Hux's "resin source to seal the
+  net more" (after inventing the net) and Dree's "reliable wheat seed trader". Left as they are.
+- **round 2:** step 2,600 of 4,000, validation loss 0.413. The best so far was 0.386 at step 2,400.
