@@ -643,3 +643,16 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   s). No streaks, no errors, no collapses (the lowest is Tula at 13). The frontier has 0 strips.
 - **invention:** Cyd (gpt-oss) invented the **reed rope**, "a stronger rope from reeds and fiber". Cyd's third
   invention in the fresh world.
+
+### 11:40: phone top bar fixed (the user's Pixel 8)
+- The user: the toggle "pops out" when the side panel opens, leaving a sliver to tap. The arrow also reads as "back".
+- Cause: on a 412 px screen, the "N watching" count makes the top bar 434 px, and nothing in it could shrink. Chrome
+  widened the page, so the toggle hung 22 px off the right edge. The panel opening was coincidence: it is when the
+  count arrived.
+- Fix:
+  - The count is now the one item that may shrink.
+  - At 440 px and below, the public page drops the music toggle (the audio settings set the music too).
+  - At 380 px and below, it also drops the campfire and the live dot (the dot returns when not live).
+  - The toggle is now a sidebar glyph: a window with its right pane, filled while the panel is open.
+- Checked at 412 and 360 px (with a two-digit count) and 1440 px. It went live on the public page through the 10 s
+  rescan, with no restart. 1,138 tests pass.
