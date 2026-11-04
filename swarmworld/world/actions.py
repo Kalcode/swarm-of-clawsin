@@ -473,8 +473,22 @@ def _resolve_held(world: World, c: Creature, name: str) -> tuple[str | None, str
     if iid is None:
         return None, f"You don't know of anything called '{name}'."
     if c.inventory.get(iid, 0) <= 0:
-        return None, f"You don't have any {world.catalog.name(iid)}."
+        return None, f"You don't have any {world.catalog.name(iid)}." + _how_to_get(world, c, iid)
     return iid, ""
+
+
+def _how_to_get(world: World, c: Creature, iid: str) -> str:
+    """What to add to a "you don't have it" refusal: the recipe the creature knows (and what it is short of), or where
+    a raw material comes from. Nothing for anything else."""
+    cat = world.catalog
+    r = cat.recipe_for(iid) if iid in c.known_recipes else None
+    if r is not None:
+        short = [f"no {cat.name(i)}" if c.inventory.get(i, 0) <= 0 else f"only {c.inventory[i]} {cat.name(i)}"
+                 for i, n in r.inputs.items() if c.inventory.get(i, 0) < n][:2]
+        return f" You know how to make it: {cat.describe_recipe(r)}" + (f" (you have {', '.join(short)})." if short else ".")
+    if iid in SOURCE_HINT:
+        return f" {cat.name(iid).capitalize()}: {_source_hint(world, c, iid)}."
+    return ""
 
 
 def _busy(c: Creature, ticks: int, label: str, result: str, **extra) -> ActionResult:
@@ -1418,7 +1432,7 @@ def _place(world: World, c: Creature, it: Intention) -> ActionResult:
     if not iid:
         return ActionResult(False, f"You don't know of anything called '{name}' to place.")
     if c.inventory.get(iid, 0) <= 0:
-        return ActionResult(False, f"You don't have a {world.catalog.name(iid)} to place.")
+        return ActionResult(False, f"You don't have a {world.catalog.name(iid)} to place." + _how_to_get(world, c, iid))
     if not world.catalog.items[iid].placeable:
         return ActionResult(False, f"A {world.catalog.name(iid)} isn't something you can set down as a structure. Try drop.")
     kind = {"wooden_wall": "wall"}.get(iid, iid)
