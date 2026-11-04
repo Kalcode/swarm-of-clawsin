@@ -84,7 +84,7 @@ Open http://127.0.0.1:7777/. Drag to pan and scroll to zoom. Click a creature to
 
 **Wishes:** creatures say what their world lacks ("I wish we had a proper roof"), fail to make things it has never heard of, or use the `wish` action, most of all at the wishing stone at the meadow's north edge. The **Wishes** tab ranks what they want. From the home network you can answer a wish from the sky, grant an item, or note it as something to build: the creatures' own feature-request board.
 
-**Steward actions** (home network only), for testing new content in the live world: `curl -X POST localhost:7777/api/admin/give -d '{"creature":"Mara","item":"rope","count":2}'`, and likewise `place` (`{"kind":"basket","x":30,"y":28}`), `remove` (`{"object":"o123"}`), `move` (`{"creature":"Mara","x":30,"y":29}`) and `weather` (`{"weather":"rain","ticks":300}`). Each shows up as a Steward event.
+**Steward actions** (home network only), for testing new content in the live world: `curl -X POST localhost:7777/api/admin/give -d '{"creature":"Mara","item":"rope","count":2}'`, and likewise `place` (`{"kind":"basket","x":30,"y":28}`), `remove` (`{"object":"o123"}`), `move` (`{"creature":"Mara","x":30,"y":29}`) and `weather` (`{"weather":"rain","ticks":300}`) and `grow` (`{"side":"east"}` or `"west"`: lay a strip of new land now; see [the frontier](#the-frontier-land-that-grows-where-creatures-explore)). Each shows up as a Steward event.
 
 Everything is also logged to `runs/<timestamp>/`. `events.jsonl` holds what happened. `thinks.jsonl` holds every model reply, which is useful for analysis and later for fine-tuning small models on successful behavior.
 
@@ -172,6 +172,16 @@ Under the whole surface lies the deep: caves and tunnels, an underground stream 
 On the surface, `dig` makes trenches and pits, and a trench beside water fills with water. A pit dug deep enough opens into the deep. `fill`, with dirt, stone or sand, raises the ground back up.
 
 In the viewer, the Surface/Underground switch (or the `U` key) changes which layer you see, and following a creature that climbs switches with it. The design is in [the spec](docs/superpowers/specs/2026-11-02-underground-design.md); the work is [issue 021](issues/021-underground-layer.md).
+
+## The frontier: land that grows where creatures explore
+
+The surface needn't stay 128 wide. When a creature explores toward the east or west edge of the known world, a strip of new land is laid down there: 32 columns wide and the full surface height, made of four 32x32 lands stacked. Each land has a theme, chosen to fit the land beside it and weighted toward what the world lacks most: stony hills (boulders, flint, ore, often a cave mouth), berry groves, deep pines, marshes and lakes, open plains with animals, and rarely ruins with a weathered tablet. Rivers carry on across the seams. Under each strip the deep is mostly rock with a few cave pockets holding stone, coal and ore, and a stony-hills cave mouth leads down to them, so "go underground for stone" becomes a journey. The first creature to step into a land gets a memory of finding it, the world names it as a landmark ("the Eastern Hills", "Ula's Grove"), and the feed, the chronicle and the almanac's census record it. A creature within sight of an edge is told that unknown country lies beyond, and creatures with the explorer drive now and then feel the pull of the unknown edge (at most once a day each).
+
+Growth is slow: at most one strip per in-game day (1,200 ticks) for the whole world, and the map stops at 384 columns (eight strips beyond the first 128). Exploring when no strip may be laid yet gets "The unknown country beyond looks hard going; perhaps another day."; at the cap, the land simply ends. Only east and west grow, not north or south. Watchers see the map get bigger, on the private viewer and the public page alike.
+
+It is **off by default**. Turn it on with `--frontier on` on the server, or `FRONTIER=on ./start-world.sh`. Saves load unchanged either way, and a world saved with lands keeps them if you restart with the frontier off (it just stops growing). `GET /api/metrics` shows `frontier: {on, strips, width, origin_x}`.
+
+**Steward:** `curl -X POST localhost:7777/api/admin/grow -d '{"side":"east"}'` (or `"west"`) lays a strip now, ignoring the pace. It refuses when the frontier is off or the map is at its cap, and if laying it fails the world is put back as it was. **Coordinates shift:** a west growth adds 32 to every x, so `place`, `move` and `voice` coordinates change: a place that was at x is at x + 32 afterwards, so add 32 to any x noted before the growth (including those in docs/steward-log.md). `origin_x` in `/api/metrics` says how far the original west edge has moved. The design is in [the spec](docs/superpowers/specs/2026-11-03-frontier-design.md).
 
 ## The almanac
 

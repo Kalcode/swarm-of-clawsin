@@ -126,12 +126,12 @@ def run(tmp_path, scenario):
 @needs_node
 def test_the_public_client_reinits_on_a_growth(tmp_path):
     v = run(tmp_path, "grow")
-    assert v["types"] == ["grow", "init", "metrics"]  # no tick frame diffed across the growth
+    assert v["types"] == ["grow", "init", "metrics", "tick"]  # the one tick frame carries events only, nothing diffed across the growth
     assert v["grow"] == {"type": "grow", "side": "west", "columns": 2, "width": 6, "origin_x": 2}
     assert v["init"]["width"] == 6 and v["init"]["origin_x"] == 2 and v["init"]["tick"] == 106
     assert v["null_same"] is None
     assert v["east"] == {"type": "grow", "side": "east", "columns": 3, "width": 7, "origin_x": 0}
-    assert v["events"] == []  # the init's events cursor is this document's: nothing older replays at the old x
+    assert v["events"] == [3]  # one frame after the init: seq 2 had played already, only the growth snapshot's newer event plays
 
 
 @needs_node
@@ -150,4 +150,26 @@ def test_events_after_the_growth_still_play(tmp_path):
     r = subprocess.run([NODE, str(harness), str(WEB / "public.js")], input=json.dumps(data), capture_output=True,
                        text=True, timeout=30)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout)["v"] == [1, 2, 4]  # open's frame replays nothing past the cursor; only the new event after
+    assert json.loads(r.stdout)["v"] == [1, 2, 3, 4]  # open's frame; the growth's events past the cursor; then the new one
+
+
+def test_the_live_events_follow_a_west_growth():
+    st, pub, step, publish = make()
+    w = st.world
+    ev = w.emit("say", None, 40, 40, "before the strip")
+    pub.observe(st.tick_dict(st.sim.tick()), [ev])
+    grow(w, "west")
+    pub.observe(st.tick_dict(st.sim.tick()), [])
+    _, live = publish()
+    xs = [e["x"] for e in live["events"] if e.get("text") == "before the strip"]
+    assert xs == [40 + 32]
+
+
+def test_metrics_say_whether_the_frontier_is_on():
+    off = json.loads(ServerState(seed=7).metrics_message())["frontier"]
+    assert off == {"on": False, "strips": 0, "width": 128, "origin_x": 0}
+    st = ServerState(seed=7, frontier=FrontierSettings(on=True, pace=0))
+    grow(st.world, "west")
+    grow(st.world, "east")
+    grow(st.world, "west")
+    assert json.loads(st.metrics_message())["frontier"] == {"on": True, "strips": 3, "width": 224, "origin_x": 64}
