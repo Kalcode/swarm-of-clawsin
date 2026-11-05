@@ -253,3 +253,41 @@ Two held-out checks, both greedy, the same decisions for both rounds:
 This is what DAgger aims for: round 3 does better in the situations the student itself gets into, and drifts on the
 teacher's old games. Both differences are within noise at these sizes (a standard error is about 6 of 150), so the next
 step is a live split: half the student's creatures on each round, comparing live success over a day.
+
+### Round 3 live split (Nov 5)
+
+One student node ran both rounds side by side for 5.8 hours (07:24 to 13:10, ticks 26,685 to 47,365). It used
+`--model swarm-student-20261104:6 --model swarm-student-20261105:6 --adopt swarm-student-20261104=swarm-student-20261105`.
+Round 2 kept Holt, Vex, Mika, Jun, Dov and Cass. Opal, Gil, Sorrel, Ira, Ula and Inka moved to round 3, keeping their
+bodies and memories. It was the same world, harness and prompts, with gpt-oss thinking for the other 12 on the PC.
+The numbers come from the run's think log (`runs/20261105-072425`); `/api/metrics` adds up round 2's whole history.
+
+| | round 2 | round 3 | gpt-oss |
+|---|---|---|---|
+| acts | 5,712 | 5,292 | 6,756 |
+| succeeded | **86.8%** | 78.7% | 87.9% |
+| `give` succeeded | **75%** of 1,588 | 54% of 1,616 | 74% of 2,200 |
+| `combine` / `craft` / `eat` succeeded | **86 / 89 / 85%** | 77 / 78 / 80% | 81 / 86 / 97% |
+| "You don't see X here to give anything to" | 4.0% of acts | 8.3% | 1.0% |
+| succeeded, leaving those out | **90.4%** | 85.8% | 88.8% |
+| `say` acts | 635 | 1,106 | 42 |
+| median think | 13.6 s | 14.3 s | 7.0 s |
+| creatures, worst to best | 82, 83, 84, 85, 90, 93% | 75, 76, 76, 81, 81, 84% | 79 to 95% |
+
+Round 3 is worse live, and not by noise. Five of its six creatures did worse than round 2's worst one, and it fell
+behind in every hour (round 2 83-89%, round 3 84% then 73-80%). Round 3's creatures discovered more: Ula found the
+flute and spear and invented the hammer, and Gil found the stone axe and pickaxe; round 2's Jun found the hoe. That is
+5 firsts to 1, too few to weigh.
+
+**The offline checks pointed the wrong way.** On round 2's own situations, round 3 matched the teacher's action more
+often (61 against 56 of 150), yet live it succeeds less. Matching the teacher's action is not the same as the action
+working. My reading, not tested: every one of round 3's new labels came from a moment when round 2 had just failed.
+The teacher's answer there is often `give` (a third of gpt-oss's own acts are gives). Round 3 learned to give and to
+talk more, but not to check that the one it gives to is beside it: Sorrel tried to give to Vex 165 times when Vex
+wasn't there. The split was by creation order, not random, and round 2's six carried more (3,221 items against 2,387),
+so the groups weren't identical. But the gap shows in every verb, not just one.
+
+**Decision:** keep round 2 (`swarm-student-20261104`) as the student. At the next start, move round 3's six back with
+`--model swarm-student-20261104:12 --adopt swarm-student-20261105=swarm-student-20261104`. For a round 4: label random
+live situations, or mix them with failures, rather than failures alone; and judge every new round by a live split, since
+an offline match against the teacher did not predict live success.

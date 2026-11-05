@@ -699,3 +699,21 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   - **start-world.sh (f56488d):** `LOG_PROMPTS=1`, `PC="gpt-oss:20b:12"` (its own node and 4 slots), `NODE_NAME`. The
     live setup is now one line.
 - 1,151 tests pass.
+
+## Nov 5: the round 2 / round 3 split, untouched
+
+- **07:24:** the world resumed at tick 26,672. One student node ran 6 creatures on round 2 and 6 on round 3; the PC
+  ran 12 on gpt-oss. The public page reopened at 07:27. The user: "let them run today, no loops or anything", so
+  there was no watch and no intervention.
+- **13:10:** the page closed (back Friday, 9am EST) and the world stopped at tick 47,368, after 5.8 hours.
+- **The split:** round 2 succeeded 86.8%, round 3 78.7% and gpt-oss 87.9%. Round 2 stays the student
+  (docs/distillation.md, section 6).
+- **Firsts:** Ula (round 3) found the flute and spear and invented the hammer (2 flint + 2 stone axe, by a campfire).
+  Gil (round 3) found the stone axe and pickaxe. Jun (round 2) found the hoe. Dree (gpt-oss) found cooked fish and
+  cooked eel. Cyd (gpt-oss) invented the net-spear (2 stick + rope sling + 2 net).
+- **Programs:** Ira wrote requests to the terminal ("request a stone from the terminal", "I need a flint for Vex"),
+  and Vex wrote "give stone to terminal".
+- **Wishes, unanswered:** Sage wished for a boulder 6 times, Hux for bark 3 times, Cyd for flint, and Gale for "a
+  perch to cook".
+- **Still not used:** the frontier (the explorers ignored the pull 163 times; 0 strips) and the spinning wheel (no
+  rope made beside one). The day's failures are in issue 025.

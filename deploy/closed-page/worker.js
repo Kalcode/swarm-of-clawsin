@@ -1,7 +1,7 @@
 // The "back tomorrow" page. While it is deployed, its route answers every request on swarm-world.4rc4de.com
 // before the tunnel would, so the tunnel and the Mac can stop. Edit BACK and WHEN for another day.
-const BACK = "2026-11-05T14:00:00Z"; // 9:00 AM EST
-const WHEN = "Thursday, November 5, around 9am EST";
+const BACK = "2026-11-06T14:00:00Z"; // 9:00 AM EST
+const WHEN = "Friday, November 6, around 9am EST";
 
 const PAGE = `<!doctype html>
 <html lang="en">
