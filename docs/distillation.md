@@ -234,3 +234,22 @@ and s202. Training ran 4,000 steps (batch 1, an update every 8) in 2 h 50 min. T
   harmless: gather walks to a remembered spot by itself.
 - **Live.** At 02:52 the new student adopted its 12 sleeping creatures (`--adopt
   swarm-student-20261103=swarm-student-20261104`, 12 slots on oMLX). 18 of the first 24 acts succeeded.
+
+### Round 3 (Nov 4, evening)
+
+gpt-oss on this Mac's oMLX labelled 2,998 of round 2's own live decisions. All of them were failures (failures first, 3
+h 14 min), taken from the five runs between 02:52 and 13:18. The export added them to round 2's data: 30,035
+training lines, of which 5,995 are DAgger labels. Validation is the same two teacher episodes, s101 and s202. Training
+ran 4,000 steps, as in round 2, in 3 h 6 min, into `~/models/swarm-student-20261105`. Validation loss ended at 0.394
+(round 2: 0.413). `scripts/eval_student.py` is now in the repo.
+
+Two held-out checks, both greedy, the same decisions for both rounds:
+
+| check | round 2 action | round 3 action | round 2 action and target | round 3 action and target |
+|---|---|---|---|---|
+| 100 teacher decisions from s101 (Nov 2, the old world) | **40** | 32 | **21** | 19 |
+| 150 of round 2's own live situations from the last run, labelled by the teacher, never trained on (random, not failures first) | 56 | **61** | 44 | **50** |
+
+This is what DAgger aims for: round 3 does better in the situations the student itself gets into, and drifts on the
+teacher's old games. Both differences are within noise at these sizes (a standard error is about 6 of 150), so the next
+step is a live split: half the student's creatures on each round, comparing live success over a day.
