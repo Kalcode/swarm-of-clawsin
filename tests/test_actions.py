@@ -1067,3 +1067,212 @@ def test_more_of_a_thing_only_when_it_is_all_that_was_named(world):
     c.known_recipes.add("rope")
     assert "Putting rope with more rope" not in act(world, c, action="combine", items=["rope", "stick"]).message
     assert "Putting rope with more rope" not in act(world, c, action="combine", items=["rope"]).message
+
+
+def test_give_to_someone_out_of_sight_heads_where_last_seen_then_gives(world):
+    # Sorrel tried to give to Vex 165 times: "You don't see 'Vex' here to give anything to." (Nov 5)
+    sorrel, vex = creature(world, "Sorrel", 10, 10), creature(world, "Vex", 30, 10)
+    sorrel.inventory["rope"] = 1
+    sorrel.seen_pos["vex"] = (20, 10, world.tick)
+    res = apply_intention(world, sorrel, Intention("give", target="Vex", items=["rope"]))
+    assert res.ok and sorrel.activity["label"] == "heading to where you last saw Vex"
+    vex.x = 22  # it moved a little since
+    final = None
+    while sorrel.activity:
+        final = step_activity(world, sorrel) or final
+    assert vex.inventory["rope"] == 1 and sorrel.inventory["rope"] == 0
+    assert final.ok and "You give 1 rope to Vex." in final.message
+
+
+def test_give_to_someone_gone_from_where_last_seen_says_so(world):
+    tam = creature(world, "Tam", 10, 10)
+    creature(world, "Vex", 30, 10)
+    tam.inventory["rope"] = 1
+    tam.seen_pos["vex"] = (11, 10, world.tick)
+    res = apply_intention(world, tam, Intention("give", target="Vex", items=["rope"]))
+    assert not res.ok and tam.activity is None
+    assert res.message == "Vex isn't where you last saw them, and you don't see them now."
+
+
+def test_give_to_someone_never_seen_is_unchanged(world):
+    tam = creature(world, "Tam", 10, 10)
+    creature(world, "Vex", 30, 10)
+    tam.inventory["rope"] = 1
+    res = apply_intention(world, tam, Intention("give", target="Vex", items=["rope"]))
+    assert res.message == "You don't see 'Vex' here to give anything to."
+
+
+def test_walk_to_a_kind_out_of_sight_and_unknown_says_explore(world):
+    # 69 failed walks on Nov 4 to a "cave mouth", "boulder" or "cave" none of them had seen.
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("rock", 30, 30)
+    for target in ("boulder", "boulders", "Boulder"):
+        res = apply_intention(world, tam, Intention("walk_to", target=target))
+        assert not res.ok and tam.activity is None
+        assert res.message == ("You don't see any boulder around you, and you don't know where one is. "
+                               "Explore to find one: explore north, south, east or west.")
+
+
+def test_walk_to_a_kind_that_exists_nowhere_is_unchanged(world):
+    tam = creature(world, "Tam", 10, 10)
+    res = apply_intention(world, tam, Intention("walk_to", target="boulder"))
+    assert res.message == "You don't see any 'boulder' around you."
+    res = apply_intention(world, tam, Intention("walk_to", target="stone tablet"))  # not a loose match on "stone"
+    assert res.message == "You don't see any 'stone tablet' around you."
+
+
+def test_walk_to_a_remembered_kind_still_walks(world):
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("rock", 30, 30)
+    tam.spots["rock"] = (30, 30, world.tick)
+    res = apply_intention(world, tam, Intention("walk_to", target="boulder"))
+    assert res.ok and "remember" in tam.activity["label"]
+
+
+def test_gathering_a_spent_stump_goes_to_the_nearest_tree_in_sight(world):
+    # 148 gathers from stumps in two days, told only "nothing left to take right now"; Elm said "stump" with 16 oaks in sight.
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("stump", 11, 10)
+    world.add_object("tree", 14, 10)
+    world.add_object("tree", 15, 10)
+    res = apply_intention(world, tam, Intention("gather", target="stump"))
+    assert res.ok and res.message.startswith("The tree stump has nothing left to take right now. ")
+    while tam.activity:
+        step_activity(world, tam)
+    assert tam.inventory["stick"] > 0 and abs(tam.x - 14) <= 1
+
+
+def test_gathering_a_spent_stump_goes_to_a_remembered_tree(world):
+    # Ula stood among 14 stumps with no tree in sight.
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("stump", 11, 10)
+    world.add_object("tree", 30, 10)
+    tam.spots["tree"] = (30, 10, world.tick)
+    res = apply_intention(world, tam, Intention("gather", target="tree stump"))
+    assert res.ok and "remember" in tam.activity["label"]
+    while tam.activity:
+        step_activity(world, tam)
+    assert tam.inventory["stick"] > 0
+
+
+def test_a_spent_stump_with_no_tree_known_is_unchanged(world):
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("stump", 11, 10)
+    res = act(world, tam, action="gather", target="tree stump")
+    assert res.message == "The tree stump has nothing left to take right now."
+
+
+def test_eat_food_not_held_eats_what_is_carried(world):
+    # 153 tries on Nov 4-5 to eat wheat or carrot seeds the creature didn't have.
+    tam = creature(world, "Tam", 10, 10)
+    tam.satiety = 30
+    tam.inventory["berries"] = 3
+    res = apply_intention(world, tam, Intention("eat", target="wheat seeds"))
+    assert res.ok and res.message.startswith("You don't have any wheat seeds. So you eat your berries instead. You eat")
+    assert tam.inventory["berries"] < 3
+
+
+def test_eat_food_not_held_goes_for_food_in_sight(world):
+    tam = creature(world, "Tam", 10, 10)
+    tam.satiety = 30
+    world.add_object("bush", 13, 10)
+    res = apply_intention(world, tam, Intention("eat", target="carrot seeds"))
+    assert res.ok and res.message.startswith("You don't have any carrot seeds. So you head for the berry bush with fruit 3 steps east.")
+
+
+def test_eat_food_not_held_with_no_food_anywhere_says_what_food_is(world):
+    tam = creature(world, "Tam", 10, 10)
+    res = apply_intention(world, tam, Intention("eat", target="wheat seeds"))
+    assert not res.ok
+    assert res.message == "You don't have any wheat seeds. Berries from a bush, ripe crops, mushrooms and fish are food."
+
+
+def test_eat_a_cookable_food_not_held_keeps_the_craft_hint(world):
+    # Review: "eat cooked fish" holding a fish beside a fire must say "craft it first", not eat the raw fish.
+    tam = creature(world, "Tam", 10, 10)
+    tam.satiety = 30
+    tam.inventory["fish"] = 1
+    tam.known_recipes.add("cooked_fish")
+    world.add_object("campfire", 11, 10, lit=True)
+    res = apply_intention(world, tam, Intention("eat", target="cooked fish"))
+    assert not res.ok and "craft it first" in res.message and tam.inventory["fish"] == 1
+
+
+def test_eat_a_raw_food_not_held_keeps_its_source_hint(world):
+    tam = creature(world, "Tam", 10, 10)
+    tam.inventory["berries"] = 2
+    res = apply_intention(world, tam, Intention("eat", target="fish"))
+    assert res.message == "You don't have any fish. Fish: catch them in water with a fishing rod."
+    assert tam.inventory["berries"] == 2
+
+
+def test_eat_seeds_not_held_never_touches_a_bread_wish(world):
+    # Review: "eat bread" holding only seeds refuses as before; only named seeds fall back to food.
+    tam = creature(world, "Tam", 10, 10)
+    tam.inventory["wheat_seeds"] = 4
+    res = apply_intention(world, tam, Intention("eat", target="bread"))
+    assert not res.ok and tam.inventory["wheat_seeds"] == 4
+
+
+def test_walk_to_a_crop_animal_or_built_thing_out_of_sight_is_unchanged(world):
+    # Review: "carrots" read "You don't see any wheat ... where one is"; "animal" named a chicken.
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("crop", 30, 30, crop="carrot")
+    world.add_object("chicken", 32, 30)
+    world.add_object("chest", 34, 30)
+    for target in ("carrots", "wheat", "animal", "chicken", "chest", "storage"):
+        res = apply_intention(world, tam, Intention("walk_to", target=target))
+        assert res.message == f"You don't see any '{target}' around you.", (target, res.message)
+
+
+def test_walk_to_a_word_shared_by_two_kinds_is_unchanged(world):
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("copper_vein", 30, 30)
+    world.add_object("iron_vein", 32, 30)
+    res = apply_intention(world, tam, Intention("walk_to", target="ore"))
+    assert res.message == "You don't see any 'ore' around you."
+
+
+def test_give_last_seen_checks_the_item_before_walking(world):
+    tam = creature(world, "Tam", 10, 10)
+    creature(world, "Vex", 30, 10)
+    tam.seen_pos["vex"] = (20, 10, world.tick)
+    res = apply_intention(world, tam, Intention("give", target="Vex", items=["rope"]))
+    assert not res.ok and tam.activity is None and res.message.startswith("You don't have any rope.")
+    res = apply_intention(world, tam, Intention("give", target="Vex"))
+    assert not res.ok and tam.activity is None and res.message == "Give what? Put the item in items."
+
+
+def test_give_last_seen_too_far_or_in_another_region_is_unchanged(world):
+    tam = creature(world, "Tam", 5, 10)
+    creature(world, "Vex", 38, 10)
+    tam.inventory["rope"] = 1
+    tam.seen_pos["vex"] = (38, 10, world.tick)  # 33 steps: farther than a walk to a named place
+    res = apply_intention(world, tam, Intention("give", target="Vex", items=["rope"]))
+    assert res.message == "You don't see 'Vex' here to give anything to." and tam.activity is None
+
+
+def test_give_last_seen_after_a_partial_walk_does_not_give_on(world):
+    # Review: a walk that only gets close must not chain the give on without the mind.
+    tam = creature(world, "Tam", 10, 10)
+    creature(world, "Vex", 35, 10)
+    tam.inventory["rope"] = 1
+    for y in range(40):
+        world.tiles[y][20] = "W"  # a river with no crossing
+    tam.seen_pos["vex"] = (22, 10, world.tick)
+    res = apply_intention(world, tam, Intention("give", target="Vex", items=["rope"]))
+    assert res.ok and "as close as you can" in res.message and "then" not in tam.activity
+
+
+def test_gathering_a_picked_over_bush_goes_to_a_remembered_one_with_fruit(world):
+    # A bush with fruit in sight was already found by name; one out of sight comes from memory.
+    tam = creature(world, "Tam", 10, 10)
+    world.add_object("bush_empty", 11, 10)
+    world.add_object("bush", 30, 10)
+    tam.spots["bush"] = (30, 10, world.tick)
+    res = apply_intention(world, tam, Intention("gather", target="picked-over bush"))
+    assert res.ok and res.message.startswith("The picked-over bush has nothing left to take right now. ")
+    assert "remember" in tam.activity["label"]
+    while tam.activity:
+        step_activity(world, tam)
+    assert tam.inventory["berries"] > 0

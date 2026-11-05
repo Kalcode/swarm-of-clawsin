@@ -342,8 +342,9 @@ def test_daylight_glimmers_only_by_day():
 
 def test_far_on_the_meadow_the_deep_names_nothing():
     """The review's case: on seed 7, a creature far from the surface's terminals and the cave mouths, walking to words
-    the deep's places share ("terminal", "pool", "cave", "crystal", "hall"), keeps the old answer; one that has been
-    near the ancient terminal is told the way down when it names it."""
+    the deep's places share ("terminal", "pool", "cave", "crystal", "hall"), keeps the old answer, or for a kind the
+    surface has (a terminal, a cave mouth) is told to explore for one; one that has been near the ancient terminal is
+    told the way down when it names it."""
     from swarmworld.world.perception import LANDMARK_RANGE, dist
     from swarmworld.world.simulation import Simulation
     w = generate_world(7)
@@ -359,7 +360,11 @@ def test_far_on_the_meadow_the_deep_names_nothing():
         c = person(w, "Quill", x, y)
         for target in ("terminal", "the terminal", "pool", "the pool", "cave", "a cave", "crystal", "hall", "the hall"):
             res = apply_intention(w, c, Intention("walk_to", target=target))
-            assert res.message == f"You don't see any '{target}' around you.", (x, y, target, res.message)
+            look = "around you, and you don't know where one is. Explore to find one: explore north, south, east or west."
+            kind = {"terminal": "strange terminal", "the terminal": "strange terminal", "cave": "cave mouth",
+                    "a cave": "cave mouth"}.get(target)  # the surface has these; the deep's crystal stays unnamed
+            want = f"You don't see any {kind} {look}" if kind else f"You don't see any '{target}' around you."
+            assert res.message == want, (x, y, target, res.message)
         c.landmarks_seen.add("the ancient terminal")
         res = apply_intention(w, c, Intention("walk_to", target="the ancient terminal"))
         assert res.message.startswith("The deep is below; climb down at a cave mouth or a mine shaft."), res.message

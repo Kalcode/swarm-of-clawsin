@@ -45,7 +45,12 @@ SOURCE_HINT = {
     "stone": "knock it off boulders, or pick up loose stone in the caves below (climb down at a cave mouth)", "flint": "it turns up when you gather from boulders", "berries": "pick them from berry bushes",
     "clay": "dig it from clay banks", "sand": "scoop it up on sandy ground", "fish": "catch them in water with a fishing rod",
     "wheat": "grow it from wheat seeds", "egg": "a chicken that trusts you lays them",
+    "wheat_seeds": "they turn up now and then when you pull up grass (more often if you cut it with a stone knife), "
+                   "and a harvested crop gives some back",
+    "carrot_seeds": "they turn up now and then when you pull up grass (more often if you cut it with a stone knife), "
+                    "and a harvested crop gives some back",
 }
+SPENT_GAVE = {"stump": "stick", "bush_empty": "berries"}  # what a used-up thing gave before
 WELL_FED = 40  # animal hunger below this: it gives eggs, milk, wool and may breed
 ANIMAL_FOOD = {"wheat", "wheat_seeds", "carrot_seeds", "berries", "carrot", "plant_fiber"}
 ANIMAL_LURE = ANIMAL_FOOD - {"plant_fiber"}  # what a tamed animal follows its owner for (fiber feeds it, but no lure)
@@ -536,16 +541,21 @@ def _items_text(world: World, items: Counter) -> str:
     return ", ".join(f"{n} {world.catalog.name(i)}" for i, n in items.items() if n > 0) or "nothing"
 
 
+def _nearest_source(world: World, c: Creature, iid: str) -> tuple[WorldObject, int, str] | None:
+    """The nearest thing in sight that still gives this item, in the creature's own region: (object, distance, direction)."""
+    kinds = ITEM_SOURCES.get(iid) or set()
+    return min(((o, d, dirn) for o, d, dirn in visible_objects(world, c)
+                if o.kind in kinds and not _spent(o) and world.same_region((c.x, c.y), (o.x, o.y))),
+               key=lambda t: t[1], default=None)
+
+
 def _source_hint(world: World, c: Creature, iid: str) -> str:
     """Where an item comes from, as a sentence; for stone, which way a cave mouth the creature knows lies."""
     hint = SOURCE_HINT[iid]
     mouth = c.spots.get("cave_mouth") if iid == "stone" else None
     if mouth and world.same_region((c.x, c.y), (mouth[0], mouth[1])):
         hint += f"; a cave mouth you know lies {direction(mouth[0] - c.x, mouth[1] - c.y)}"
-    kinds = ITEM_SOURCES.get(iid) or set()
-    near = min(((o, d, dirn) for o, d, dirn in visible_objects(world, c)
-                if o.kind in kinds and not _spent(o) and world.same_region((c.x, c.y), (o.x, o.y))),
-               key=lambda t: t[1], default=None)
+    near = _nearest_source(world, c, iid)
     if near:  # which one: a creature told only "break them off trees" kept asking for sticks it never went to get
         hint += f"; the nearest {near[0].name} is {_where(near[1], near[2])}"
     return hint
@@ -697,6 +707,42 @@ def _use_beside(world: World, c: Creature, obj: WorldObject) -> ActionResult | N
 
 
 # --------------------------------------------------------------------- verbs
+def _last_seen(world: World, c: Creature, target: str) -> tuple[int, int, str] | None:
+    """Where the creature last saw someone the target names, if that is in its own region: (x, y, their name)."""
+    for w_ in _words(target):
+        seen = c.seen_pos.get(w_)
+        if seen and world.same_region((c.x, c.y), (seen[0], seen[1])):
+            name = next((o.name for o in world.creatures.values() if o.name.lower() == w_), w_.capitalize())
+            return seen[0], seen[1], name
+    return None
+
+
+def _walk_to_last_seen(world: World, c: Creature, x: int, y: int, name: str, then: Intention | None = None) -> ActionResult:
+    arrive = f"You reach the spot where you last saw {name}."
+    res = start_walk(world, c, _adjacent_goals(world, x, y, include_self=True), f"heading to where you last saw {name}", arrive)
+    if then is not None and c.activity and c.activity["result"] == arrive:  # not after a walk that only gets close
+        c.activity["then"] = then
+    return res
+
+
+NATURAL_FINDS = {"tree", "pine", "bush", "rock", "clay", "copper_vein", "iron_vein", "terminal", "tablet", "cave_mouth"}
+
+
+def _kind_named(world: World, c: Creature, target: str) -> str | None:
+    """The kind of thing a target names outright ("boulder", "cave mouth"), if one exists anywhere in the creature's
+    region. Exact names and aliases only, so "stone tablet" is no boulder; things of the land only (no crops, animals or
+    anything built), which a creature remembers once seen; and none when the word names two kinds ("ore", "tree")."""
+    phrase = " ".join(_words(target))
+    if not phrase:
+        return None
+    named = {kind for kind, name in OBJECT_NAMES.items() if (kind in NATURAL_FINDS or kind in YIELDS)
+             and (phrase == name.lower() or phrase in OBJECT_ALIASES.get(kind, []))}
+    if len(named) != 1:
+        return None
+    kind = next(iter(named))
+    return kind if any(o.kind == kind and world.same_region((c.x, c.y), (o.x, o.y)) for o in world.objects.values()) else None
+
+
 def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     if not it.target:
         return ActionResult(False, "Walk to what? Name something you can see.")
@@ -711,16 +757,13 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
         if it.text and c.activity:
             c.activity["say"] = (other.name, it.text)
         return res
-    for w_ in _words(it.target):
-        seen = c.seen_pos.get(w_)
-        if seen and world.same_region((c.x, c.y), (seen[0], seen[1])):
-            x, y, _t = seen
-            name = next((o.name for o in world.creatures.values() if o.name.lower() == w_), w_.capitalize())
-            res = start_walk(world, c, _adjacent_goals(world, x, y, include_self=True), f"heading to where you last saw {name}",
-                             f"You reach the spot where you last saw {name}.")
-            if it.text and c.activity:
-                c.activity["say"] = (name, it.text)
-            return res
+    seen = _last_seen(world, c, it.target)
+    if seen:
+        x, y, name = seen
+        res = _walk_to_last_seen(world, c, x, y, name)
+        if it.text and c.activity:
+            c.activity["say"] = (name, it.text)
+        return res
     lm = find_landmark(world, c, it.target)
     if lm:
         if dist(c.x, c.y, lm["x"], lm["y"]) <= 2:
@@ -758,6 +801,10 @@ def _walk_to(world: World, c: Creature, it: Intention) -> ActionResult:
     there = world.region_at(lm["x"], lm["y"]) if lm else world.region_at(far[1], far[2]) if far else None
     if there:
         return ActionResult(False, way_to_region(world, c, there))
+    kind = _kind_named(world, c, it.target)
+    if kind:  # 69 walks on Nov 4 to a "cave mouth", "boulder" or "cave" the creature had never seen
+        return ActionResult(False, f"You don't see any {OBJECT_NAMES.get(kind, kind)} around you, and you don't know where one "
+                                   "is. Explore to find one: explore north, south, east or west.")
     return ActionResult(False, f"You don't see any '{it.target}' around you.")
 
 
@@ -796,6 +843,20 @@ def _harvest(world: World, crop: WorldObject) -> Counter:
     return got
 
 
+def _go_to_source(world: World, c: Creature, iid: str, count: int) -> ActionResult | None:
+    """Gather an item from the nearest thing in sight that still gives it, walking there first, or else from one the
+    creature remembers. None when it knows of none."""
+    near = _nearest_source(world, c, iid)
+    if near is not None:
+        o = near[0]
+        then = Intention("gather", target=o.name, count=count)
+        return _gather(world, c, then) if near[1] <= 1 else _walk_then(world, c, o, then)
+    spot = _recall(world, c, "", ITEM_SOURCES.get(iid) or set())
+    if spot is not None:
+        return _walk_to_spot(world, c, *spot, then=Intention("gather", target=spot_name(spot[0]), count=count))
+    return None
+
+
 def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
     cat = world.catalog
     target = it.target or (it.items[0] if it.items else "")
@@ -824,6 +885,10 @@ def _gather(world: World, c: Creature, it: Intention) -> ActionResult:
                     obj = fresh
                 else:
                     return _walk_then(world, c, fresh, it)
+            elif obj.kind in SPENT_GAVE:  # "gather stump": 148 gathers from stumps in two days, sticks being the point
+                went = _go_to_source(world, c, SPENT_GAVE[obj.kind], it.count)
+                if went is not None:
+                    return replace(went, message=f"The {obj.name} has nothing left to take right now. {went.message}")
         if obj is None:
             far = find_object(world, c, target, kinds=GATHERABLE) or find_object(world, c, target)
             if far and is_wild(far.kind):  # no chasing game across the land
@@ -1258,6 +1323,10 @@ def _eat(world: World, c: Creature, it: Intention) -> ActionResult:
             c.inventory.update(got)
             ate = _eat(world, c, Intention("eat", target=world.catalog.name(iid), count=it.count))
             return ActionResult(ate.ok, f"You pick {_items_text(world, got)} from the {patch.name}. {ate.message}")
+    if iid and c.inventory.get(iid, 0) <= 0 and "seed" in world.catalog.items[iid].tags and not _on_the_ground(world, c, iid):
+        # 153 tries on Nov 4-5 to eat wheat or carrot seeds the creature didn't have. Seeds only: any other food keeps its
+        # recipe ("craft it first") or source hint, and "eat bread" must not eat the seed stock.
+        return _go_eat(world, c, f"You don't have any {world.catalog.name(iid)}.")
     iid, err = _resolve_held(world, c, name if iid is None else world.catalog.name(iid))
     if not iid:
         return ActionResult(False, err)
@@ -1410,6 +1479,18 @@ def _give(world: World, c: Creature, it: Intention) -> ActionResult:
             return _feed_animal(world, c, animal, it)
         if it.target and find_object(world, c, it.target, kinds=STORES):  # "give rope to the basket" means store it
             return _store(world, c, it)
+        seen = _last_seen(world, c, it.target) if it.target else None
+        if seen and dist(c.x, c.y, seen[0], seen[1]) <= LANDMARK_WALK:  # Sorrel tried to give to Vex, out of sight, 165 times (Nov 5)
+            x, y, name = seen
+            what = it.items[0] if it.items else it.text
+            if not what:
+                return ActionResult(False, "Give what? Put the item in items.")
+            held, err = _resolve_held(world, c, what)
+            if not held:  # say so now, not after the walk
+                return ActionResult(False, err)
+            if dist(c.x, c.y, x, y) <= 1:
+                return ActionResult(False, f"{name} isn't where you last saw them, and you don't see them now.")
+            return _walk_to_last_seen(world, c, x, y, name, then=it)
         return ActionResult(False, f"You don't see '{it.target}' here to give anything to.")
     if dist(c.x, c.y, other.x, other.y) > 1:
         res = start_walk(world, c, _adjacent_goals(world, other.x, other.y), f"walking to {other.name}", f"You reach {other.name}.")

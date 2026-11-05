@@ -148,3 +148,14 @@ def test_a_used_up_source_is_not_named(world):
     pine = world.add_object("pine", 15, 10)
     res = apply_intention(world, c, Intention("give", target="Una", items=["stick"]))
     assert f"the nearest {pine.name} is 5 steps east." in res.message
+
+
+def test_seeds_get_a_source_hint(world):
+    # "You don't have any wheat seeds." came with no hint on Nov 4.
+    c = make(world, "Tam", 10)
+    make(world, "Una", 11)
+    res = apply_intention(world, c, Intention("give", target="Una", items=["wheat seeds"]))
+    assert res.message == ("You don't have any wheat seeds. Wheat seeds: they turn up now and then when you pull up grass "
+                           "(more often if you cut it with a stone knife), and a harvested crop gives some back.")
+    res = apply_intention(world, c, Intention("give", target="Una", items=["carrot seeds"]))
+    assert res.message.startswith("You don't have any carrot seeds. Carrot seeds: they turn up now and then")
