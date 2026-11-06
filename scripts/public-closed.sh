@@ -3,7 +3,7 @@
 #   scripts/public-closed.sh on      put the page up (a Cloudflare Worker on swarm-world.4rc4de.com/*), then stop the tunnel
 #   scripts/public-closed.sh off     start the tunnel, then take the page down: the live viewer is back
 #   scripts/public-closed.sh status  what https://swarm-world.4rc4de.com answers, and the tunnel's state
-# The page is deploy/closed-page (edit its BACK and WHEN for another day). Each switch puts the new state up before it
+# The page is deploy/closed-page; it works out the reopening itself (the next weekday at 9am Eastern). Each switch puts the new state up before it
 # removes the old, so a visitor never meets an error in between. Needs wrangler signed in (npx wrangler whoami).
 set -euo pipefail
 cd "$(dirname "$0")/.."

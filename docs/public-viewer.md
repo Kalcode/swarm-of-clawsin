@@ -103,7 +103,7 @@ everyone gets it through the cache they already poll.
 
 The stop does not recall what is already out there: copies cached at Cloudflare's edge stay until they expire (live data within seconds, but `static.json`, `chronicle.json` and the page files for up to a year), and browsers keep what they have loaded. To take content down, also use Caching > Configuration > Purge Everything in the Cloudflare dashboard; the copies in browsers that already have them stay until the visitor reloads. Optionally, restart the world with `--public-every 0` so it stops building snapshots too.
 
-## Closed for the night
+## Closed for the night (and the weekend)
 
 `scripts/public-closed.sh on` puts up a "Be back tomorrow!" page, then stops the tunnel. The page is a small
 Cloudflare Worker ([deploy/closed-page](../deploy/closed-page)) whose route, `swarm-world.4rc4de.com/*`, answers every
@@ -112,8 +112,12 @@ sleep. It answers 503 with `Retry-After` (a planned break, so crawlers come back
 once the world is back), and shows the reopening time in the visitor's own time zone.
 
 `scripts/public-closed.sh off` starts the tunnel, then deletes the Worker, and the live viewer is back.
-`scripts/public-closed.sh status` shows what the site answers and the tunnel's state. For another day, edit `BACK`
-and `WHEN` in `deploy/closed-page/worker.js`.
+`scripts/public-closed.sh status` shows what the site answers and the tunnel's state.
+
+The page works out the reopening itself, so it never needs editing: the next weekday at 9am Eastern (EST or EDT, as
+the date has it). Saturday and Sunday stay closed, so a page put up on a Friday afternoon says "Be back Monday!" and
+"the weekend off"; one put up before 9am on a weekday says "Be back soon!". Only the words change: putting the page
+up and taking it down are still `on` and `off`. Tests: `tests/test_closed_page.py`.
 
 - **Needs:** wrangler signed in to the account that owns the zone (`npx wrangler whoami`).
 - **Cost:** none. Workers on the Free plan stop at 100,000 requests a day and never bill.
