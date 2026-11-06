@@ -10,6 +10,7 @@ inbox
 web/assets/limezu/
 docs/media/
 .env
+CLAUDE.local.md
 .superpowers/
 .worktrees/
 web/assets/sfx/

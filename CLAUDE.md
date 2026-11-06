@@ -1,25 +1,13 @@
 # Swarm World: notes for Claude
 
-These notes are for the owner's machines. In anyone else's clone, the Forgejo, gaming-PC, steward and live-world lines
-don't apply: ask the person you're working with before pushing anywhere or acting in a running world. The licensed-asset
-and tests lines apply everywhere.
-
 - Before starting a world (start-world.sh, swarmworld.server or swarmworld.node), check whether one is already running:
   `lsof -nP -iTCP:7777 -sTCP:LISTEN; pgrep -fl swarmworld`. The user often runs it themselves. start-world.sh refuses to
   start a second copy.
-- Never edit `start-world.sh` in place while a world is running: bash re-reads a running script by byte offset. Write a
-  new file and `mv` it over the old one.
-- Work on `main` and push to `origin` (the user's private Forgejo, code.clausens.cloud, via `tea`/ssh). Backlog: `issues/`.
-- The gaming PC lends its GPU through Ollama on the home network: [docs/gaming-pc.md](docs/gaming-pc.md).
-- Trying a model means switching the live world's minds (`ADOPT`, `MODEL_SERVER`, `MODEL...@URL`) and watching how it plays
-  out. Only check response times fit the world's pace; no full benchmark or regression runs unless the user asks.
-- Steward policy (user's choice, 2026-11-02): Claude may intervene in the live world on its own judgment (answer, grant
-  or note wishes; speak from the sky; admin/test actions) and must log every intervention in docs/steward-log.md
-  (time, tick, what, why, outcome). The live world is the experiment, so keep interventions purposeful and logged.
-  Resetting the world (`--fresh`, old save kept as .bak) is allowed when useful; log it too.
-  Tools: GET /api/wishes|state|creature/{id}|metrics, POST /api/wishes/{id}, /api/voice, /api/admin/{give,place,remove,move,weather,grow}.
-- Never commit `inbox/`, `web/assets/limezu/`, `web/assets/sfx/` or `docs/media/`: licensed art and sound (see .gitignore).
-  The user (a game dev) bought these and holds the licenses: using them in this game, the public viewer included, is
-  fine; credit each pack, and never offer the original packs for download.
+- Never edit `start-world.sh` in place while a world is running, nor `scripts/long-run.sh` while its watchdog runs: bash
+  re-reads a running script by byte offset. Write a new file and `mv` it over the old one.
+- Never commit `inbox/`, `web/assets/limezu/`, `web/assets/sfx/` or `docs/media/`: licensed art and sound that belong to
+  the project's owner (see .gitignore and web/assets/LICENSE-assets.txt). Without them the viewer falls back to Kenney's
+  CC0 art and synthesized sound.
 - `worlds/` holds the living world's save; `--fresh` keeps the old one as `worlds/default.<time>.bak`.
-- Tests: `uv run pytest`.
+- Backlog: `issues/`. Tests: `uv run pytest`.
+- Personal, machine-specific notes go in `CLAUDE.local.md` (gitignored), which Claude Code loads after this file.
