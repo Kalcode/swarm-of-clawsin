@@ -26,7 +26,27 @@ It shows a snapshot of the world every 3 seconds. Snapshots are cached at Cloudf
 
 The minds are gpt-oss on the gaming PC (Ollama), the distilled student on this Mac (oMLX) and Qwen3.5-4B on the MacBook Air. Gemma is out: it loops ([issue 003](issues/003-replace-gemma.md)).
 
-## Setup (once)
+## Trying it on your own machine
+
+Most of this README describes the owner's setup ("this Mac", the gaming PC). On your own machine you need [uv](https://docs.astral.sh/uv/); it fetches Python and the dependencies on first run. The licensed art and sound aren't in the repo, so a clone shows Kenney's CC0 1-Bit tiles and synthesized sound ([Art and sound](#art-and-sound)).
+
+```bash
+uv run pytest                                   # about 2 minutes; rule-based brains, no GPU or model
+uv run python -m swarmworld.server              # a new world on http://127.0.0.1:7777 (saved to worlds/default.json)
+uv run python -m swarmworld.node --mock 12      # in a second terminal: 12 rule-based creatures, no model needed
+```
+
+For real minds, any OpenAI-compatible model server works. With [Ollama](https://ollama.com) on a Mac (quit the Ollama app first: it ignores these settings):
+
+```bash
+ollama pull qwen3.5:9b
+OLLAMA_CONTEXT_LENGTH=8192 OLLAMA_NUM_PARALLEL=8 ollama serve   # prompts run 3-5k tokens; Ollama's default window cuts them
+MODEL_SERVER=http://127.0.0.1:11434/v1 MODEL=qwen3.5:9b CREATURES=6 MODEL2= ./start-world.sh   # in a second terminal
+```
+
+`start-world.sh` starts the world, connects the creatures to the model and opens the viewer. Raise `CREATURES` as far as your GPU keeps each thought under about 20 seconds ([How many creatures](#how-many-creatures-this-mac-can-run)). On Windows, `start-world.ps1` does the same and starts Ollama itself ([On Windows](#on-windows)). On Linux, run the world as above and the creatures with `uv run python -m swarmworld.node --model-server http://127.0.0.1:11434/v1 --model qwen3.5:9b:6`. The distilled student model and its training data live outside the repo ([docs/distillation.md](docs/distillation.md)).
+
+## Setup on the owner's Mac (once)
 
 ```bash
 # oMLX with grammar-constrained output (the Homebrew build needs current Command Line Tools)

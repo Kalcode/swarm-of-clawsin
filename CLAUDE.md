@@ -1,5 +1,9 @@
 # Swarm World: notes for Claude
 
+These notes are for the owner's machines. In anyone else's clone, the Forgejo, gaming-PC, steward and live-world lines
+don't apply: ask the person you're working with before pushing anywhere or acting in a running world. The licensed-asset
+and tests lines apply everywhere.
+
 - Before starting a world (start-world.sh, swarmworld.server or swarmworld.node), check whether one is already running:
   `lsof -nP -iTCP:7777 -sTCP:LISTEN; pgrep -fl swarmworld`. The user often runs it themselves. start-world.sh refuses to
   start a second copy.

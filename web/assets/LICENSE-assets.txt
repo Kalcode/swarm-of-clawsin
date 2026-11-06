@@ -1,5 +1,5 @@
-Third-party art used by the Swarm World viewer
-===============================================
+Third-party art and sound used by the Swarm World viewer
+========================================================
 
 1) assets/kenney-1bit/colored_transparent_packed.png   (committed)
    From "1-Bit Pack" (version 1.1) by Kenney (www.kenney.nl)
@@ -32,5 +32,13 @@ Third-party art used by the Swarm World viewer
    bundling and redistribution; the license ships next to the font as
    assets/fonts/OFL-Jersey10.txt. The LimeZu chrome's pixel face (titles,
    tabs, labels, numbers); the browser loads it only in that skin.
+
+4) assets/sfx/   (NOT committed: listed in .gitignore)
+   Sound by ElvGames & Pegonthetrack: clips built by scripts/extract_sfx.py
+   from their "Universal Sound Effects" packs, licensed to the project owner.
+   Do not copy these files elsewhere, publish or upload them. Credit
+   ("Sound: ElvGames & Pegonthetrack") is shown in the viewer's footer and
+   About panel. When the folder is missing the viewer synthesizes every
+   sound itself (web/sound.js). Details: assets/audio/CREDITS.md.
 
 Crediting Kenney is appreciated but not required.
