@@ -12,7 +12,7 @@ Convention: "Cited Findings" are verified against the linked page in this sessio
 
 ### Cited Findings
 - **Identity and description.** jundot/omlx describes itself as an "LLM inference server with continuous batching & SSD caching for Apple Silicon — managed from the macOS menu bar". Tagline: "LLM inference, optimized for your Mac". — [GitHub jundot/omlx](https://github.com/jundot/omlx)
-- **Author.** GitHub user "jundot" (README contact: junkim.dot@gmail.com and omlx.ai/me). License: Apache-2.0. On 2026-11-01 the repo showed about 23.3k stars, 2.1k forks, about 3,577 commits, 379 issues and 201 PRs. — [GitHub jundot/omlx](https://github.com/jundot/omlx)
+- **Author.** GitHub user "jundot" (README contact: omlx.ai/me). License: Apache-2.0. On 2026-11-01 the repo showed about 23.3k stars, 2.1k forks, about 3,577 commits, 379 issues and 201 PRs. — [GitHub jundot/omlx](https://github.com/jundot/omlx)
   - A third-party wiki reported 17,042 stars, an older snapshot. — [dennislwm/playradar wiki](https://github.com/dennislwm/playradar/wiki/OmlX)
 - **Lineage.** The author's post in the MLX repo discussions says oMLX started from vllm-mlx v0.1.0, then added multi-model serving and a tiered KV cache aimed at coding agents. The post is from about March 2026. — [ml-explore/mlx Discussion #3203](https://github.com/ml-explore/mlx/discussions/3203)
 - **Same-name repos are forks.** WhaleChao/omlx and apetersson/omlx carry the same description as jundot/omlx. — [WhaleChao/omlx](https://github.com/WhaleChao/omlx), [apetersson/omlx](https://github.com/apetersson/omlx)

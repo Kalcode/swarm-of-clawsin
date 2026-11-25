@@ -4,7 +4,7 @@
 
 No sockets, no ports, no model: the live world's own pieces (ServerState, Publisher, the tick message, the viewer
 payloads) driven the way the server's tick loop drives them, with MockBrain answering the thinks between ticks. Prints a
-summary and exits 1 when a gate fails. The gates are the spec's (docs/superpowers/specs/2026-11-03-frontier-design.md)."""
+summary and exits 1 when a gate fails."""
 
 from __future__ import annotations
 

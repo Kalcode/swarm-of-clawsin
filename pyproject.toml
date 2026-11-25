@@ -3,6 +3,7 @@ name = "swarmworld"
 version = "0.1.0"
 description = "An AI-first tile world where a swarm of local LLM creatures live, craft, talk and learn to program."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.9",

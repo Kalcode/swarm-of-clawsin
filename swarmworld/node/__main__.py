@@ -83,7 +83,7 @@ MODEL_ARG = re.compile(r"^(?P<name>[^@]+?)(?::(?P<n>\d+))?(?:@(?P<url>https?://.
 
 
 def parse_model_arg(arg: str) -> tuple[str, int | None, str | None]:
-    """MODEL[:CREATURES][@SERVER]: e.g. gpt-oss:20b:12@http://192.168.50.42:11434/v1 (a trailing :N is the count)."""
+    """MODEL[:CREATURES][@SERVER]: e.g. gpt-oss:20b:12@http://192.168.1.50:11434/v1 (a trailing :N is the count)."""
     m = MODEL_ARG.match(arg.strip())
     if not m:
         return arg, None, None

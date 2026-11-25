@@ -7,7 +7,7 @@
 #   (flags combine, e.g. ./start-world.sh --fresh --lan; SEED=42 gives a different map)
 # Settings (environment variables): MODEL, CREATURES, SLOTS, SEED, TICK, PORT, WORLD, MODEL2 ("NAME:N" second model; MODEL2= for one model only)
 #   MODEL_SERVER: think on another machine's model server instead of this Mac's oMLX, e.g. the gaming PC:
-#   MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
+#   MODEL_SERVER=http://<PC-IP>:11434/v1 MODEL=gpt-oss:20b MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
 #   A model can name its own server: MODEL2="Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1" keeps it on this Mac.
 #   HARNESS: layers in this world, e.g. HARNESS=plan,disclose,recall; each goes to half of every model's creatures.
 #   HARNESS_ALL: layers every creature gets, e.g. HARNESS_ALL=plan.
@@ -15,7 +15,8 @@
 #   FRONTIER=on: new land grows where creatures explore at the east or west edge (off by default)
 #   LOG_PROMPTS=1: log every decision's full prompt (what a DAgger round of the student labels; docs/distillation.md)
 #   PC="NAME:N": a second brain node for the gaming PC's Ollama, with its own throttle, e.g. PC="gpt-oss:20b:12"
-#     (PC_SERVER defaults to http://192.168.50.42:11434/v1, PC_SLOTS to 4: more requests at once slow every one).
+#     (PC_SERVER is the PC's model server, e.g. http://<PC-IP>:11434/v1, from the environment or a PC_SERVER= line in .env;
+#     PC_SLOTS defaults to 4: more requests at once slow every one).
 #     NODE_NAME names this Mac's node (shown in the world's log). The live setup of Nov 4, in one line:
 #     FRONTIER=on LOG_PROMPTS=1 NODE_NAME=student PC="gpt-oss:20b:12" ./start-world.sh --lan
 #   ADOPT: give sleeping creatures of an old model the new minds (they keep their memories), "OLD[=NEW] ...", e.g.
@@ -23,7 +24,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Default minds: the newest distilled student (~/models/swarm-student-*) with all three harness layers, else Qwen3.5-9B alone.
-# (Gemma 4 E4B is out: it loops, issue 003.)
+# (Gemma 4 E4B is out: it loops.)
 STUDENT="$(ls -d "$HOME"/models/swarm-student-*/ 2>/dev/null | sort | tail -n 1 || true)"; STUDENT="${STUDENT%/}"  # folders only
 if [[ -z "${MODEL:-}" && -n "$STUDENT" ]]; then
   MODEL="$(basename "$STUDENT")"
@@ -39,8 +40,15 @@ PORT="${PORT:-7777}"
 WORLD="${WORLD:-worlds/default.json}"
 FRONTIER="${FRONTIER:-}"
 PC="${PC:-}"
-PC_SERVER="${PC_SERVER:-http://192.168.50.42:11434/v1}"
+# A setting from the gitignored .env beside the code (a NAME=value line, read, never sourced), for what the environment
+# leaves unset: the owner's machine-specific values stay out of the repo.
+from_env_file() { [[ -f .env ]] && sed -n "s/^$1=//p" .env | tail -n 1 | tr -d "\"'" || true; }
+PC_SERVER="${PC_SERVER:-$(from_env_file PC_SERVER)}"
 PC_SLOTS="${PC_SLOTS:-4}"
+if [[ -n "$PC" && -z "$PC_SERVER" ]]; then
+  echo "PC=\"$PC\" needs PC_SERVER, the PC's model server, e.g. PC_SERVER=http://192.168.1.50:11434/v1 (in the environment or in .env)." >&2
+  exit 1
+fi
 mkdir -p runs
 
 # Never run two worlds at once: they can share the port on macOS and steal each other's brain nodes.

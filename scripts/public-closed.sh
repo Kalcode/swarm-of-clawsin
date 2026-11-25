@@ -8,6 +8,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PAGE_DIR=deploy/closed-page
+# The Cloudflare account, from the environment or the gitignored .env (a NAME=value line, read, never sourced).
+from_env_file() { [[ -f .env ]] && sed -n "s/^$1=//p" .env | tail -n 1 | tr -d "\"'" || true; }
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-$(from_env_file CLOUDFLARE_ACCOUNT_ID)}"
+[[ -n "$CLOUDFLARE_ACCOUNT_ID" ]] && export CLOUDFLARE_ACCOUNT_ID
 WRANGLER=(npx -y wrangler@4)
 
 case "${1:-}" in

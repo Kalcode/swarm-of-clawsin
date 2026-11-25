@@ -1,5 +1,4 @@
-"""The frontier: new land laid down at the map's east and west edges, a strip at a time
-(docs/superpowers/specs/2026-11-03-frontier-design.md).
+"""The frontier: new land laid down at the map's east and west edges, a strip at a time.
 
 A strip is `strip` columns wide (32) and as tall as the surface, cut into lands strip x strip (the last one shorter
 when the surface's height isn't a multiple of it). Each land comes from swarmworld/world/lands.py, fitted to the old

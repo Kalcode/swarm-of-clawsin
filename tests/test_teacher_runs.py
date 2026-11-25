@@ -212,7 +212,7 @@ def test_gemini_is_never_a_teacher():
         tr.check_teacher("gemini-3.8-flash", "https://generativelanguage.googleapis.com/v1beta/openai")
     with pytest.raises(SystemExit):
         tr.check_teacher("some-model", "https://generativelanguage.googleapis.com/v1beta/openai")
-    tr.check_teacher("gpt-oss:20b", "http://192.168.50.42:11434/v1")
+    tr.check_teacher("gpt-oss:20b", "http://192.168.1.50:11434/v1")
 
 
 

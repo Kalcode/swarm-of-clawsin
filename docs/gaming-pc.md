@@ -2,8 +2,8 @@
 
 For whoever sets up the Windows gaming PC: the user, or a Claude Code session running on it.
 
-**Why:** the MacBook Pro hosts the live world (192.168.50.95:7777). Running model tests on the same Mac overloads it.
-This PC lends its GPU to the home network through Ollama. The Claude session on the Mac (`swarm-of-clawsin-d2`)
+**Why:** the MacBook Pro hosts the live world (on port 7777). Running model tests on the same Mac overloads it.
+This PC lends its GPU to the home network through Ollama. The Claude session on the Mac
 then benchmarks candidate models against it remotely and, once a winner is picked, points the live world's minds at it.
 Nothing from this repo has to run on the PC, and the PC never joins the live world on its own (see "Do not").
 
@@ -41,7 +41,7 @@ New-NetFirewallRule -DisplayName "Ollama (home network)" -Direction Inbound -Pro
 
 ## 3. Pull the candidate models
 
-Gemma 4 E4B is out: it loops (see [issue 003](../issues/003-replace-gemma.md)). Pull what fits the GPU's
+Gemma 4 E4B is out: it loops. Pull what fits the GPU's
 memory. Tag names change; confirm each on [ollama.com/library](https://ollama.com/library) before pulling.
 
 | GPU memory | Pull |
@@ -63,7 +63,7 @@ ollama ps        # PROCESSOR should read "100% GPU". If part is on CPU, lower OL
 From the Mac (or ask the Mac session to run it): `curl http://<PC-IP>:11434/v1/models`.
 
 Report back to the user, or to the Mac session by message if Remote Control is on in both (`SendMessage` to
-`swarm-of-clawsin-d2`): the PC's IP, GPU and memory, models pulled, and the `ollama ps` output.
+the Mac's session): the PC's IP, GPU and memory, models pulled, and the `ollama ps` output.
 
 ## What happens next (done from the Mac)
 
@@ -71,7 +71,7 @@ Report back to the user, or to the Mac session by message if Remote Control is o
    The benchmark's little world runs on the Mac's CPU; all model work happens here on the PC.
 2. The user picks the winner. The live world's brain node then either points at this PC
    (`--model-server http://<PC-IP>:11434/v1`), or the PC runs its own node:
-   `.\join.ps1 --token <token> --server ws://192.168.50.95:7777 --model gpt-oss:20b:12` (needs `git`, `uv` and a clone of this repo).
+   `.\join.ps1 --token <token> --server ws://<MAC-IP>:7777 --model gpt-oss:20b:12` (needs `git`, `uv` and a clone of this repo).
 3. The Mac stops its own oMLX and is free for development.
 
 ## Do not

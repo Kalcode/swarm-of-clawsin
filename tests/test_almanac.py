@@ -233,7 +233,7 @@ async def test_api_almanac_counts_what_creatures_do(client):
             break
         await asyncio.sleep(0.02)
     assert say["used"] == {"tries": 1, "ok": 1, "by_model": {"mock": 1}}
-    assert a["roadmap"]["issues"], "the real backlog, from issues/README.md"
+    assert set(a["roadmap"]) == {"issues", "counts"}   # the backlog itself (issues/) is gitignored, so may be empty
     await ws.close()
 
 

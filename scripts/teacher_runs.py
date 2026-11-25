@@ -5,7 +5,7 @@ all installed packs, the clock waiting for every answer (bench/world_bench.py's 
 the teacher's speed doesn't matter. Recall is keywords only: no embedding service is ever called. The brain is the
 live one (swarmworld.node.brain.LLMBrain), so each request is exactly what a live creature's would be.
 
-    uv run python scripts/teacher_runs.py --base-url http://192.168.50.42:11434/v1 --model gpt-oss:20b --seeds 100-139
+    uv run python scripts/teacher_runs.py --base-url http://<PC-IP>:11434/v1 --model gpt-oss:20b --seeds 100-139
     uv run python scripts/teacher_runs.py --base-url http://127.0.0.1:8000/v1 --model Qwen3.5-9B-MLX-4bit --seeds 200-239
     uv run python scripts/teacher_runs.py --mock --seeds 1-2 --creatures 2 --ticks 60 --out /tmp/teacher   # plumbing
 

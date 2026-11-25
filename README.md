@@ -24,7 +24,7 @@ It shows a snapshot of the world every 3 seconds. Snapshots are cached at Cloudf
                                                     Cloudflare's edge, cached
 ```
 
-The minds are gpt-oss on the gaming PC (Ollama), the distilled student on this Mac (oMLX) and Qwen3.5-4B on the MacBook Air. Gemma is out: it loops ([issue 003](issues/003-replace-gemma.md)).
+The minds are gpt-oss on the gaming PC (Ollama), the distilled student on this Mac (oMLX) and Qwen3.5-4B on the MacBook Air. Gemma is out: it loops.
 
 ## Trying it on your own machine
 
@@ -102,7 +102,7 @@ The model server, not the world, is the bottleneck. A load test with 150 rule-ba
 
 Open http://127.0.0.1:7777/. Drag to pan and scroll to zoom. Click a creature to follow it and read exactly what it senses, what it last thought, what it tried, and what happened. The **Events** tab is the world's story: speech, crafting, discoveries and failures. The **Swarm** tab compares the models that live in the world.
 
-**A voice from the sky:** you can speak into the world from the viewer, or with `curl -X POST localhost:7777/api/voice -d '{"text":"..."}'`. Add `"x"`, `"y"` and `"radius"` to speak to one area only. Creatures hear "A booming voice from the sky says: ...". It's a lever for experiments: seed an idea, then watch whether it spreads, changes plans or gets forgotten. Steward actions work from this machine and from any device on the home network (a phone in bed is fine). They never work through a tunnel or proxy: a request relayed by Cloudflare is refused, so the public can't use them.
+**A voice from the sky:** you can speak into the world from the viewer, or with `curl -X POST localhost:7777/api/voice -d '{"text":"..."}'`. Add `"x"`, `"y"` and `"radius"` to speak to one area only. Creatures hear "A booming voice from the sky says: ...". It's a lever for experiments: seed an idea, then watch whether it spreads, changes plans or gets forgotten. Steward actions work from this machine and from any device on the home network (a phone in bed is fine). They never work through a tunnel or proxy: a request relayed by Cloudflare is refused, so the public can't use them. They need no token from the home network, so with `--lan` anyone on that network can use them: use `--lan` only on a network you trust.
 
 **Wishes:** creatures say what their world lacks ("I wish we had a proper roof"), fail to make things it has never heard of, or use the `wish` action, most of all at the wishing stone at the meadow's north edge. The **Wishes** tab ranks what they want. From the home network you can answer a wish from the sky, grant an item, or note it as something to build: the creatures' own feature-request board.
 
@@ -132,7 +132,7 @@ The world itself is light; the minds are heavy. So the Mac hosts the world and t
 
 ```bash
 # minds on the gaming PC's Ollama (setup: docs/gaming-pc.md), world on this Mac
-MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
+MODEL_SERVER=http://<PC-IP>:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2=qwen3.5:9b:8 ./start-world.sh --lan
 ```
 
 - **New minds for old creatures:** a creature is tied to the model it was born with, so a new model normally brings newcomers and the old creatures sleep until their model returns. `ADOPT="gemma-4-e4b=gpt-oss:20b qwen3.5-4b=qwen3.5:9b"` (or `--adopt OLD[=NEW]` on any node, including `join.ps1`) gives the sleeping creatures the new minds instead. They keep their bodies, memories and bonds; what they did before stays credited to the old model in the Swarm and History tabs. Ask for more creatures than there are to adopt and newcomers fill the rest.
@@ -141,7 +141,7 @@ MODEL_SERVER=http://192.168.50.42:11434/v1 MODEL=gpt-oss:20b CREATURES=12 MODEL2
 - **Deploying a change** is a restart: Ctrl-C saves, and starting again without `--fresh` resumes the same world. Pass the old `TOKEN=...` so joined machines get back in. Brain nodes reconnect on their own.
 - **Developing while it runs:** `uv run pytest` uses rule-based brains, no GPU. Never start a second world on port 7777 (`start-world.sh` refuses). For a throwaway world use another port and save file: `uv run python -m swarmworld.server --port 7791 --world /tmp/scratch.json --fresh`.
 - **Benchmarks** go to a machine that isn't thinking for the live world: `uv run python bench/world_bench.py --base-url http://<machine>:11434/v1 --model <name> --episodes 3`.
-- **Reviewing a run:** `uv run python scripts/review_world.py runs/<timestamp>` shows how each model spends its turns, its no-op and failure rates, and the unmet desires. The backlog lives in [issues/](issues/README.md).
+- **Reviewing a run:** `uv run python scripts/review_world.py runs/<timestamp>` shows how each model spends its turns, its no-op and failure rates, and the unmet desires.
 - **The steward:** Claude watches the live world with the owner's permission. Interventions (answering wishes, speaking from the sky, admin actions) are logged in [docs/steward-log.md](docs/steward-log.md); observations and proposals in [docs/watch-log.md](docs/watch-log.md).
 
 ## How a creature thinks
@@ -193,7 +193,7 @@ Under the whole surface lies the deep: caves and tunnels, an underground stream 
 
 On the surface, `dig` makes trenches and pits, and a trench beside water fills with water. A pit dug deep enough opens into the deep. `fill`, with dirt, stone or sand, raises the ground back up.
 
-In the viewer, the Surface/Underground switch (or the `U` key) changes which layer you see, and following a creature that climbs switches with it. The design is in [the spec](docs/superpowers/specs/2026-11-02-underground-design.md); the work is [issue 021](issues/021-underground-layer.md).
+In the viewer, the Surface/Underground switch (or the `U` key) changes which layer you see, and following a creature that climbs switches with it.
 
 ## The frontier: land that grows where creatures explore
 
@@ -203,15 +203,15 @@ Growth is slow: at most one strip per in-game day (1,200 ticks) for the whole wo
 
 It is **off by default**. Turn it on with `--frontier on` on the server, or `FRONTIER=on ./start-world.sh`. Saves load unchanged either way, and a world saved with lands keeps them if you restart with the frontier off (it just stops growing). `GET /api/metrics` shows `frontier: {on, strips, width, origin_x}`.
 
-**Steward:** `curl -X POST localhost:7777/api/admin/grow -d '{"side":"east"}'` (or `"west"`) lays a strip now, ignoring the pace. It refuses when the frontier is off or the map is at its cap, and if laying it fails the world is put back as it was. **Coordinates shift:** a west growth adds 32 to every x, so `place`, `move` and `voice` coordinates change: a place that was at x is at x + 32 afterwards, so add 32 to any x noted before the growth (including those in docs/steward-log.md). `origin_x` in `/api/metrics` says how far the original west edge has moved. The design is in [the spec](docs/superpowers/specs/2026-11-03-frontier-design.md).
+**Steward:** `curl -X POST localhost:7777/api/admin/grow -d '{"side":"east"}'` (or `"west"`) lays a strip now, ignoring the pace. It refuses when the frontier is off or the map is at its cap, and if laying it fails the world is put back as it was. **Coordinates shift:** a west growth adds 32 to every x, so `place`, `move` and `voice` coordinates change: a place that was at x is at x + 32 afterwards, so add 32 to any x noted before the growth (including those in docs/steward-log.md). `origin_x` in `/api/metrics` says how far the original west edge has moved.
 
 ## The almanac
 
-`/almanac.html` is the game's reference: a **Tech tree**, every **Thing** and **Verb**, a **Census** of what exists in this world now, the content **Packs**, and the **Roadmap**. The public copy has no Packs or Roadmap tabs. See [issue 022](issues/022-almanac.md).
+`/almanac.html` is the game's reference: a **Tech tree**, every **Thing** and **Verb**, a **Census** of what exists in this world now, the content **Packs**, and the **Roadmap** (read from a local `issues/README.md` backlog when there is one; it isn't published). The public copy has no Packs or Roadmap tabs.
 
 ## A distilled mind
 
-[Issue 020](issues/020-distill-a-fast-mind.md) teaches a small model to play like the swarm's best. Steps: pick the best decisions from teacher runs (gpt-oss only; never Gemini outputs, which Google's terms forbid using this way), export them, train a small Apache-licensed student (Qwen3-1.7B, LoRA, on this Mac), then let it play in the live world.
+The distillation work teaches a small model to play like the swarm's best. Steps: pick the best decisions from teacher runs (gpt-oss only; never Gemini outputs, which Google's terms forbid using this way), export them, train a small Apache-licensed student (Qwen3-1.7B, LoRA, on this Mac), then let it play in the live world.
 
 Round 1 (Nov 3): trained on 19,378 unique teacher decisions in 2 h 50 m. Live, 12 student creatures succeeded 88% of the time at a median 14.6 s per decision, against 98-99% and 8.5 s for gpt-oss on the PC. It acts on habit without checking the scene. Round 2 is planned. Details: [docs/distillation.md](docs/distillation.md); a visual explainer is in `docs/explainers/distilling-a-fast-mind.html`.
 
@@ -290,10 +290,13 @@ scripts/               analyze_run.py, review_world.py: compare models across ru
                        teacher_runs.py, export_training.py, train_student.sh, check_student.py: the distillation pipeline
                        public-tunnel.sh, public_load_test.py: the public viewer's tunnel and its load test
 deploy/                Cloudflare tunnel config and cache rules
-issues/                the backlog
 worlds/                the living world's saves (gitignored)
 docs/                  distillation, public-viewer, gaming-pc, second-mac, writing-a-pack, steward-log, watch-log, explainers/
 reports/               the research report behind the design
 ```
 
 Run the tests with `uv run pytest`.
+
+## License
+
+The code is MIT-licensed: see [LICENSE](LICENSE). The art and sound are not covered by it: the committed fallback art is Kenney's CC0 1-Bit Pack and the font is under the SIL Open Font License, while the LimeZu art and the ElvGames & Pegonthetrack sound are licensed to the project's owner and are not in this repository. Details: [web/assets/LICENSE-assets.txt](web/assets/LICENSE-assets.txt).

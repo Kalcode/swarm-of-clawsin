@@ -3,7 +3,7 @@
  * Fakes the world server in the browser so the viewer can be developed and
  * checked without Python: a random 64x64 world, 12 wandering creatures, a tick
  * stream on a fake WebSocket, and fake REST answers. Every message follows the
- * spectator-stream schema in docs/superpowers/plans/2026-11-01-swarm-world.md.
+ * spectator stream the server sends (ServerState.tick_dict in swarmworld/server/state.py).
  *
  * Optional URL params: seed=<int> (world seed), start=<tick> (start time;
  * 800 starts at night), speed=<n> (tick rate multiplier).

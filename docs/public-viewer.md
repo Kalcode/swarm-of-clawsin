@@ -119,7 +119,8 @@ the date has it). Saturday and Sunday stay closed, so a page put up on a Friday 
 "the weekend off"; one put up before 9am on a weekday says "Be back soon!". Only the words change: putting the page
 up and taking it down are still `on` and `off`. Tests: `tests/test_closed_page.py`.
 
-- **Needs:** wrangler signed in to the account that owns the zone (`npx wrangler whoami`).
+- **Needs:** wrangler signed in to the account that owns the zone (`npx wrangler whoami`), and that account's ID as
+  `CLOUDFLARE_ACCOUNT_ID` in the environment or in `.env` (see `.env.example`).
 - **Cost:** none. Workers on the Free plan stop at 100,000 requests a day and never bill.
 
 ## Load test

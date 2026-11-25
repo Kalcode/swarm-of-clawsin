@@ -6,7 +6,8 @@ For the user (web/almanac.html), never for creatures: nothing here reaches world
   perception lines, populate hooks), the packs' data and modules, and the harness layers;
 - this world: its discovery records, the recipes each creature knows, what stands on the map, what is carried, stored
   or lying on the ground, the buildings and sites, and how often each verb was chosen (Metrics.verbs);
-- the roadmap: issues/README.md's table, with each issue's first paragraph of prose.
+- the roadmap: issues/README.md's table, with each issue's first paragraph of prose (empty when there is no local
+  backlog: issues/ is the owner's working notes and is gitignored).
 
 Each item gets a tier for the tech tree: 0 for what you can gather, hunt or catch bare-handed, otherwise one more than
 its cheapest way to get it, where a way costs the highest tier among what it needs (its ingredients, the tools held,

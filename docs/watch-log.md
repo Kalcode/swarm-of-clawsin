@@ -583,7 +583,7 @@ to the world goes in [steward-log.md](steward-log.md). Tags:
   3. The student node, 12 creatures: `uv run python -m swarmworld.node --server ws://127.0.0.1:7777 --token ef8e1e22
      --model-server http://127.0.0.1:8000/v1 --model swarm-student-20261104:12 --slots 12 --name student`
   4. The pc node, 12 creatures: `uv run python -m swarmworld.node --server ws://127.0.0.1:7777 --token ef8e1e22
-     --model-server http://192.168.50.42:11434/v1 --model gpt-oss:20b:12 --slots 4 --name pc`
+     --model-server http://<PC-IP>:11434/v1 --model gpt-oss:20b:12 --slots 4 --name pc`
   5. The tunnel, started by the user: `scripts/public-tunnel.sh start`, so that `stop` works as the kill switch.
   - `start-world.sh` covers 1 to 3, but not `--log-prompts`, and it runs one node with shared slots, so the PC can't
     get its own 4.

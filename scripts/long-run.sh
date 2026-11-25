@@ -14,6 +14,8 @@
 # hourly to runs/long-run/metrics/, and pauses everything at the target tick. Every start, pause, resume and restart
 # is a row in docs/steward-log.md. Logs: runs/long-run/*.log.
 #
+# PC_SERVER, the PC's model server (e.g. http://<PC-IP>:11434/v1), comes from the environment or a PC_SERVER= line in .env;
+# without it the PC counts as silent and its node never starts.
 # For a dry run on a copy, override WORLD_FILE, PORT, LONG_RUN_DIR, STEWARD_LOG, NODE_SUFFIX and PC_SERVER.
 set -u
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -27,7 +29,10 @@ mkdir -p "$DIR/metrics"
 PAUSED="$DIR/paused"
 TARGET_DAYS="${TARGET_DAYS:-200}"
 DAY_TICKS=1200
-PC_SERVER="${PC_SERVER:-http://192.168.50.42:11434/v1}"
+# A setting from the gitignored .env beside the code (a NAME=value line, read, never sourced), for what the environment
+# leaves unset: the owner's machine-specific values stay out of the repo.
+from_env_file() { [[ -f .env ]] && sed -n "s/^$1=//p" .env | tail -n 1 | tr -d "\"'" || true; }
+PC_SERVER="${PC_SERVER:-$(from_env_file PC_SERVER)}"
 PC_HOST="${PC_SERVER%/v1}"
 OMLX=http://127.0.0.1:8000/v1
 STUDENT=swarm-student-20261104
@@ -47,7 +52,7 @@ active() { [[ ! -f "$PAUSED" ]]; }
 world_up() { pgrep -f "swarmworld.server --seed 7 --tick 1.0 --port $PORT " >/dev/null; }
 node_up() { pgrep -f "swarmworld.node --server ws://127.0.0.1:$PORT .*--name $1$SUFFIX\$" >/dev/null; }
 omlx_up() { curl -s -m 5 "$OMLX/models" | grep -q "\"$STUDENT\""; }
-pc_up() { curl -s -m 5 "$PC_HOST/api/tags" >/dev/null; }
+pc_up() { [[ -n "$PC_SERVER" ]] && curl -s -m 5 "$PC_HOST/api/tags" >/dev/null; }
 tick() { curl -s -m 5 "127.0.0.1:$PORT/api/metrics" | python3 -c 'import sys,json; print(json.load(sys.stdin)["tick"])' 2>/dev/null || echo "?"; }
 saved_tick() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["world"]["tick"])' "$WORLD_FILE" 2>/dev/null || echo "?"; }
 

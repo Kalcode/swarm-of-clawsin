@@ -74,7 +74,7 @@ def test_model_args_can_name_their_own_server():
     assert parse_model_arg("gpt-oss:20b:12") == ("gpt-oss:20b", 12, None)
     assert parse_model_arg("qwen3.5:9b") == ("qwen3.5:9b", None, None)
     assert parse_model_arg("Qwen3.5-4B-MLX-4bit:8@http://127.0.0.1:8000/v1") == ("Qwen3.5-4B-MLX-4bit", 8, "http://127.0.0.1:8000/v1")
-    assert parse_model_arg("gpt-oss:20b@http://192.168.50.42:11434/v1:12") == ("gpt-oss:20b", 12, "http://192.168.50.42:11434/v1")
+    assert parse_model_arg("gpt-oss:20b@http://192.168.1.50:11434/v1:12") == ("gpt-oss:20b", 12, "http://192.168.1.50:11434/v1")
 
 
 def test_brain_speaks_googles_dialect():

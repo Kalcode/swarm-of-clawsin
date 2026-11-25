@@ -1,7 +1,5 @@
 # Distilling a fast creature mind
 
-Issue [020](../issues/020-distill-a-fast-mind.md) · design: [the spec](superpowers/specs/2026-11-02-distill-a-fast-mind-design.md)
-
 A night of teacher episodes, an export, a LoRA training run on this Mac, then a live trial against the teacher.
 Teachers are gpt-oss and Qwen only (Apache 2.0); Gemini outputs are never used (the export drops them, the teacher
 script refuses them). The student is Qwen3-1.7B (Apache 2.0).
@@ -16,8 +14,8 @@ live creature's would be (`LLMBrain`: strict JSON schema, thinking off, `reasoni
 First a short pace check (one seed, 120 ticks), then the night. `caffeinate -i` keeps the Mac awake:
 
 ```sh
-uv run python scripts/teacher_runs.py --base-url http://192.168.50.42:11434/v1 --model gpt-oss:20b --seeds 1 --ticks 120 --out /tmp/pace
-nohup caffeinate -i uv run python scripts/teacher_runs.py --base-url http://192.168.50.42:11434/v1 \
+uv run python scripts/teacher_runs.py --base-url http://<PC-IP>:11434/v1 --model gpt-oss:20b --seeds 1 --ticks 120 --out /tmp/pace
+nohup caffeinate -i uv run python scripts/teacher_runs.py --base-url http://<PC-IP>:11434/v1 \
   --model gpt-oss:20b --seeds 100-139 > runs/teacher-pc.log 2>&1 &
 ```
 
@@ -182,7 +180,7 @@ episodes.
 
 ```sh
 uv run python scripts/dagger_label.py runs/20261103-104243 runs/<later run> \
-  --base-url http://192.168.50.42:11434/v1 --model gpt-oss:20b --out runs/dagger-r2 \
+  --base-url http://<PC-IP>:11434/v1 --model gpt-oss:20b --out runs/dagger-r2 \
   --failures-first --limit 6000 --concurrency 8
 ```
 

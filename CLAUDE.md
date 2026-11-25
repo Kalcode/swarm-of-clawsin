@@ -9,5 +9,7 @@
   the project's owner (see .gitignore and web/assets/LICENSE-assets.txt). Without them the viewer falls back to Kenney's
   CC0 art and synthesized sound.
 - `worlds/` holds the living world's save; `--fresh` keeps the old one as `worlds/default.<time>.bak`.
-- Backlog: `issues/`. Tests: `uv run pytest`.
+- Never commit `issues/`, `docs/superpowers/` or `docs/show-hn.md`: the owner's working notes (backlog, plans,
+  specs, drafts), gitignored. The almanac's Roadmap tab reads `issues/README.md` when it is there.
+- Tests: `uv run pytest`. `tests/test_publication.py` keeps home IPs, account IDs and those notes out of the repo.
 - Personal, machine-specific notes go in `CLAUDE.local.md` (gitignored), which Claude Code loads after this file.

@@ -1,7 +1,7 @@
 """DAgger labels: the teacher answers the student's own situations.
 
     uv run python scripts/dagger_label.py runs/20261103-104243 runs/20261104-090000 \\
-        --base-url http://192.168.50.42:11434/v1 --model gpt-oss:20b --out runs/dagger-r2 --failures-first --limit 6000
+        --base-url http://<PC-IP>:11434/v1 --model gpt-oss:20b --out runs/dagger-r2 --failures-first --limit 6000
 
 Reads live run folders (thinks.jsonl with the full prompt in `messages`), picks the student's act decisions (model
 starts with --student-prefix), failures first (the action failed, was a no-op, or the think failed), then the rest
